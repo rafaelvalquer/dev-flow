@@ -1,0 +1,34 @@
+{
+  "pessoas": [
+    {
+      "id": "p1",
+      "nome": "Regina Terciano",
+      "area": "INFRA CC",
+      "contato": "regina@empresa.com"
+    },
+    {
+      "id": "p2",
+      "nome": "Elionai",
+      "area": "Desenvolvimento",
+      "contato": "elionai@empresa.com"
+    },
+    {
+      "id": "p3",
+      "nome": "Rafael Valquer",
+      "area": "Aplicações",
+      "contato": "rafael@empresa.com"
+    },
+    {
+      "id": "p4",
+      "nome": "João Pereira",
+      "area": "QA",
+      "contato": "joao.p@empresa.com"
+    },
+    {
+      "id": "p5",
+      "nome": "Ana Souza",
+      "area": "Negócios",
+      "contato": "ana.s@empresa.com"
+    }
+  ]
+}

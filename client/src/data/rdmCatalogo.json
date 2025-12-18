@@ -1,0 +1,33 @@
+{
+  "categorias": [
+    "Evolutiva",
+    "Corretiva",
+    "Melhoria",
+    "Infraestrutura",
+    "Segurança",
+    "Banco de Dados",
+    "Rede"
+  ],
+  "tipos": [
+    "Aplicação",
+    "Configuração",
+    "Script",
+    "Deploy",
+    "Migração",
+    "Patch",
+    "Job/Agendamento"
+  ],
+  "classificacoes": ["Planejada", "Emergencial", "Corretiva", "Preventiva"],
+  "impactos": ["Baixo", "Médio", "Alto"],
+  "ambientes": ["Desenvolvimento", "Homologação", "Pré-Produção", "Produção"],
+  "servicos": [
+    "URA",
+    "Billing",
+    "API Gateway",
+    "Portais Web",
+    "Backoffice",
+    "Banco de Dados",
+    "Mensageria",
+    "Rede"
+  ]
+}
