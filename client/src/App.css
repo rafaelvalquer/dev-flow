@@ -502,3 +502,68 @@ button {
 .rdm-card textarea {
   min-height: 96px;
 }
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 40px 0 20px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e30613;
+  color: #e30613;
+  font-size: 20px;
+}
+
+.section-header i {
+  color: #e30613;
+  font-size: 24px;
+}
+.section-header.critical {
+  border-color: #d32f2f;
+  color: #d32f2f;
+}
+.section-header.rollback {
+  border-color: #ff9800;
+  color: #ff9800;
+}
+.badge {
+  background: #ff9800;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.required {
+  color: #d32f2f;
+  font-weight: bold;
+}
+.rdm-card.highlight {
+  border-left: 4px solid #e30613;
+}
+.rdm-card.critical {
+  border-left: 4px solid #d32f2f;
+}
+.rdm-card.rollback {
+  border-left: 4px solid #ff9800;
+  background: #fff8e1;
+}
+
+.rdm-actions.fixed {
+  position: sticky;
+  bottom: 20px;
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 40px;
+  flex-wrap: wrap;
+}
+
+.rdm-actions button.large {
+  font-size: 18px;
+  padding: 14px 32px;
+}

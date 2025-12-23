@@ -3,12 +3,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { RDM_KEY } from "../utils/gmudUtils";
 import catalogo from "../data/rdmCatalogo.json";
 import pessoasDb from "../data/pessoas.json";
+import { gerarRdmDocx } from "../utils/rdmDocx";
+import { motion } from "framer-motion";
+import { buildCronogramaAtividades } from "../utils/buildCronograma";
 
 /**
  * Observação:
  * - Para preencher automaticamente o TÍTULO com o resumo do Jira,
- *   passe a prop opcional `jiraTitle` para este componente:
- *   <RDMTab jiraTitle={jiraIssue.fields.summary} />
+ *   passe a prop opcional `initialTitle` para este componente:
+ *   <RDMTab initialTitle={jiraIssue.fields.summary} />
  */
 
 const RDM_INITIAL = {
@@ -51,6 +54,10 @@ const RDM_INITIAL = {
   liderTecnico: { nome: "", area: "", contato: "" },
   executores: [{ nome: "", area: "", contato: "" }],
 
+  // Parâmetros do cronograma
+  inicioAtividades: "", // datetime-local (ex: 2025-12-23T18:00)
+  stepMinutes: 15,
+
   // Janelas (listas dinâmicas)
   atividades: [{ dataHora: "", descricao: "", responsavel: "" }],
   rollbackPlan: [{ dataHora: "", descricao: "", responsavel: "" }],
@@ -76,28 +83,33 @@ function hydratePessoaByNome(nome) {
 export default function RDMTab({ initialTitle = "" }) {
   const [rdm, setRdm] = useState(RDM_INITIAL);
 
-  // Carrega do storage
+  // ---------- LocalStorage ----------
   useEffect(() => {
-    const raw = localStorage.getItem(RDM_KEY);
-    if (raw) {
-      try {
+    try {
+      const raw = localStorage.getItem(RDM_KEY);
+      if (raw) {
         const parsed = JSON.parse(raw);
         setRdm({ ...clone(RDM_INITIAL), ...parsed });
-      } catch {}
-    }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persiste no storage
   useEffect(() => {
-    localStorage.setItem(RDM_KEY, JSON.stringify(rdm));
+    try {
+      localStorage.setItem(RDM_KEY, JSON.stringify(rdm));
+    } catch {}
   }, [rdm]);
 
-  // NOVO: quando chegar um título do App (sincronizado do Jira), aplica no campo
+  // ---------- Título vindo do App/Jira ----------
   useEffect(() => {
     if (initialTitle) {
-      setRdm((prev) => ({ ...prev, titulo: initialTitle }));
+      setRdm((prev) => ({ ...prev, titulo: prev.titulo || initialTitle }));
     }
   }, [initialTitle]);
+
+  // ---------- Helpers ----------
+  const pad = (n) => String(n).padStart(2, "0");
 
   function upd(field, value) {
     setRdm((prev) => ({ ...prev, [field]: value }));
@@ -106,7 +118,6 @@ export default function RDMTab({ initialTitle = "" }) {
   function updNested(path, value) {
     setRdm((prev) => {
       const next = clone(prev);
-      // path tipo "solicitante.nome" ou "atividades.0.descricao"
       const parts = path.split(".");
       let ref = next;
       for (let i = 0; i < parts.length - 1; i++) ref = ref[parts[i]];
@@ -115,36 +126,42 @@ export default function RDMTab({ initialTitle = "" }) {
     });
   }
 
-  function salvarRdmLocal() {
-    localStorage.setItem(RDM_KEY, JSON.stringify(rdm));
-    alert("RDM salva localmente.");
+  function blankFor(key) {
+    if (key === "alinhamentos" || key === "executores") {
+      return { nome: "", area: "", contato: "" };
+    }
+    if (key === "atividades" || key === "rollbackPlan") {
+      // atividades/rollback agora não precisam de dataHora no formulário
+      return { dataHora: "", descricao: "", responsavel: "" };
+    }
+    return {};
   }
 
-  // Helpers de linhas dinâmicas
-  function addLinha(listKey, blank) {
-    setRdm((prev) => ({
-      ...prev,
-      [listKey]: [...prev[listKey], clone(blank)],
-    }));
-  }
-  function rmLinha(listKey, idx) {
+  function addLinha(field, emptyObj) {
     setRdm((prev) => {
-      const arr = [...prev[listKey]];
-      arr.splice(idx, 1);
-      return { ...prev, [listKey]: arr.length ? arr : [clone(arr[0] ?? {})] };
+      const arr = [...(prev[field] || [])];
+      return { ...prev, [field]: [...arr, { ...emptyObj }] };
     });
   }
 
-  // Quando selecionar nomes nos autocompletes, completar área/contato
+  function rmLinha(listKey, idx) {
+    setRdm((prev) => {
+      const arr = [...(prev[listKey] || [])];
+      arr.splice(idx, 1);
+      return {
+        ...prev,
+        [listKey]: arr.length ? arr : [clone(blankFor(listKey))],
+      };
+    });
+  }
+
   function onPickPessoa(pathBase, nome) {
     const p = hydratePessoaByNome(nome);
     setRdm((prev) => {
       const next = clone(prev);
-      const parts = pathBase.split("."); // ex: "solicitante"   | "executores.0" | "alinhamentos.2"
+      const parts = pathBase.split(".");
       let ref = next;
-      for (let i = 0; i < parts.length; i++) {
-        ref = ref[parts[i]];
-      }
+      for (let i = 0; i < parts.length; i++) ref = ref[parts[i]];
       ref.nome = p.nome;
       ref.area = p.area;
       ref.contato = p.contato;
@@ -152,7 +169,7 @@ export default function RDMTab({ initialTitle = "" }) {
     });
   }
 
-  // (Sugestões) — listas do catálogo
+  // ---------- Catálogo ----------
   const {
     categorias = [],
     tipos = [],
@@ -167,16 +184,70 @@ export default function RDMTab({ initialTitle = "" }) {
     []
   );
 
+  // ---------- Cronograma (preview) ----------
+  const STEP_MIN = Number(rdm?.stepMinutes ?? 15);
+
+  const cron = useMemo(() => {
+    return buildCronogramaAtividades({
+      rdm,
+      STEP_MIN,
+      NOME_PADRAO: "Suporte Infra Call Center",
+      // PADRAO_* ficam como default dentro do buildCronograma.js (se você aplicou o ajuste)
+    });
+  }, [rdm, STEP_MIN]);
+
+  const totalH = Math.floor((cron?.totalMin || 0) / 60);
+  const totalM = (cron?.totalMin || 0) % 60;
+
+  const cronGroups = useMemo(() => {
+    const blocks = cron?.blocks || {};
+    return {
+      Antes: blocks.seqBefore || [],
+      "Atividades (dinâmicas)": blocks.seqDynamic || [],
+      "Validação técnica": blocks.seqValidTec || [],
+      "Validação funcional": blocks.seqValidFunc || [],
+      Depois: blocks.seqAfter || [],
+    };
+  }, [cron]);
+
+  const renderCronList = (arr) =>
+    !arr.length ? (
+      <div style={{ padding: "6px 0", color: "#777" }}>Nenhum item.</div>
+    ) : (
+      <ul style={{ margin: "6px 0 8px 18px" }}>
+        {arr.map((it, i) => (
+          <li key={`${it.bloco || "all"}-${i}`}>
+            {it.horaFmt} – {it.descricao || "(sem descrição)"}{" "}
+            {it.noDuration ? " (sem duração)" : ""}
+          </li>
+        ))}
+      </ul>
+    );
+
   return (
-    <section className="rdm-wrap">
+    <motion.section
+      key="rdm"
+      initial={{ opacity: 0, x: -30 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 30 }}
+      transition={{ duration: 0.4, ease: "easeInOut" }}
+      className="rdm-wrap"
+    >
+      {/* ===== 1. IDENTIFICAÇÃO DA RDM ===== */}
+      <div className="section-header">
+        <i className="fas fa-id-card"></i>
+        <h2>Identificação da RDM</h2>
+      </div>
+
       <div className="rdm-grid">
-        {/* CABEÇALHO */}
-        <div className="rdm-card span-2">
-          <label>TÍTULO DA RDM</label>
+        <div className="rdm-card span-2 highlight">
+          <label>
+            TÍTULO DA RDM <span className="required">*</span>
+          </label>
           <input
-            value={rdm.titulo}
+            value={rdm.titulo ?? ""}
             onChange={(e) => upd("titulo", e.target.value)}
-            placeholder="Resumo da mudança (pode ser ajustado)"
+            placeholder="Ex: Implantação de nova regra de cobrança automática em URA"
           />
         </div>
 
@@ -184,7 +255,7 @@ export default function RDMTab({ initialTitle = "" }) {
           <label>CATEGORIA</label>
           <input
             list="lista-categorias"
-            value={rdm.categoria}
+            value={rdm.categoria ?? ""}
             onChange={(e) => upd("categoria", e.target.value)}
             placeholder="Selecione ou digite"
           />
@@ -199,7 +270,7 @@ export default function RDMTab({ initialTitle = "" }) {
           <label>TIPO</label>
           <input
             list="lista-tipos"
-            value={rdm.tipo}
+            value={rdm.tipo ?? ""}
             onChange={(e) => upd("tipo", e.target.value)}
             placeholder="Selecione ou digite"
           />
@@ -214,7 +285,7 @@ export default function RDMTab({ initialTitle = "" }) {
           <label>CLASSIFICAÇÃO</label>
           <input
             list="lista-classificacoes"
-            value={rdm.classificacao}
+            value={rdm.classificacao ?? ""}
             onChange={(e) => upd("classificacao", e.target.value)}
             placeholder="Selecione ou digite"
           />
@@ -225,64 +296,93 @@ export default function RDMTab({ initialTitle = "" }) {
           </datalist>
         </div>
 
-        <div className="rdm-card">
-          <label>IMPACTO</label>
-          <input
-            list="lista-impactos"
-            value={rdm.impactoNivel}
+        <div className="rdm-card critical">
+          <label>
+            IMPACTO <span className="required">*</span>
+          </label>
+          <select
+            value={rdm.impactoNivel ?? ""}
             onChange={(e) => upd("impactoNivel", e.target.value)}
-            placeholder="Baixo, Médio ou Alto"
-          />
-          <datalist id="lista-impactos">
-            {impactos.map((i) => (
-              <option key={i} value={i} />
-            ))}
-          </datalist>
+          >
+            <option value="">Selecione</option>
+            <option value="Baixo">Baixo</option>
+            <option value="Médio">Médio</option>
+            <option value="Alto">Alto</option>
+          </select>
         </div>
+      </div>
 
-        {/* OBJETIVO / JUSTIFICATIVA */}
+      {/* ===== 2. JUSTIFICATIVA E OBJETIVO ===== */}
+      <div className="section-header">
+        <i className="fas fa-lightbulb"></i>
+        <h2>Justificativa e Objetivo</h2>
+      </div>
+
+      <div className="rdm-grid">
         <div className="rdm-card span-2">
-          <label>Descrição Objetivo</label>
+          <label>Descrição do Objetivo</label>
           <textarea
-            value={rdm.objetivoDescricao}
+            value={rdm.objetivoDescricao ?? ""}
             onChange={(e) => upd("objetivoDescricao", e.target.value)}
             placeholder="Qual o objetivo principal desta mudança?"
           />
         </div>
 
         <div className="rdm-card span-2">
-          <label>O que vai fazer?</label>
+          <label>
+            O que vai fazer? <span className="required">*</span>
+          </label>
           <textarea
-            value={rdm.oQue}
+            value={rdm.oQue ?? ""}
             onChange={(e) => upd("oQue", e.target.value)}
-            placeholder="Descreva claramente a atividade / escopo"
+            placeholder="Descreva claramente a atividade / escopo da mudança"
           />
         </div>
 
         <div className="rdm-card">
-          <label>Por quê? (Motivo)</label>
+          <label>
+            Por quê? (Motivo) <span className="required">*</span>
+          </label>
           <textarea
-            value={rdm.porQue}
+            value={rdm.porQue ?? ""}
             onChange={(e) => upd("porQue", e.target.value)}
             placeholder="Motivação da mudança"
           />
         </div>
 
         <div className="rdm-card">
-          <label>Para que? (Qual o efeito desejado)</label>
+          <label>
+            Para que? (Efeito desejado) <span className="required">*</span>
+          </label>
           <textarea
-            value={rdm.paraQue}
+            value={rdm.paraQue ?? ""}
             onChange={(e) => upd("paraQue", e.target.value)}
-            placeholder="Resultados esperados"
+            placeholder="Resultados esperados / benefício"
           />
         </div>
 
-        {/* ONDE e COMO */}
+        <div className="rdm-card span-2">
+          <label>Benefício da Atividade</label>
+          <textarea
+            value={rdm.beneficio ?? ""}
+            onChange={(e) => upd("beneficio", e.target.value)}
+            placeholder="Benefícios e ganhos esperados"
+          />
+        </div>
+      </div>
+
+      {/* ===== 3. EXECUÇÃO E ESCOPO ===== */}
+      <div className="section-header">
+        <i className="fas fa-tools"></i>
+        <h2>Execução e Escopo</h2>
+      </div>
+
+      <div className="rdm-grid">
         <div className="rdm-card">
           <label>Onde? — Ambiente</label>
           <input
             list="lista-ambientes"
-            value={rdm.ondeAmbiente}
+            value={rdm.ondeAmbiente ?? ""}
             onChange={(e) => upd("ondeAmbiente", e.target.value)}
             placeholder="Selecione ou digite"
           />
@@ -297,7 +397,7 @@ export default function RDMTab({ initialTitle = "" }) {
           <label>Onde? — Serviço (Negócio)</label>
           <input
             list="lista-servicos"
-            value={rdm.ondeServico}
+            value={rdm.ondeServico ?? ""}
             onChange={(e) => upd("ondeServico", e.target.value)}
             placeholder="Selecione ou digite"
           />
@@ -311,34 +411,25 @@ export default function RDMTab({ initialTitle = "" }) {
         <div className="rdm-card span-2">
           <label>Como será feito? (Ação)</label>
           <textarea
-            value={rdm.acao}
+            value={rdm.acao ?? ""}
             onChange={(e) => upd("acao", e.target.value)}
             placeholder="Passos de alto nível da execução"
           />
         </div>
 
-        <div className="rdm-card">
-          <label>Benefício da Atividade</label>
+        <div className="rdm-card span-2">
+          <label>Áreas Usuárias Afetadas pela Mudança</label>
           <textarea
-            value={rdm.beneficio}
-            onChange={(e) => upd("beneficio", e.target.value)}
-            placeholder="Benefícios/ganhos esperados"
-          />
-        </div>
-
-        <div className="rdm-card">
-          <label>ÁREAS USUÁRIAS AFETADAS PELA MUDANÇA</label>
-          <textarea
-            value={rdm.areasAfetadas}
+            value={rdm.areasAfetadas ?? ""}
             onChange={(e) => upd("areasAfetadas", e.target.value)}
-            placeholder="Ex.: Atendimento, Cobrança..."
+            placeholder="Ex.: Atendimento, Cobrança, Financeiro..."
           />
         </div>
 
         <div className="rdm-card">
           <label>Já possui o “de acordo” do responsável?</label>
           <select
-            value={rdm.deAcordoResponsavel}
+            value={rdm.deAcordoResponsavel ?? ""}
             onChange={(e) => upd("deAcordoResponsavel", e.target.value)}
           >
             <option value=""></option>
@@ -347,55 +438,75 @@ export default function RDMTab({ initialTitle = "" }) {
           </select>
         </div>
 
-        {/* IMPACTOS */}
+        <div className="rdm-card">
+          <label>Foi realizada a homologação do item?</label>
+          <select
+            value={rdm.homologacaoRealizada ?? ""}
+            onChange={(e) => upd("homologacaoRealizada", e.target.value)}
+          >
+            <option value=""></option>
+            <option value="SIM">SIM</option>
+            <option value="NÃO">NÃO</option>
+          </select>
+        </div>
+      </div>
+
+      {/* ===== 4. RISCOS E IMPACTOS ===== */}
+      <div className="section-header critical">
+        <i className="fas fa-exclamation-triangle"></i>
+        <h2>Riscos e Impactos</h2>
+      </div>
+
+      <div className="rdm-grid">
         <div className="rdm-card span-2">
-          <label>QUAL O IMPACTO CASO A RDM NÃO SEJA EXECUTADA?</label>
+          <label>Qual o impacto caso a RDM NÃO seja executada?</label>
           <textarea
-            value={rdm.impactoNaoExecutar}
+            value={rdm.impactoNaoExecutar ?? ""}
             onChange={(e) => upd("impactoNaoExecutar", e.target.value)}
+            placeholder="Consequências para o negócio ou operação"
           />
         </div>
 
         <div className="rdm-card span-2">
-          <label>QUAL O IMPACTO NO AMBIENTE AO EXECUTAR A RDM?</label>
+          <label>Qual o impacto no ambiente ao executar a RDM?</label>
           <textarea
-            value={rdm.impactoAmbiente}
+            value={rdm.impactoAmbiente ?? ""}
             onChange={(e) => upd("impactoAmbiente", e.target.value)}
+            placeholder="Indisponibilidade, degradação, janela de manutenção..."
           />
         </div>
+      </div>
 
-        {/* ALINHAMENTOS */}
+      {/* ===== 5. ALINHAMENTOS E RESPONSÁVEIS ===== */}
+      <div className="section-header">
+        <i className="fas fa-users"></i>
+        <h2>Alinhamentos e Responsáveis</h2>
+      </div>
+
+      <div className="rdm-grid">
         <div className="rdm-card span-2">
-          <label>ALINHAMENTOS (Técnica e Negócio)</label>
+          <label>Responsável (Técnica e Negócio)</label>
 
           {rdm.alinhamentos.map((row, idx) => (
-            <div
-              key={`alin-${idx}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1fr 1fr auto",
-                gap: 8,
-                marginBottom: 8,
-              }}
-            >
+            <div key={`alin-${idx}`} className="table-row">
               <input
                 list="lista-pessoas"
                 placeholder="Responsável"
-                value={row.nome}
+                value={row.nome ?? ""}
                 onChange={(e) =>
                   onPickPessoa(`alinhamentos.${idx}`, e.target.value)
                 }
               />
               <input
                 placeholder="Área"
-                value={row.area}
+                value={row.area ?? ""}
                 onChange={(e) =>
                   updNested(`alinhamentos.${idx}.area`, e.target.value)
                 }
               />
               <input
                 placeholder="Contato"
-                value={row.contato}
+                value={row.contato ?? ""}
                 onChange={(e) =>
                   updNested(`alinhamentos.${idx}.contato`, e.target.value)
                 }
@@ -411,7 +522,7 @@ export default function RDMTab({ initialTitle = "" }) {
 
           <button
             type="button"
-            className="primary"
+            className="primary small"
             onClick={() =>
               addLinha("alinhamentos", { nome: "", area: "", contato: "" })
             }
@@ -420,77 +531,23 @@ export default function RDMTab({ initialTitle = "" }) {
           </button>
         </div>
 
-        <datalist id="lista-pessoas">
-          {nomesPessoas.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
-
-        {/* HOMOLOGAÇÃO */}
-        <div className="rdm-card">
-          <label>Foi realizada a homologação do item?</label>
-          <select
-            value={rdm.homologacaoRealizada}
-            onChange={(e) => upd("homologacaoRealizada", e.target.value)}
-          >
-            <option value=""></option>
-            <option value="SIM">SIM</option>
-            <option value="NÃO">NÃO</option>
-          </select>
-        </div>
-
-        {/* SOLICITANTE / EXECUTOR */}
-        <div className="rdm-card span-2">
-          <label>SOLICITANTE</label>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.2fr 1fr 1fr",
-              gap: 8,
-            }}
-          >
-            <input
-              list="lista-pessoas"
-              placeholder="Nome"
-              value={rdm.solicitante.nome}
-              onChange={(e) => onPickPessoa("solicitante", e.target.value)}
-            />
-            <input
-              placeholder="Área"
-              value={rdm.solicitante.area}
-              onChange={(e) => updNested("solicitante.area", e.target.value)}
-            />
-            <input
-              placeholder="Contato"
-              value={rdm.solicitante.contato}
-              onChange={(e) => updNested("solicitante.contato", e.target.value)}
-            />
-          </div>
-        </div>
-
         <div className="rdm-card span-2">
           <label>LÍDER TÉCNICO</label>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.2fr 1fr 1fr",
-              gap: 8,
-            }}
-          >
+          <div className="table-row">
             <input
               list="lista-pessoas"
               placeholder="Nome"
-              value={rdm.liderTecnico.nome}
+              value={rdm.liderTecnico.nome ?? ""}
               onChange={(e) => onPickPessoa("liderTecnico", e.target.value)}
             />
             <input
               placeholder="Área"
-              value={rdm.liderTecnico.area}
+              value={rdm.liderTecnico.area ?? ""}
               onChange={(e) => updNested("liderTecnico.area", e.target.value)}
             />
             <input
               placeholder="Contato"
-              value={rdm.liderTecnico.contato}
+              value={rdm.liderTecnico.contato ?? ""}
               onChange={(e) =>
                 updNested("liderTecnico.contato", e.target.value)
               }
@@ -500,34 +557,27 @@ export default function RDMTab({ initialTitle = "" }) {
 
         <div className="rdm-card span-2">
           <label>EXECUTORES</label>
+
           {rdm.executores.map((ex, idx) => (
-            <div
-              key={`exec-${idx}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1fr 1fr auto",
-                gap: 8,
-                marginBottom: 8,
-              }}
-            >
+            <div key={`exec-${idx}`} className="table-row">
               <input
                 list="lista-pessoas"
                 placeholder="Nome"
-                value={ex.nome}
+                value={ex.nome ?? ""}
                 onChange={(e) =>
                   onPickPessoa(`executores.${idx}`, e.target.value)
                 }
               />
               <input
                 placeholder="Área"
-                value={ex.area}
+                value={ex.area ?? ""}
                 onChange={(e) =>
                   updNested(`executores.${idx}.area`, e.target.value)
                 }
               />
               <input
                 placeholder="Contato"
-                value={ex.contato}
+                value={ex.contato ?? ""}
                 onChange={(e) =>
                   updNested(`executores.${idx}.contato`, e.target.value)
                 }
@@ -537,9 +587,10 @@ export default function RDMTab({ initialTitle = "" }) {
               </button>
             </div>
           ))}
+
           <button
             type="button"
-            className="primary"
+            className="primary small"
             onClick={() =>
               addLinha("executores", { nome: "", area: "", contato: "" })
             }
@@ -548,37 +599,42 @@ export default function RDMTab({ initialTitle = "" }) {
           </button>
         </div>
 
-        {/* DESCRIÇÃO DETALHADA DA ATIVIDADE */}
+        {/* ===== CRONOGRAMA ===== */}
+        <div className="rdm-card span-2">
+          <label>Início das atividades</label>
+          <input
+            type="datetime-local"
+            value={rdm.inicioAtividades ?? ""}
+            onChange={(e) => upd("inicioAtividades", e.target.value)}
+          />
+
+          <label style={{ marginTop: 8 }}>Intervalo (min)</label>
+          <input
+            type="number"
+            min={5}
+            step={5}
+            value={rdm.stepMinutes ?? 15}
+            onChange={(e) => upd("stepMinutes", Number(e.target.value || 15))}
+            style={{ width: 120 }}
+          />
+        </div>
+
         <div className="rdm-card span-2">
           <label>DESCRIÇÃO DETALHADA DA ATIVIDADE</label>
+
           {rdm.atividades.map((row, idx) => (
-            <div
-              key={`atv-${idx}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "220px 1fr 260px auto",
-                gap: 8,
-                marginBottom: 8,
-              }}
-            >
-              <input
-                type="datetime-local"
-                value={row.dataHora}
-                onChange={(e) =>
-                  updNested(`atividades.${idx}.dataHora`, e.target.value)
-                }
-              />
-              <input
-                placeholder="DESCRIÇÃO DETALHADA DA ATIVIDADE *"
-                value={row.descricao}
+            <div key={`atv-${idx}`} className="table-row wide">
+              <textarea
+                placeholder="Descrição detalhada da atividade *"
+                value={row.descricao ?? ""}
                 onChange={(e) =>
                   updNested(`atividades.${idx}.descricao`, e.target.value)
                 }
               />
               <input
                 list="lista-pessoas"
-                placeholder="RESPONSÁVEL"
-                value={row.responsavel}
+                placeholder="Responsável"
+                value={row.responsavel ?? ""}
                 onChange={(e) =>
                   updNested(`atividades.${idx}.responsavel`, e.target.value)
                 }
@@ -588,9 +644,10 @@ export default function RDMTab({ initialTitle = "" }) {
               </button>
             </div>
           ))}
+
           <button
             type="button"
-            className="primary"
+            className="primary small"
             onClick={() =>
               addLinha("atividades", {
                 dataHora: "",
@@ -599,41 +656,68 @@ export default function RDMTab({ initialTitle = "" }) {
               })
             }
           >
-            + Adicionar linha
+            + Adicionar atividade
           </button>
-        </div>
 
-        {/* JANELA DE ROLLBACK */}
+          {/* Pré-visualização do cronograma calculado (Accordion) */}
+          <div
+            style={{
+              marginTop: 12,
+              background: "#fafafa",
+              border: "1px solid #eee",
+              borderRadius: 8,
+              padding: 8,
+            }}
+          >
+            <strong>Cronograma (pré-visualização):</strong>
+
+            {!rdm.inicioAtividades ? (
+              <div style={{ padding: "6px 0", color: "#777" }}>
+                Informe o “Início das atividades” para visualizar o cronograma.
+              </div>
+            ) : (
+              <>
+                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                  {Object.entries(cronGroups).map(([title, arr], idx) => (
+                    <details key={title} open={idx === 0}>
+                      <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                        {title} ({arr.length})
+                      </summary>
+                      {renderCronList(arr)}
+                    </details>
+                  ))}
+                </div>
+
+                <div style={{ marginTop: 8 }}>
+                  <b>Tempo total:</b> {totalH}:{pad(totalM)}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ===== 7. PLANO DE ROLLBACK ===== */}
+      <div className="section-header">
+        <i className="fas fa-undo-alt"></i>
+        <h2>Plano de Rollback</h2>
+      </div>
+
+      <div className="rdm-grid">
         <div className="rdm-card span-2">
-          <label>JANELA DE ROLLBACK</label>
           {rdm.rollbackPlan.map((row, idx) => (
-            <div
-              key={`rb-${idx}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "220px 1fr 260px auto",
-                gap: 8,
-                marginBottom: 8,
-              }}
-            >
-              <input
-                type="datetime-local"
-                value={row.dataHora}
-                onChange={(e) =>
-                  updNested(`rollbackPlan.${idx}.dataHora`, e.target.value)
-                }
-              />
-              <input
-                placeholder="DESCRIÇÃO DETALHADA DO ROLLBACK *"
-                value={row.descricao}
+            <div key={`rb-${idx}`} className="table-row wide">
+              <textarea
+                placeholder="Descrição detalhada do passo de rollback *"
+                value={row.descricao ?? ""}
                 onChange={(e) =>
                   updNested(`rollbackPlan.${idx}.descricao`, e.target.value)
                 }
               />
               <input
                 list="lista-pessoas"
-                placeholder="RESPONSÁVEL"
-                value={row.responsavel}
+                placeholder="Responsável"
+                value={row.responsavel ?? ""}
                 onChange={(e) =>
                   updNested(`rollbackPlan.${idx}.responsavel`, e.target.value)
                 }
@@ -646,9 +730,10 @@ export default function RDMTab({ initialTitle = "" }) {
               </button>
             </div>
           ))}
+
           <button
             type="button"
-            className="primary"
+            className="primary small"
             onClick={() =>
               addLinha("rollbackPlan", {
                 dataHora: "",
@@ -657,19 +742,27 @@ export default function RDMTab({ initialTitle = "" }) {
               })
             }
           >
-            + Adicionar linha
+            + Adicionar passo de rollback
           </button>
         </div>
       </div>
 
-      <div className="rdm-actions">
-        <button className="primary" onClick={salvarRdmLocal}>
-          Salvar RDM (local)
+      {/* ===== AÇÕES FINAIS FIXAS ===== */}
+      <div className="rdm-actions fixed">
+        <button className="primary large" onClick={() => gerarRdmDocx(rdm)}>
+          <i className="fas fa-file-word"></i> Gerar Documento Word (.docx)
         </button>
         <button className="primary pdf" onClick={() => window.print()}>
-          Gerar PDF
+          <i className="fas fa-print"></i> Imprimir / Gerar PDF
         </button>
       </div>
-    </section>
+
+      {/* Datalist global de pessoas */}
+      <datalist id="lista-pessoas">
+        {nomesPessoas.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
+    </motion.section>
   );
 }

@@ -1,33 +1,20 @@
 {
   "categorias": [
-    "Evolutiva",
-    "Corretiva",
-    "Melhoria",
+    "Programada / Padrão",
+    "Pré-Aprovada",
+    "Emergencial (Justifique)",
+    "Não Programada (Justifique)"
+  ],
+  "tipos": ["Projeto", "Melhoria", "Correção", "Legislação"],
+  "classificacoes": [
     "Infraestrutura",
+    "Servidores",
+    "Aplicações",
+    "Estações",
     "Segurança",
-    "Banco de Dados",
-    "Rede"
+    "Processos"
   ],
-  "tipos": [
-    "Aplicação",
-    "Configuração",
-    "Script",
-    "Deploy",
-    "Migração",
-    "Patch",
-    "Job/Agendamento"
-  ],
-  "classificacoes": ["Planejada", "Emergencial", "Corretiva", "Preventiva"],
   "impactos": ["Baixo", "Médio", "Alto"],
-  "ambientes": ["Desenvolvimento", "Homologação", "Pré-Produção", "Produção"],
-  "servicos": [
-    "URA",
-    "Billing",
-    "API Gateway",
-    "Portais Web",
-    "Backoffice",
-    "Banco de Dados",
-    "Mensageria",
-    "Rede"
-  ]
+  "ambientes": ["Cluster 1", "Cluster 2", "Java"],
+  "servicos": ["TOPO", "PRE", "POS", "Banda Larga", "PME"]
 }
