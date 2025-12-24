@@ -57,6 +57,7 @@ const RDM_INITIAL = {
   // Parâmetros do cronograma
   inicioAtividades: "", // datetime-local (ex: 2025-12-23T18:00)
   stepMinutes: 15,
+  inicioAtividadesAuto: true,
 
   // Janelas (listas dinâmicas)
   atividades: [{ dataHora: "", descricao: "", responsavel: "" }],
@@ -80,7 +81,7 @@ function hydratePessoaByNome(nome) {
   return { nome: p.nome, area: p.area || "", contato: p.contato || "" };
 }
 
-export default function RDMTab({ initialTitle = "" }) {
+export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
   const [rdm, setRdm] = useState(RDM_INITIAL);
 
   // ---------- LocalStorage ----------
@@ -108,8 +109,42 @@ export default function RDMTab({ initialTitle = "" }) {
     }
   }, [initialTitle]);
 
+  useEffect(() => {
+    if (!initialDueDate) return;
+
+    const autoValue = buildInicioFromDueDate(initialDueDate);
+    if (!autoValue) return;
+
+    setRdm((prev) => {
+      // Se o usuário já mexeu, não sobrescreve
+      if (prev.inicioAtividades && prev.inicioAtividadesAuto === false)
+        return prev;
+
+      // Se está vazio OU ainda está em modo auto, atualiza
+      return {
+        ...prev,
+        inicioAtividades: autoValue,
+        inicioAtividadesAuto: true,
+      };
+    });
+  }, [initialDueDate]);
+
   // ---------- Helpers ----------
   const pad = (n) => String(n).padStart(2, "0");
+
+  const buildInicioFromDueDate = (dueYmd) => {
+    const ymd = String(dueYmd || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
+    return `${ymd}T18:00`;
+  };
+
+  function updInicioAtividades(value) {
+    setRdm((prev) => ({
+      ...prev,
+      inicioAtividades: value,
+      inicioAtividadesAuto: false, // usuário mexeu
+    }));
+  }
 
   function upd(field, value) {
     setRdm((prev) => ({ ...prev, [field]: value }));
@@ -605,7 +640,7 @@ export default function RDMTab({ initialTitle = "" }) {
           <input
             type="datetime-local"
             value={rdm.inicioAtividades ?? ""}
-            onChange={(e) => upd("inicioAtividades", e.target.value)}
+            onChange={(e) => updInicioAtividades(e.target.value)}
           />
 
           <label style={{ marginTop: 8 }}>Intervalo (min)</label>

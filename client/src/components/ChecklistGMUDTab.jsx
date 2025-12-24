@@ -33,7 +33,11 @@ import {
   calcPhasePct,
 } from "../utils/gmudUtils";
 
-function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
+function ChecklistGMUDTab({
+  onProgressChange,
+  onRdmTitleChange,
+  onRdmDueDateChange,
+}) {
   // Projeto
   const [nomeProjeto, setNomeProjeto] = useState("");
   const [numeroGMUD, setNumeroGMUD] = useState("");
@@ -75,6 +79,15 @@ function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
   const [savingVars, setSavingVars] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  const [dataLimite, setDataLimite] = useState("");
+
+  function fmtDueDate(yyyyMmDd) {
+    if (!yyyyMmDd) return "";
+    const [y, m, d] = String(yyyyMmDd).split("-");
+    if (!y || !m || !d) return String(yyyyMmDd);
+    return `${d}/${m}/${y}`;
+  }
+
   /* ---------- Load localStorage (GMUD) ---------- */
   useEffect(() => {
     const s = localStorage.getItem(STORAGE_KEY);
@@ -86,6 +99,7 @@ function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
         setTicketJira(d.ticketJira || "");
         setScriptsAlterados(d.scriptsAlterados || "");
         setCheckboxes((prev) => ({ ...prev, ...(d.checkboxes || {}) }));
+        setDataLimite(d.dataLimite || "");
 
         setChaves(
           (d.chaves || []).map((row) => ({
@@ -108,6 +122,7 @@ function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
       gmud: numeroGMUD,
       ticketJira,
       scriptsAlterados,
+      dataLimite,
       chaves: chaves.map(({ ambiente, nome, valor }) => ({
         ambiente,
         nome,
@@ -120,6 +135,7 @@ function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
     nomeProjeto,
     numeroGMUD,
     ticketJira,
+    dataLimite,
     scriptsAlterados,
     chaves,
     checkboxes,
@@ -173,15 +189,16 @@ function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
 
       const issue = await getIssue(
         ticketJira,
-        "summary,subtasks,status,project,description,customfield_10903"
+        "summary,subtasks,status,project,description,customfield_10903,duedate"
       );
-
       // envia o título para o App (preencher a aba RDM)
       onRdmTitleChange?.(issue?.fields?.summary || "");
+      onRdmDueDateChange?.(issue?.fields?.duedate || "");
 
       const projectId = issue.fields.project.id;
       const subtasks = issue.fields.subtasks || [];
       const subtasksBySummary = {};
+      setDataLimite(issue?.fields?.duedate || "");
 
       const descText = adfSafeToText(issue?.fields?.description);
       const criteriosText = adfSafeToText(issue?.fields?.customfield_10903);
@@ -516,10 +533,64 @@ function ChecklistGMUDTab({ onProgressChange, onRdmTitleChange }) {
 
   return (
     <>
+      {/* Data limite (topo, destaque vermelho moderno) */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          marginBottom: 16,
+        }}
+      >
+        <div
+          style={{
+            background: "linear-gradient(135deg, #ff4d4f22, #ff1b1f33)",
+            border: "1px solid #ff4d4f",
+            color: "#c41c1c",
+            padding: "10px 16px",
+            borderRadius: 16,
+            fontWeight: 700,
+            fontSize: "0.95rem",
+            letterSpacing: 0.3,
+            boxShadow: "0 4px 12px rgba(255, 77, 79, 0.25)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            backdropFilter: "blur(4px)", // Efeito glassmorphism sutil (moderno)
+            animation: "pulse 2s infinite alternate", // Opcional: animação sutil se urgente
+          }}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M12 8v4l3 3" />
+            <circle cx="12" cy="12" r="10" />
+          </svg>
+          <span>Data limite: {dataLimite ? fmtDueDate(dataLimite) : "—"}</span>
+        </div>
+      </div>
+
+      {/* Animação opcional (adicione no estilo global ou aqui) */}
+      <style jsx>{`
+        @keyframes pulse {
+          from {
+            box-shadow: 0 4px 12px rgba(255, 77, 79, 0.25);
+          }
+          to {
+            box-shadow: 0 6px 20px rgba(255, 77, 79, 0.4);
+          }
+        }
+      `}</style>
+
       {/* Infos projeto */}
       <div className="project-info">
         <div>
-          <label>Checklist_GML</label>
+          <label>Projeto</label>
           <input
             value={nomeProjeto}
             onChange={(e) => setNomeProjeto(e.target.value)}

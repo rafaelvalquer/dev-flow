@@ -11,6 +11,7 @@ export default function App() {
 
   // NOVO: título que será enviado para a aba RDM
   const [rdmTitle, setRdmTitle] = useState("");
+  const [rdmDueDate, setRdmDueDate] = useState("");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsEmail, setSettingsEmail] = useState("");
@@ -101,12 +102,13 @@ export default function App() {
 
         {/* Conteúdo das abas */}
         {mainTab === "rdm" ? (
-          <RDMTab initialTitle={rdmTitle} />
+          <RDMTab initialTitle={rdmTitle} initialDueDate={rdmDueDate} />
         ) : (
           // NOVO: entrega um callback para receber o título do Jira
           <ChecklistGMUDTab
             onProgressChange={setGmudProgressPct}
             onRdmTitleChange={setRdmTitle}
+            onRdmDueDateChange={setRdmDueDate}
           />
         )}
 
