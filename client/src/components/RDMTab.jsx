@@ -1,11 +1,11 @@
 // src/components/RDMTab.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { RDM_KEY } from "../utils/gmudUtils";
 import catalogo from "../data/rdmCatalogo.json";
 import pessoasDb from "../data/pessoas.json";
 import { gerarRdmDocx } from "../utils/rdmDocx";
 import { motion } from "framer-motion";
 import { buildCronogramaAtividades } from "../utils/buildCronograma";
+import { rdmCopilot } from "../lib/rdmCopilot";
 
 /**
  * Observação:
@@ -84,23 +84,58 @@ function hydratePessoaByNome(nome) {
 export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
   const [rdm, setRdm] = useState(RDM_INITIAL);
 
-  // ---------- LocalStorage ----------
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RDM_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setRdm({ ...clone(RDM_INITIAL), ...parsed });
-      }
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const [copilotFiles, setCopilotFiles] = useState([]);
+  const [copilotBusy, setCopilotBusy] = useState(false);
+  const [copilotErr, setCopilotErr] = useState("");
+  const [copilotOverwrite, setCopilotOverwrite] = useState(true);
 
-  useEffect(() => {
+  async function executarCopilot() {
+    setCopilotErr("");
+
     try {
-      localStorage.setItem(RDM_KEY, JSON.stringify(rdm));
-    } catch {}
-  }, [rdm]);
+      if (!copilotFiles.length) {
+        setCopilotErr("Selecione ao menos 1 arquivo.");
+        return;
+      }
+
+      setCopilotBusy(true);
+
+      const out = await rdmCopilot({
+        files: copilotFiles,
+        title: rdm.titulo || "",
+      });
+
+      const a = out?.answers || {};
+
+      setRdm((prev) => ({
+        ...prev,
+        objetivoDescricao: copilotOverwrite
+          ? a.objetivoDescricao || ""
+          : prev.objetivoDescricao || a.objetivoDescricao || "",
+        oQue: copilotOverwrite ? a.oQue || "" : prev.oQue || a.oQue || "",
+        porQue: copilotOverwrite
+          ? a.porQue || ""
+          : prev.porQue || a.porQue || "",
+        paraQue: copilotOverwrite
+          ? a.paraQue || ""
+          : prev.paraQue || a.paraQue || "",
+        beneficio: copilotOverwrite
+          ? a.beneficio || ""
+          : prev.beneficio || a.beneficio || "",
+      }));
+
+      setCopilotOpen(false);
+      setCopilotFiles([]);
+    } catch (e) {
+      setCopilotErr(e?.message ? String(e.message) : String(e));
+    } finally {
+      setCopilotBusy(false);
+    }
+  }
+
+  // ---------- (REMOVIDO) LocalStorage ----------
+  // Não carrega nem salva nada no localStorage.
 
   // ---------- Título vindo do App/Jira ----------
   useEffect(() => {
@@ -166,7 +201,6 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
       return { nome: "", area: "", contato: "" };
     }
     if (key === "atividades" || key === "rollbackPlan") {
-      // atividades/rollback agora não precisam de dataHora no formulário
       return { dataHora: "", descricao: "", responsavel: "" };
     }
     return {};
@@ -227,7 +261,6 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
       rdm,
       STEP_MIN,
       NOME_PADRAO: "Suporte Infra Call Center",
-      // PADRAO_* ficam como default dentro do buildCronograma.js (se você aplicou o ajuste)
     });
   }, [rdm, STEP_MIN]);
 
@@ -694,7 +727,6 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
             + Adicionar atividade
           </button>
 
-          {/* Pré-visualização do cronograma calculado (Accordion) */}
           <div
             style={{
               marginTop: 12,
@@ -787,17 +819,149 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         <button className="primary large" onClick={() => gerarRdmDocx(rdm)}>
           <i className="fas fa-file-word"></i> Gerar Documento Word (.docx)
         </button>
+
+        <button
+          className="primary"
+          type="button"
+          onClick={() => {
+            setCopilotErr("");
+            setCopilotOpen(true);
+          }}
+        >
+          <i className="fas fa-robot"></i> Co-pilot
+        </button>
+
         <button className="primary pdf" onClick={() => window.print()}>
           <i className="fas fa-print"></i> Imprimir / Gerar PDF
         </button>
       </div>
 
-      {/* Datalist global de pessoas */}
       <datalist id="lista-pessoas">
         {nomesPessoas.map((n) => (
           <option key={n} value={n} />
         ))}
       </datalist>
+
+      {copilotOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+          onClick={() => !copilotBusy && setCopilotOpen(false)}
+        >
+          <div
+            style={{
+              width: "min(720px, 100%)",
+              background: "#fff",
+              borderRadius: 12,
+              padding: 16,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <h3 style={{ margin: 0, flex: 1 }}>
+                Co-pilot (Gemini) — preencher RDM
+              </h3>
+              <button
+                type="button"
+                onClick={() => !copilotBusy && setCopilotOpen(false)}
+              >
+                X
+              </button>
+            </div>
+
+            <p style={{ marginTop: 8, color: "#555", fontSize: 13 }}>
+              Anexe arquivos (PDF, imagens, textos) com contexto técnico. O
+              Co-pilot retornará um JSON e preencherá: Objetivo, O que, Por quê,
+              Para que, Benefício.
+            </p>
+
+            <input
+              type="file"
+              multiple
+              onChange={(e) =>
+                setCopilotFiles(Array.from(e.target.files || []))
+              }
+              disabled={copilotBusy}
+              accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.webp,.docx"
+            />
+
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <input
+                  type="checkbox"
+                  checked={copilotOverwrite}
+                  onChange={(e) => setCopilotOverwrite(e.target.checked)}
+                  disabled={copilotBusy}
+                />
+                Substituir campos existentes
+              </label>
+            </div>
+
+            {!!copilotFiles.length && (
+              <div style={{ marginTop: 10, fontSize: 13, color: "#333" }}>
+                <b>Arquivos:</b>
+                <ul style={{ margin: "6px 0 0 18px" }}>
+                  {copilotFiles.map((f) => (
+                    <li key={f.name + f.size}>{f.name}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {copilotErr && (
+              <div style={{ marginTop: 10, color: "#b00020", fontSize: 13 }}>
+                {copilotErr}
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (copilotBusy) return;
+                  setCopilotFiles([]);
+                  setCopilotErr("");
+                }}
+                disabled={copilotBusy}
+              >
+                Limpar
+              </button>
+
+              <button
+                type="button"
+                className="primary"
+                onClick={executarCopilot}
+                disabled={copilotBusy}
+              >
+                {copilotBusy ? "Processando..." : "Executar Co-pilot"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.section>
   );
 }

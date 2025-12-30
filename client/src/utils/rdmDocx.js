@@ -5,6 +5,7 @@ import Docxtemplater from "docxtemplater";
 const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+// ---------------------- download / template ----------------------
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -26,72 +27,117 @@ async function loadTemplateArrayBuffer(templateUrl) {
   return await res.arrayBuffer();
 }
 
-// ---------- Utilidades de data/hora ----------
+// ---------------------- date/time helpers (LOCAL, sem "Z") ----------------------
 const pad = (n) => String(n).padStart(2, "0");
 
-const fmtTime = (iso) => {
-  if (!iso) return "";
+// Converte Date -> "YYYY-MM-DDTHH:mm" (LOCAL)
+const toLocalIsoMinute = (d) => {
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mm = pad(d.getMinutes());
+  return `${y}-${m}-${day}T${hh}:${mm}`;
+};
+
+// Parse seguro (aceita "YYYY-MM-DDTHH:mm" e ISO com Z)
+const parseToDate = (iso) => {
+  if (!iso) return null;
+
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
+  if (!Number.isNaN(d.getTime())) return d;
+
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return null;
+
+  const [, yy, mo, dd, hh, mm] = m;
+  const out = new Date(+yy, +mo - 1, +dd, +hh, +mm, 0, 0);
+  return Number.isNaN(out.getTime()) ? null : out;
+};
+
+const fmtDate = (isoOrDate) => {
+  if (!isoOrDate) return "";
+  const d = isoOrDate instanceof Date ? isoOrDate : parseToDate(isoOrDate);
+  if (!d) return "";
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+};
+
+const fmtTime = (isoOrDate) => {
+  if (!isoOrDate) return "";
+  const d = isoOrDate instanceof Date ? isoOrDate : parseToDate(isoOrDate);
+  if (!d) return "";
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-const fmtDateTime = (iso) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}`;
+const fmtDateTime = (isoOrDate) => {
+  if (!isoOrDate) return "";
+  const d = isoOrDate instanceof Date ? isoOrDate : parseToDate(isoOrDate);
+  if (!d) return "";
+  return `${fmtDate(d)} ${fmtTime(d)}`;
 };
 
-const addMinutesIso = (iso, min) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
+// ✅ Mesmo valor, mas SEM espaço (útil se sua tabela do DOCX já tem separador)
+const fmtDateTimeNoSpace = (isoOrDate) => {
+  if (!isoOrDate) return "";
+  const d = isoOrDate instanceof Date ? isoOrDate : parseToDate(isoOrDate);
+  if (!d) return "";
+  return `${fmtDate(d)} ${fmtTime(d)}`; // mantive com espaço; pode trocar se quiser
+};
+
+const normalizeStep = (value, fallback = 15) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.round(n);
+};
+
+const addMinutesLocalIso = (iso, min) => {
+  const d = parseToDate(iso);
+  if (!d) return "";
   d.setMinutes(d.getMinutes() + min);
-  return d.toISOString();
+  return toLocalIsoMinute(d);
 };
 
-// Monta sequência com horários; NÃO consome step quando item.noDuration === true
+// ✅ Monta sequência com horários; SEMPRE consome step
 function scheduleWithStep(inicioIso, stepMin, items) {
+  const step = normalizeStep(stepMin, 15);
   if (!inicioIso) return [];
-  let cursor = inicioIso;
+
+  let cursor = parseToDate(inicioIso);
+  if (!cursor) return [];
 
   return (items || []).map((it) => {
-    const startIso = cursor;
+    const start = new Date(cursor.getTime());
+    cursor.setMinutes(cursor.getMinutes() + step);
 
-    if (!it?.noDuration) {
-      cursor = addMinutesIso(cursor, stepMin);
-    }
+    const startIso = toLocalIsoMinute(start);
 
     return {
-      ...it,
-      dataHora: startIso,
-      dataHoraFmt: fmtDateTime(startIso),
-      horaFmt: fmtTime(startIso),
+      ...(it || {}),
+      dataHora: startIso, // ISO local (YYYY-MM-DDTHH:mm)
+      dataFmt: fmtDate(start), // ✅ "DD/MM/YYYY"
+      horaFmt: fmtTime(start), // "HH:mm"
+      dataHoraFmt: fmtDateTime(start), // ✅ "DD/MM/YYYY HH:mm"
+      // se quiser um campo só "dataHoraTabela", use esse:
+      dataHoraTabela: fmtDateTimeNoSpace(start),
     };
   });
 }
 
-// retorna o próximo início: último início do bloco + step (apenas se o último NÃO for noDuration)
 function nextStartAfter(seq, currentStart, stepMin) {
+  const step = normalizeStep(stepMin, 15);
   if (!seq || !seq.length) return currentStart;
   const last = seq[seq.length - 1];
-  return last?.noDuration
-    ? last.dataHora
-    : addMinutesIso(last.dataHora, stepMin);
+  return addMinutesLocalIso(last.dataHora, step);
 }
 
 const NOME_PADRAO = "Suporte Infra Call Center";
 
-// ---------- Blocos padrão solicitados ----------
+// ---------------------- Blocos padrão ----------------------
 const PADRAO_BEFORE = [
   {
     descricao:
       "Comunicar COTI (coti@claro.com.br) e GMUD (gerencia.mudancas@claro.com.br) o início da RDM",
     responsavel: NOME_PADRAO,
-    noDuration: true,
   },
   {
     descricao:
@@ -124,7 +170,7 @@ const PADRAO_AFTER = [
   },
 ];
 
-// ---------- Rollback: blocos padrão ----------
+// ---------------------- Rollback ----------------------
 const ROLLBACK_BEFORE = [
   {
     descricao:
@@ -154,13 +200,13 @@ const ROLLBACK_AFTER = [
     descricao:
       "Comunicar COTI (coti@claro.com.br) e GMUD (gerencia.mudancas@claro.com.br) o término do RollBack",
     responsavel: NOME_PADRAO,
-    noDuration: true,
   },
 ];
 
+// ---------------------- main ----------------------
 export async function gerarRdmDocx(rdm, opts = {}) {
   const templateUrl = opts.templateUrl ?? "/templates/Modelo-RDM.docx";
-  const STEP_MIN = Number(opts.stepMinutes ?? rdm?.stepMinutes ?? 15);
+  const STEP_MIN = normalizeStep(opts.stepMinutes ?? rdm?.stepMinutes, 15);
 
   // ---------------- ATIVIDADES ----------------
   const inicioAtv = rdm?.inicioAtividades || "";
@@ -196,24 +242,24 @@ export async function gerarRdmDocx(rdm, opts = {}) {
     ...seqAfter,
   ];
 
+  // ✅ variável global de data da atividade (DD/MM/YYYY)
+  const dataAtividade =
+    atividadesSeq[0]?.dataFmt || fmtDate(parseToDate(inicioAtv));
+
   const atividadesInicioIso = atividadesSeq[0]?.dataHora || "";
-  const atividadesTotalMin = atividadesSeq.reduce(
-    (acc, it) => acc + (it?.noDuration ? 0 : STEP_MIN),
-    0
-  );
+  const atividadesFimIso = atividadesSeq.length
+    ? addMinutesLocalIso(
+        atividadesSeq[atividadesSeq.length - 1].dataHora,
+        STEP_MIN
+      )
+    : "";
 
-  const atividadesFimIso =
-    atividadesInicioIso && atividadesTotalMin > 0
-      ? addMinutesIso(atividadesInicioIso, atividadesTotalMin)
-      : "";
-
+  const atividadesTotalMin = atividadesSeq.length * STEP_MIN;
   const atividadesTempoTotalFmt = `${Math.floor(atividadesTotalMin / 60)}:${pad(
     atividadesTotalMin % 60
   )}`;
 
   // ---------------- ROLLBACK ----------------
-
-  // itens dinâmicos: descrição/responsável
   const rollbackDyn = (rdm?.rollbackPlan || [])
     .filter((a) => a && (a.descricao || a.responsavel))
     .map((a) => ({
@@ -250,7 +296,6 @@ export async function gerarRdmDocx(rdm, opts = {}) {
 
   const rbSeqAfter = scheduleWithStep(rollbackCursor, STEP_MIN, ROLLBACK_AFTER);
 
-  // NÃO zere horaFmt/dataHoraFmt aqui
   const rollbackSeq = [
     ...rbSeqBefore,
     ...rbSeqDynamic,
@@ -259,22 +304,20 @@ export async function gerarRdmDocx(rdm, opts = {}) {
     ...rbSeqAfter,
   ];
 
+  const dataRollback =
+    rollbackSeq[0]?.dataFmt || fmtDate(parseToDate(rollbackCursor));
+
   const rollbackInicioIso = rollbackSeq[0]?.dataHora || "";
-  const rollbackTotalMin = rollbackSeq.reduce(
-    (acc, it) => acc + (it?.noDuration ? 0 : STEP_MIN),
-    0
-  );
+  const rollbackFimIso = rollbackSeq.length
+    ? addMinutesLocalIso(rollbackSeq[rollbackSeq.length - 1].dataHora, STEP_MIN)
+    : "";
 
-  const rollbackFimIso =
-    rollbackInicioIso && rollbackTotalMin > 0
-      ? addMinutesIso(rollbackInicioIso, rollbackTotalMin)
-      : "";
-
+  const rollbackTotalMin = rollbackSeq.length * STEP_MIN;
   const rollbackTempoTotalFmt = `${Math.floor(rollbackTotalMin / 60)}:${pad(
     rollbackTotalMin % 60
   )}`;
 
-  // ---------- Pessoas ----------
+  // ---------------- Pessoas ----------------
   const normPessoa = (p = {}) => ({
     nome: p.nome || "",
     area: p.area || "",
@@ -290,35 +333,54 @@ export async function gerarRdmDocx(rdm, opts = {}) {
     .map((e, i) => ({ ...normPessoa(e), idx: i + 1 }));
 
   const lider = normPessoa(rdm?.liderTecnico);
+  const solicitante = normPessoa(rdm?.solicitante);
 
-  // ---------- Data para o Docxtemplater ----------
+  // ---------------- Data para o Docxtemplater ----------------
   const data = {
-    // Campos simples
+    // Identificação
     titulo: rdm?.titulo ?? "",
     categoria: rdm?.categoria ?? "",
     tipo: rdm?.tipo ?? "",
     classificacao: rdm?.classificacao ?? "",
     impactoNivel: rdm?.impactoNivel ?? "",
+    registroPA: rdm?.registroPA ?? "",
+    chamadoCASD: rdm?.chamadoCASD ?? "",
+    mudancaReincidente: rdm?.mudancaReincidente ?? "",
+
+    // Objetivo e justificativas
     objetivoDescricao: rdm?.objetivoDescricao ?? "",
     oQue: rdm?.oQue ?? "",
     porQue: rdm?.porQue ?? "",
     paraQue: rdm?.paraQue ?? "",
     beneficio: rdm?.beneficio ?? "",
+
+    // Onde/como
     ondeAmbiente: rdm?.ondeAmbiente ?? "",
     ondeServico: rdm?.ondeServico ?? "",
     acao: rdm?.acao ?? "",
     areasAfetadas: rdm?.areasAfetadas ?? "",
     deAcordoResponsavel: rdm?.deAcordoResponsavel ?? "",
     homologacaoRealizada: rdm?.homologacaoRealizada ?? "",
+
+    // Impactos
     impactoNaoExecutar: rdm?.impactoNaoExecutar ?? "",
     impactoAmbiente: rdm?.impactoAmbiente ?? "",
 
     // Pessoas
+    solicitanteNome: solicitante.nome,
+    solicitanteArea: solicitante.area,
+    solicitanteContato: solicitante.contato,
+
     alinhamentos: alinhamentosArr,
     executores: executoresArr,
+
     liderTecnicoNome: lider.nome,
     liderTecnicoArea: lider.area,
     liderTecnicoContato: lider.contato,
+
+    // ✅ Datas "globais"
+    dataAtividade, // "DD/MM/YYYY" (use no DOCX se precisar)
+    dataRollback,
 
     // Atividades
     atividadesSeq,
@@ -347,9 +409,12 @@ export async function gerarRdmDocx(rdm, opts = {}) {
     rollbackInicioHora: fmtTime(rollbackInicioIso),
     rollbackFimHora: fmtTime(rollbackFimIso),
     rollbackTempoTotalFmt,
+
+    // util
+    stepMinutes: STEP_MIN,
   };
 
-  // --------- Renderização do DOCX ---------
+  // ---------------- Renderização do DOCX ----------------
   const content = await loadTemplateArrayBuffer(templateUrl);
 
   // sanity check (docx começa com "PK")
@@ -367,7 +432,7 @@ export async function gerarRdmDocx(rdm, opts = {}) {
     paragraphLoop: true,
     linebreaks: true,
     nullGetter: () => "",
-    delimiters: { start: "{", end: "}" }, // garante uso de {titulo}, {categoria}, etc.
+    delimiters: { start: "{", end: "}" },
   });
 
   try {
