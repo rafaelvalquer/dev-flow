@@ -82,6 +82,32 @@ function ChecklistGMUDTab({
   const [dataLimite, setDataLimite] = useState("");
   const [dataLimiteLabel, setDataLimiteLabel] = useState("Data limite:");
 
+  // 1) ADICIONE estes states junto dos "Estados de carregamento" (perto de syncing/saving...)
+  const [syncOverlay, setSyncOverlay] = useState({
+    open: false,
+    title: "Sincronizando com Jira",
+    message: "",
+    current: 0,
+    total: 0,
+    created: [],
+    done: false,
+    error: "",
+  });
+
+  // helper opcional (facilita atualizar)
+  function showSyncOverlay(patch) {
+    setSyncOverlay((prev) => ({
+      ...prev,
+      open: true,
+      done: false,
+      error: "",
+      ...patch,
+    }));
+  }
+  function closeSyncOverlay() {
+    setSyncOverlay((prev) => ({ ...prev, open: false }));
+  }
+
   function fmtDueDate(yyyyMmDd) {
     if (!yyyyMmDd) return "";
     const [y, m, d] = String(yyyyMmDd).split("-");
@@ -183,7 +209,16 @@ function ChecklistGMUDTab({
     }
 
     setSyncing(true);
+    showSyncOverlay({
+      title: "Sincronizando com Jira",
+      message: "Buscando ticket e subtarefas no Jira...",
+      current: 0,
+      total: 0,
+      created: [],
+    });
+
     try {
+      // reset UI
       setCheckboxes(buildEmptyCheckboxes());
       setScriptsAlterados("");
       setChaves([]);
@@ -200,8 +235,6 @@ function ChecklistGMUDTab({
       const fields = issue?.fields ?? {};
       const customDueRaw = fields.customfield_11519;
 
-      // Jira pode retornar string "YYYY-MM-DD" ou objeto (depende do tipo do campo),
-      // então tratamos ambos.
       const customDue =
         typeof customDueRaw === "string"
           ? customDueRaw.trim()
@@ -219,7 +252,6 @@ function ChecklistGMUDTab({
         hasCustomDue ? "Data limite Aleterada:" : "Data limite:"
       );
 
-      // prop para o App/RDM
       onRdmDueDateChange?.(duePicked);
       // -----------------------------------------------
 
@@ -251,23 +283,76 @@ function ChecklistGMUDTab({
         setNomeProjeto(parsed.checklist);
       }
 
+      // ----------- Criar subtarefas faltantes com overlay/progresso -----------
       const items = getChecklistItems();
-      for (const it of items) {
+      const missing = items.filter((it) => {
         const k = it.summary.trim().toLowerCase();
-        if (!subtasksBySummary[k]) {
+        return !subtasksBySummary[k];
+      });
+
+      const createdSummaries = [];
+
+      if (missing.length) {
+        showSyncOverlay({
+          title: "Criando subtarefas",
+          message: `Criando subtarefas (${0}/${missing.length})...`,
+          current: 0,
+          total: missing.length,
+          created: [],
+        });
+
+        for (let i = 0; i < missing.length; i++) {
+          const it = missing[i];
+
+          showSyncOverlay({
+            message: `Criando subtarefas (${i + 1}/${missing.length})...`,
+            current: i,
+            total: missing.length,
+          });
+
           const created = await createSubtask(
             projectId,
             ticketJira,
             it.summary
           );
-          subtasksBySummary[k] = {
+
+          const key = it.summary.trim().toLowerCase();
+          subtasksBySummary[key] = {
             key: created.key,
             id: created.id,
             status: "",
           };
-        }
-      }
+          createdSummaries.push(it.summary);
 
+          // força a UI a “respirar” entre criações (evita parecer travado)
+          // (principalmente quando a API demora e React não repinta)
+          await new Promise((r) => setTimeout(r, 0));
+
+          showSyncOverlay({
+            current: i + 1,
+            created: [...createdSummaries],
+          });
+        }
+
+        showSyncOverlay({
+          title: "Subtarefas criadas",
+          message: `Foram criadas ${createdSummaries.length} subtarefas. Finalizando sincronização...`,
+          current: missing.length,
+          total: missing.length,
+          created: [...createdSummaries],
+        });
+      } else {
+        showSyncOverlay({
+          title: "Sincronizando com Jira",
+          message:
+            "Nenhuma subtarefa precisava ser criada. Atualizando checklist...",
+          current: 0,
+          total: 0,
+        });
+      }
+      // ----------------------------------------------------------------------
+
+      // Atualiza checkboxes com status vindo do Jira
       const newChecks = {};
       items.forEach((it) => {
         const s =
@@ -278,53 +363,79 @@ function ChecklistGMUDTab({
       });
       setCheckboxes((prev) => ({ ...prev, ...newChecks }));
 
-      alert(`Sincronização concluída para ${ticketJira}.`);
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao sincronizar com o Jira: " + e.message);
-    } finally {
-      setSyncing(false);
-    }
-
-    // Comentários e anexos
-    try {
-      const payload = await getComments(ticketJira);
-
-      // Scripts
-      {
-        const f = findTaggedComment(payload, SCRIPTS_TAG);
-        if (f.found) {
-          setScriptsComment({ id: f.id, originalText: f.textSemTag });
-          setScriptsAlterados(f.textSemTag);
-        } else {
-          setScriptsComment({ id: null, originalText: "" });
-        }
-      }
-
-      // Variáveis
-      {
-        const f = findTaggedComment(payload, VARS_TAG);
-        if (f.found) {
-          const norm = normalizeVarsText(f.textSemTag);
-          setVarsComment({ id: f.id, originalText: norm });
-          varsBaselineRef.current = new Set(norm.split("\n").filter(Boolean));
-
-          const rows = renderChavesFromText(f.textSemTag);
-          setChaves(rows);
-          recomputeVarsPendingNow(rows);
-        } else {
-          setVarsComment({ id: null, originalText: "" });
-          varsBaselineRef.current = new Set();
-          setChaves([]);
-          setVarsBanner(false);
-        }
-      }
+      // ----------- Comentários e anexos (também dentro do fluxo, com mensagem) -----------
+      showSyncOverlay({
+        title: "Carregando dados",
+        message: "Carregando comentários e anexos do Jira...",
+      });
 
       try {
-        await listarAnexos();
-      } catch {}
+        const payload = await getComments(ticketJira);
+
+        // Scripts
+        {
+          const f = findTaggedComment(payload, SCRIPTS_TAG);
+          if (f.found) {
+            setScriptsComment({ id: f.id, originalText: f.textSemTag });
+            setScriptsAlterados(f.textSemTag);
+          } else {
+            setScriptsComment({ id: null, originalText: "" });
+          }
+        }
+
+        // Variáveis
+        {
+          const f = findTaggedComment(payload, VARS_TAG);
+          if (f.found) {
+            const norm = normalizeVarsText(f.textSemTag);
+            setVarsComment({ id: f.id, originalText: norm });
+            varsBaselineRef.current = new Set(norm.split("\n").filter(Boolean));
+
+            const rows = renderChavesFromText(f.textSemTag);
+            setChaves(rows);
+            recomputeVarsPendingNow(rows);
+          } else {
+            setVarsComment({ id: null, originalText: "" });
+            varsBaselineRef.current = new Set();
+            setChaves([]);
+            setVarsBanner(false);
+          }
+        }
+
+        try {
+          await listarAnexos();
+        } catch {}
+      } catch (e) {
+        console.warn("Falha ao carregar comentários:", e);
+      }
+      // ----------------------------------------------------------------------
+
+      const msg =
+        createdSummaries.length > 0
+          ? `Sincronização concluída para ${ticketJira}. Subtarefas criadas: ${createdSummaries.length}.`
+          : `Sincronização concluída para ${ticketJira}.`;
+
+      showSyncOverlay({
+        title: "Concluído",
+        message: msg,
+        done: true,
+        created: [...createdSummaries],
+      });
+
+      alert(msg);
     } catch (e) {
-      console.warn("Falha ao carregar comentários:", e);
+      console.error(e);
+
+      showSyncOverlay({
+        title: "Erro",
+        message: "Erro ao sincronizar com o Jira.",
+        error: e?.message ? String(e.message) : String(e),
+        done: true,
+      });
+
+      alert("Erro ao sincronizar com o Jira: " + (e?.message || e));
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -560,6 +671,148 @@ function ChecklistGMUDTab({
 
   return (
     <>
+      {syncOverlay.open && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "min(560px, 100%)",
+              background: "#fff",
+              borderRadius: 16,
+              padding: 16,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+              border: "1px solid #eee",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div className="sync-spinner" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>
+                  {syncOverlay.title}
+                </div>
+                <div style={{ marginTop: 4, color: "#555", fontSize: 13 }}>
+                  {syncOverlay.message || "Processando..."}
+                </div>
+              </div>
+            </div>
+
+            {syncOverlay.total > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 12,
+                    color: "#666",
+                  }}
+                >
+                  <span>Progresso</span>
+                  <span>
+                    {syncOverlay.current}/{syncOverlay.total}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    height: 10,
+                    background: "#eee",
+                    borderRadius: 999,
+                    overflow: "hidden",
+                    marginTop: 6,
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${Math.round(
+                        (syncOverlay.current / syncOverlay.total) * 100
+                      )}%`,
+                      background: "#1677ff",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {syncOverlay.done && syncOverlay.created?.length > 0 && (
+              <div
+                style={{
+                  marginTop: 12,
+                  border: "1px solid #eee",
+                  borderRadius: 12,
+                  padding: 10,
+                  maxHeight: 160,
+                  overflow: "auto",
+                  background: "#fafafa",
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 6 }}>
+                  Subtarefas criadas:
+                </div>
+                <ul
+                  style={{ margin: "0 0 0 18px", fontSize: 12, color: "#333" }}
+                >
+                  {syncOverlay.created.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {syncOverlay.error && (
+              <div style={{ marginTop: 10, color: "#b00020", fontSize: 13 }}>
+                {syncOverlay.error}
+              </div>
+            )}
+
+            {syncOverlay.done && (
+              <div
+                style={{
+                  marginTop: 14,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                }}
+              >
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={closeSyncOverlay}
+                >
+                  Ok
+                </button>
+              </div>
+            )}
+
+            <style jsx>{`
+              .sync-spinner {
+                width: 18px;
+                height: 18px;
+                border-radius: 999px;
+                border: 3px solid #ddd;
+                border-top-color: #1677ff;
+                animation: spin 0.85s linear infinite;
+                flex: 0 0 auto;
+              }
+              @keyframes spin {
+                to {
+                  transform: rotate(360deg);
+                }
+              }
+            `}</style>
+          </div>
+        </div>
+      )}
+
       {/* Data limite (topo, destaque vermelho moderno) */}
       <div
         style={{
