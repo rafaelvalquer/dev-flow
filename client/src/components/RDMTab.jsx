@@ -6,6 +6,7 @@ import { gerarRdmDocx } from "../utils/rdmDocx";
 import { motion } from "framer-motion";
 import { buildCronogramaAtividades } from "../utils/buildCronograma";
 import { rdmCopilot } from "../lib/rdmCopilot";
+import RdmDocxPreviewModal from "./RdmDocxPreviewModal";
 
 /**
  * Observação:
@@ -89,6 +90,16 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
   const [copilotBusy, setCopilotBusy] = useState(false);
   const [copilotErr, setCopilotErr] = useState("");
   const [copilotOverwrite, setCopilotOverwrite] = useState(true);
+
+  //Preview word
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewRdm, setPreviewRdm] = useState(null);
+
+  function openPreview() {
+    // “congela” os dados para não regenerar a cada digitação dentro do modal
+    setPreviewRdm(clone(rdm));
+    setPreviewOpen(true);
+  }
 
   async function executarCopilot() {
     setCopilotErr("");
@@ -816,6 +827,10 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
 
       {/* ===== AÇÕES FINAIS FIXAS ===== */}
       <div className="rdm-actions fixed">
+        <button className="primary large" type="button" onClick={openPreview}>
+          <i className="fas fa-eye"></i> Preview final (DOCX)
+        </button>
+
         <button className="primary large" onClick={() => gerarRdmDocx(rdm)}>
           <i className="fas fa-file-word"></i> Gerar Documento Word (.docx)
         </button>
@@ -962,6 +977,13 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           </div>
         </div>
       )}
+
+      <RdmDocxPreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        rdm={previewRdm || rdm}
+        filename="RDM.docx"
+      />
     </motion.section>
   );
 }

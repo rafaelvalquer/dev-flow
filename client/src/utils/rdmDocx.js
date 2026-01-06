@@ -6,7 +6,7 @@ const DOCX_MIME =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 // ---------------------- download / template ----------------------
-function downloadBlob(blob, filename) {
+export function downloadDocxBlob(blob, filename = "RDM.docx") {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -73,15 +73,9 @@ const fmtDateTime = (isoOrDate) => {
   if (!isoOrDate) return "";
   const d = isoOrDate instanceof Date ? isoOrDate : parseToDate(isoOrDate);
   if (!d) return "";
-  return `${fmtDate(d)} ${fmtTime(d)}`;
-};
-
-// ✅ Mesmo valor, mas SEM espaço (útil se sua tabela do DOCX já tem separador)
-const fmtDateTimeNoSpace = (isoOrDate) => {
-  if (!isoOrDate) return "";
-  const d = isoOrDate instanceof Date ? isoOrDate : parseToDate(isoOrDate);
-  if (!d) return "";
-  return `${fmtDate(d)} ${fmtTime(d)}`; // mantive com espaço; pode trocar se quiser
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
 };
 
 const normalizeStep = (value, fallback = 15) => {
@@ -97,7 +91,7 @@ const addMinutesLocalIso = (iso, min) => {
   return toLocalIsoMinute(d);
 };
 
-// ✅ Monta sequência com horários; SEMPRE consome step
+// ✅ Monta sequência com horários; SEMPRE consome step (não repete horário)
 function scheduleWithStep(inicioIso, stepMin, items) {
   const step = normalizeStep(stepMin, 15);
   if (!inicioIso) return [];
@@ -107,22 +101,22 @@ function scheduleWithStep(inicioIso, stepMin, items) {
 
   return (items || []).map((it) => {
     const start = new Date(cursor.getTime());
+
+    // ✅ SEMPRE avança o cursor
     cursor.setMinutes(cursor.getMinutes() + step);
 
     const startIso = toLocalIsoMinute(start);
 
     return {
       ...(it || {}),
-      dataHora: startIso, // ISO local (YYYY-MM-DDTHH:mm)
-      dataFmt: fmtDate(start), // ✅ "DD/MM/YYYY"
-      horaFmt: fmtTime(start), // "HH:mm"
-      dataHoraFmt: fmtDateTime(start), // ✅ "DD/MM/YYYY HH:mm"
-      // se quiser um campo só "dataHoraTabela", use esse:
-      dataHoraTabela: fmtDateTimeNoSpace(start),
+      dataHora: startIso,
+      dataHoraFmt: fmtDateTime(start),
+      horaFmt: fmtTime(start),
     };
   });
 }
 
+// ✅ Próximo início = último início + step (sempre)
 function nextStartAfter(seq, currentStart, stepMin) {
   const step = normalizeStep(stepMin, 15);
   if (!seq || !seq.length) return currentStart;
@@ -203,8 +197,8 @@ const ROLLBACK_AFTER = [
   },
 ];
 
-// ---------------------- main ----------------------
-export async function gerarRdmDocx(rdm, opts = {}) {
+// ---------------------- NOVO: build blob (sem baixar) ----------------------
+export async function buildRdmDocxBlob(rdm, opts = {}) {
   const templateUrl = opts.templateUrl ?? "/templates/Modelo-RDM.docx";
   const STEP_MIN = normalizeStep(opts.stepMinutes ?? rdm?.stepMinutes, 15);
 
@@ -435,17 +429,18 @@ export async function gerarRdmDocx(rdm, opts = {}) {
     delimiters: { start: "{", end: "}" },
   });
 
-  try {
-    doc.render(data);
-  } catch (e) {
-    console.error("Erro docxtemplater:", e);
-    throw e;
-  }
+  doc.render(data);
 
-  const out = doc.getZip().generate({
+  const outBlob = doc.getZip().generate({
     type: "blob",
     mimeType: DOCX_MIME,
   });
 
-  downloadBlob(out, "RDM.docx");
+  return outBlob;
+}
+
+// ---------------------- Mantém o botão antigo “Gerar DOCX” ----------------------
+export async function gerarRdmDocx(rdm, opts = {}) {
+  const blob = await buildRdmDocxBlob(rdm, opts);
+  downloadDocxBlob(blob, opts.filename ?? "RDM.docx");
 }
