@@ -1,3 +1,12 @@
+// server/server.js  (ou o caminho onde seu server.js está)
+// Copie e cole este arquivo inteiro.
+//
+// Requisitos:
+// - Node 18+ (fetch global)
+// - package.json com "type": "module"
+// - .env com GEMINI_API_KEY (e opcional GEMINI_MODEL)
+// - arquivo: ./lib/rdmCopilotGemini.js (com export registerRdmCopilotRoutes)
+
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -5,13 +14,9 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import { Readable } from "node:stream";
+import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
 
 dotenv.config();
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +25,21 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ---------- Config Jira ----------
+// Upload (memória) - usado pelo Jira e também pelo Co-pilot
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+});
+
+// =====================================================
+// Gemini Co-pilot (RDM) - REGISTRA A ROTA AQUI
+// =====================================================
+// Importante: registrar depois de criar `app` e `upload`.
+registerRdmCopilotRoutes(app, upload, process.env);
+
+// =====================================================
+// Jira Proxy
+// =====================================================
 const JIRA_BASE =
   process.env.JIRA_BASE || "https://clarobr-jsw-tecnologia.atlassian.net";
 const JIRA_EMAIL = process.env.JIRA_EMAIL;
@@ -45,8 +64,6 @@ function sendUpstream(res, r, fallbackType = "application/json") {
   res.type(ct);
   return r.text().then((t) => res.send(t));
 }
-
-// ---------- Endpoints de proxy Jira ----------
 
 // GET issue (fields controláveis)
 app.get("/api/jira/issue/:key", async (req, res) => {
@@ -260,6 +277,7 @@ app.get("/api/jira/attachment/:id/download", async (req, res) => {
       headers: jiraHeaders({ Accept: "*/*" }),
       redirect: "manual",
     });
+
     let finalResp = first;
     if ([301, 302, 303, 307, 308].includes(first.status)) {
       const loc = first.headers.get("location");
@@ -273,8 +291,10 @@ app.get("/api/jira/attachment/:id/download", async (req, res) => {
       // 3) Segue para S3 (sem Authorization)
       finalResp = await fetch(loc, { headers: { Accept: "*/*" } });
     }
-    if (!finalResp.ok || !finalResp.body)
+
+    if (!finalResp.ok || !finalResp.body) {
       return sendUpstream(res, finalResp, "text/plain");
+    }
 
     // 4) Cabeçalhos e stream
     res.setHeader(
@@ -302,7 +322,9 @@ app.get("/api/jira/attachment/:id/download", async (req, res) => {
   }
 });
 
+// =====================================================
 // Produção: servir build do Vite
+// =====================================================
 const clientDist = path.join(__dirname, "..", "client", "dist");
 app.use(express.static(clientDist));
 

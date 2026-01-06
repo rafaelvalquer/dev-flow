@@ -80,6 +80,7 @@ function ChecklistGMUDTab({
   const [uploading, setUploading] = useState(false);
 
   const [dataLimite, setDataLimite] = useState("");
+  const [dataLimiteLabel, setDataLimiteLabel] = useState("Data limite:");
 
   function fmtDueDate(yyyyMmDd) {
     if (!yyyyMmDd) return "";
@@ -189,16 +190,42 @@ function ChecklistGMUDTab({
 
       const issue = await getIssue(
         ticketJira,
-        "summary,subtasks,status,project,description,customfield_10903,duedate"
+        "summary,subtasks,status,project,description,customfield_10903,duedate,customfield_11519"
       );
+
       // envia o título para o App (preencher a aba RDM)
       onRdmTitleChange?.(issue?.fields?.summary || "");
-      onRdmDueDateChange?.(issue?.fields?.duedate || "");
+
+      // ----------- Data limite com override -----------
+      const fields = issue?.fields ?? {};
+      const customDueRaw = fields.customfield_11519;
+
+      // Jira pode retornar string "YYYY-MM-DD" ou objeto (depende do tipo do campo),
+      // então tratamos ambos.
+      const customDue =
+        typeof customDueRaw === "string"
+          ? customDueRaw.trim()
+          : customDueRaw?.value
+          ? String(customDueRaw.value).trim()
+          : "";
+
+      const hasCustomDue =
+        typeof customDue === "string" && /^\d{4}-\d{2}-\d{2}/.test(customDue);
+
+      const duePicked = (hasCustomDue ? customDue : fields.duedate) || "";
+
+      setDataLimite(duePicked);
+      setDataLimiteLabel(
+        hasCustomDue ? "Data limite Aleterada:" : "Data limite:"
+      );
+
+      // prop para o App/RDM
+      onRdmDueDateChange?.(duePicked);
+      // -----------------------------------------------
 
       const projectId = issue.fields.project.id;
       const subtasks = issue.fields.subtasks || [];
       const subtasksBySummary = {};
-      setDataLimite(issue?.fields?.duedate || "");
 
       const descText = adfSafeToText(issue?.fields?.description);
       const criteriosText = adfSafeToText(issue?.fields?.customfield_10903);
@@ -555,8 +582,8 @@ function ChecklistGMUDTab({
             display: "flex",
             alignItems: "center",
             gap: 8,
-            backdropFilter: "blur(4px)", // Efeito glassmorphism sutil (moderno)
-            animation: "pulse 2s infinite alternate", // Opcional: animação sutil se urgente
+            backdropFilter: "blur(4px)",
+            animation: "pulse 2s infinite alternate",
           }}
         >
           <svg
@@ -571,11 +598,13 @@ function ChecklistGMUDTab({
             <path d="M12 8v4l3 3" />
             <circle cx="12" cy="12" r="10" />
           </svg>
-          <span>Data limite: {dataLimite ? fmtDueDate(dataLimite) : "—"}</span>
+          <span>
+            {dataLimiteLabel} {dataLimite ? fmtDueDate(dataLimite) : "—"}
+          </span>
         </div>
       </div>
 
-      {/* Animação opcional (adicione no estilo global ou aqui) */}
+      {/* Animação opcional */}
       <style jsx>{`
         @keyframes pulse {
           from {
