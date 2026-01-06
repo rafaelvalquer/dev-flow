@@ -780,7 +780,6 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         <i className="fas fa-undo-alt"></i>
         <h2>Plano de Rollback</h2>
       </div>
-
       <div className="rdm-grid">
         <div className="rdm-card span-2">
           {rdm.rollbackPlan.map((row, idx) => (
@@ -808,7 +807,6 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               </button>
             </div>
           ))}
-
           <button
             type="button"
             className="primary small"
@@ -825,31 +823,81 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
       </div>
 
-      {/* ===== AÇÕES FINAIS FIXAS ===== */}
-      <div className="rdm-actions fixed">
-        <button className="primary large" type="button" onClick={openPreview}>
-          <i className="fas fa-eye"></i> Preview final (DOCX)
-        </button>
-
-        <button className="primary large" onClick={() => gerarRdmDocx(rdm)}>
-          <i className="fas fa-file-word"></i> Gerar Documento Word (.docx)
-        </button>
-
-        <button
-          className="primary"
-          type="button"
-          onClick={() => {
-            setCopilotErr("");
-            setCopilotOpen(true);
+      {/* ===== AÇÕES FINAIS FIXAS (layout mais intuitivo e compacto) ===== */}
+      <div className="rdm-fixed-bar">
+        <div
+          className="rdm-fixed-inner"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
           }}
         >
-          <i className="fas fa-robot"></i> Co-pilot
-        </button>
+          {/* Título + hint (separa visualmente sem criar “vão”) */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span style={{ fontWeight: 900, color: "#222" }}>Ações finais</span>
+            <span style={{ fontSize: 12, color: "#666" }}>
+              (recomendo validar no Preview antes de baixar)
+            </span>
+          </div>
 
-        <button className="primary pdf" onClick={() => window.print()}>
-          <i className="fas fa-print"></i> Imprimir / Gerar PDF
-        </button>
+          {/* Botões agrupados (gap controlado e sem margin padrão) */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexWrap: "wrap",
+              gap: 10,
+            }}
+          >
+            <button
+              style={{ margin: 0 }}
+              onClick={openPreview}
+              className="primary btn-red flex items-center gap-2 px-5 py-3 rounded-xl font-bold shadow-xl"
+              title="Ver como vai sair no DOCX"
+            >
+              <i className="fas fa-eye"></i> Preview
+            </button>
+
+            <button
+              style={{ margin: 0 }}
+              onClick={() => gerarRdmDocx(rdm)}
+              className="primary btn-red flex items-center gap-2 px-5 py-3 rounded-xl font-bold shadow-xl"
+              title="Gerar o DOCX final"
+            >
+              <i className="fas fa-file-word"></i> Gerar DOCX
+            </button>
+
+            <button
+              style={{ margin: 0 }}
+              type="button"
+              onClick={() => {
+                setCopilotErr("");
+                setCopilotOpen(true);
+              }}
+              className="primary btn-red flex items-center gap-2 px-4 py-3 rounded-xl font-semibold shadow-md"
+              title="Preencher campos com Co-pilot"
+            >
+              <i className="fas fa-robot"></i> Co-pilot
+            </button>
+
+            <button
+              style={{ margin: 0 }}
+              onClick={() => window.print()}
+              className="primary btn-red flex items-center gap-2 px-4 py-3 rounded-xl font-semibold shadow-md"
+              title="Imprimir ou gerar PDF"
+            >
+              <i className="fas fa-print"></i> Imprimir/PDF
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* “Safe area” para o conteúdo final não ficar escondido atrás da barra fixa */}
+      <div aria-hidden="true" style={{ height: 96 }} />
 
       <datalist id="lista-pessoas">
         {nomesPessoas.map((n) => (
@@ -967,9 +1015,9 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
 
               <button
                 type="button"
-                className="primary"
                 onClick={executarCopilot}
                 disabled={copilotBusy}
+                className="flex items-center gap-2 px-6 py-3 bg-[#e30613] text-white rounded-xl font-semibold shadow-md hover:bg-[#c41f14] transition duration-200"
               >
                 {copilotBusy ? "Processando..." : "Executar Co-pilot"}
               </button>

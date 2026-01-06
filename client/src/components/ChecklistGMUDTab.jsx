@@ -422,7 +422,7 @@ function ChecklistGMUDTab({
         created: [...createdSummaries],
       });
 
-      alert(msg);
+      //alert(msg);  Sem alerta, apenas o modal.
     } catch (e) {
       console.error(e);
 

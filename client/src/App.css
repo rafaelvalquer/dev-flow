@@ -203,12 +203,8 @@ button {
   cursor: pointer;
 }
 .primary {
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  padding: 12px 20px;
-  font-weight: 600;
+  background: var(--primary) !important;
+  color: #fff !important;
 }
 .primary[disabled] {
   opacity: 0.6;
@@ -566,4 +562,11 @@ button {
 .rdm-actions button.large {
   font-size: 18px;
   padding: 14px 32px;
+}
+.btn-red {
+  background: var(--primary) !important;
+  color: #fff !important;
+}
+.btn-red:hover {
+  background: #c41f14 !important;
 }
