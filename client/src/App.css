@@ -570,3 +570,88 @@ button {
 .btn-red:hover {
   background: #c41f14 !important;
 }
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.phase-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.phase-card.active {
+  border-color: #007bff;
+  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.2);
+}
+
+.phase-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.phase-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.phase-title h2 {
+  margin: 0;
+  font-size: 1.2em;
+}
+
+.phase-actions button {
+  white-space: nowrap;
+}
+
+.progress-phase {
+  position: relative;
+  height: 8px;
+  background: #eee;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.progress-phase .bar {
+  height: 100%;
+  background: #28a745;
+  border-radius: 4px;
+}
+
+.progress-phase .progress-label {
+  position: absolute;
+  top: -20px;
+  right: 0;
+  font-size: 0.8em;
+  color: #666;
+}
+
+.checklist-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.checklist-item.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checklist-item.checked label {
+  text-decoration: line-through;
+  color: #666;
+}

@@ -1245,98 +1245,95 @@ function ChecklistGMUDTab({
       </div>
 
       {/* Fases */}
+      {/* Fases */}
       <div className="checklist-grid">
         {PHASES.map((p, idx) => {
           const pct = calcPhasePct(p.ids, checkboxes);
           const complete = pct === 100;
+          const isCandidate = idx === unlockedPhaseIdx;
+          const nextIdx = idx + 1;
+          const hasNext = nextIdx < PHASES.length;
 
           return (
             <div
               key={p.key}
-              className={`phase-card ${complete ? "complete" : ""}`}
-              title={`${pct}%`}
+              className={`phase-card ${complete ? "complete" : ""} ${
+                isCandidate ? "active" : ""
+              }`}
+              title={`${pct}% concluído`}
             >
-              <div
-                className="phase-header"
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 10,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="phase-header">
+                <div className="phase-title">
                   <i className={p.icon} />
-                  <h2 style={{ margin: 0 }}>{p.title}</h2>
+                  <h2>{p.title}</h2>
                 </div>
-
-                {(() => {
-                  const pct = calcPhasePct(p.ids, checkboxes);
-                  const complete = pct === 100;
-
-                  // ✅ somente o step ATUAL (liberado) pode liberar o próximo
-                  const isCandidate = idx === unlockedPhaseIdx;
-
-                  const nextIdx = idx + 1;
-                  const hasNext = nextIdx < PHASES.length;
-
-                  const label = hasNext
-                    ? `Liberar: ${PHASES[nextIdx].title}`
-                    : "Finalizar checklist";
-
-                  const disabled =
-                    !jiraCtx || advancingStep || !isCandidate || !complete;
-
-                  const title = !jiraCtx
-                    ? "Sincronize com o Jira antes."
-                    : !isCandidate
-                    ? "Apenas o step atual pode liberar o próximo."
-                    : !complete
-                    ? "Conclua este step para liberar o próximo."
-                    : "";
-
-                  return (
+                <div className="phase-actions">
+                  {hasNext && isCandidate && complete && (
                     <button
                       type="button"
                       className="primary"
-                      disabled={disabled}
-                      title={title}
-                      onClick={() =>
-                        openStepGate(idx, hasNext ? nextIdx : PHASES.length)
+                      disabled={!jiraCtx || advancingStep || !complete}
+                      title={
+                        !jiraCtx
+                          ? "Sincronize com o Jira antes."
+                          : !complete
+                          ? "Conclua este step para liberar o próximo."
+                          : ""
                       }
-                      style={{ whiteSpace: "nowrap" }}
+                      onClick={() => openStepGate(idx, nextIdx)}
                     >
-                      {label}
+                      Liberar: {PHASES[nextIdx].title}
                     </button>
-                  );
-                })()}
+                  )}
+                  {!hasNext && isCandidate && complete && (
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={!jiraCtx || advancingStep || !complete}
+                      title={
+                        !jiraCtx
+                          ? "Sincronize com o Jira antes."
+                          : !complete
+                          ? "Conclua este step para finalizar."
+                          : ""
+                      }
+                      onClick={() => openStepGate(idx, PHASES.length)}
+                    >
+                      Finalizar checklist
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="progress-phase">
                 <div className="bar" style={{ width: `${pct}%` }} />
+                <span className="progress-label">{pct}%</span>
               </div>
 
-              {p.ids.map((id) => {
-                const locked =
-                  !!jiraCtx && PHASE_INDEX_BY_ID[id] > unlockedPhaseIdx;
+              <ul className="checklist-items">
+                {p.ids.map((id) => {
+                  const locked =
+                    !!jiraCtx && PHASE_INDEX_BY_ID[id] > unlockedPhaseIdx;
 
-                return (
-                  <div
-                    key={id}
-                    className={`checklist-item ${
-                      checkboxes[id] ? "checked" : ""
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!checkboxes[id]}
-                      disabled={locked}
-                      onChange={() => onToggleChecklist(id)}
-                    />
-                    <label>{LABELS[id]}</label>
-                  </div>
-                );
-              })}
+                  return (
+                    <li
+                      key={id}
+                      className={`checklist-item ${
+                        checkboxes[id] ? "checked" : ""
+                      } ${locked ? "locked" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        id={`check-${id}`}
+                        checked={!!checkboxes[id]}
+                        disabled={locked}
+                        onChange={() => onToggleChecklist(id)}
+                      />
+                      <label htmlFor={`check-${id}`}>{LABELS[id]}</label>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           );
         })}
@@ -1348,7 +1345,7 @@ function ChecklistGMUDTab({
           className={`tab-btn ${activeTab === "scripts" ? "active" : ""}`}
           onClick={() => setActiveTab("scripts")}
         >
-          Scripts / Artefatos
+          Scripts
         </button>
         <button
           className={`tab-btn ${activeTab === "vars" ? "active" : ""}`}
