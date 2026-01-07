@@ -8,6 +8,7 @@ import {
   updateComment,
   createSubtask,
   transitionToDone,
+  transitionToBacklog,
   uploadAttachments,
   listAttachments,
   buildDownloadLinks,
@@ -31,6 +32,10 @@ import {
   buildVarsText,
   calcGeralPct,
   calcPhasePct,
+  PHASE_INDEX_BY_ID,
+  computeUnlockedPhaseIdx,
+  getChecklistItemsForPhase,
+  isDoneSubtask,
 } from "../utils/gmudUtils";
 
 function ChecklistGMUDTab({
@@ -93,6 +98,26 @@ function ChecklistGMUDTab({
     done: false,
     error: "",
   });
+
+  const [unlockedPhaseIdx, setUnlockedPhaseIdx] = useState(PHASES.length);
+
+  const [stepGate, setStepGate] = useState({
+    open: false,
+    fromIdx: null,
+    toIdx: null,
+  });
+
+  const [advancingStep, setAdvancingStep] = useState(false);
+
+  const jiraCtxRef = useRef(null);
+  useEffect(() => {
+    jiraCtxRef.current = jiraCtx;
+  }, [jiraCtx]);
+
+  const unlockedIdxRef = useRef(PHASES.length);
+  useEffect(() => {
+    unlockedIdxRef.current = unlockedPhaseIdx;
+  }, [unlockedPhaseIdx]);
 
   // helper opcional (facilita atualizar)
   function showSyncOverlay(patch) {
@@ -200,6 +225,136 @@ function ChecklistGMUDTab({
     if (typeof onProgressChange === "function") onProgressChange(geralPct);
   }, [geralPct, onProgressChange]);
 
+  // ====== Avanço manual de step (UI) ======
+  async function ensurePhaseSubtasks(phaseIdx, ctx) {
+    const phase = PHASES[phaseIdx];
+    if (!phase) return { nextMap: ctx.subtasksBySummary, createdSummaries: [] };
+
+    const phaseItems = getChecklistItemsForPhase(phaseIdx);
+    const missing = phaseItems.filter((it) => {
+      const k = it.summary.trim().toLowerCase();
+      return !ctx.subtasksBySummary?.[k];
+    });
+
+    if (!missing.length) {
+      return { nextMap: ctx.subtasksBySummary, createdSummaries: [] };
+    }
+
+    showSyncOverlay({
+      title: `Criando subtarefas - ${phase.title}`,
+      message: `Criando subtarefas (${0}/${missing.length})...`,
+      current: 0,
+      total: missing.length,
+      created: [],
+    });
+
+    const nextMap = { ...(ctx.subtasksBySummary || {}) };
+    const createdSummaries = [];
+
+    for (let i = 0; i < missing.length; i++) {
+      const it = missing[i];
+
+      showSyncOverlay({
+        message: `Criando subtarefas (${i + 1}/${missing.length})...`,
+        current: i,
+        total: missing.length,
+      });
+
+      const created = await createSubtask(
+        ctx.projectId,
+        ctx.ticketKey,
+        it.summary
+      );
+
+      const key = it.summary.trim().toLowerCase();
+      nextMap[key] = {
+        key: created.key,
+        id: created.id,
+        status: "",
+        statusCategory: "",
+      };
+
+      createdSummaries.push(it.summary);
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      showSyncOverlay({
+        current: i + 1,
+        created: [...createdSummaries],
+      });
+    }
+
+    return { nextMap, createdSummaries };
+  }
+
+  function openStepGate(fromIdx, toIdx) {
+    setStepGate({ open: true, fromIdx, toIdx });
+  }
+
+  function closeStepGate() {
+    setStepGate((prev) => ({ ...prev, open: false }));
+    setAdvancingStep(false);
+  }
+
+  async function avancarParaProximoStep() {
+    const toIdx = stepGate.toIdx;
+
+    if (toIdx == null) return closeStepGate();
+
+    // Se acabou todas as fases
+    if (toIdx >= PHASES.length) return closeStepGate();
+
+    if (!jiraCtx) {
+      alert("Sincronize com o Jira antes.");
+      return;
+    }
+
+    setAdvancingStep(true);
+
+    try {
+      const ensured = await ensurePhaseSubtasks(toIdx, {
+        projectId: jiraCtx.projectId,
+        ticketKey: jiraCtx.ticketKey,
+        subtasksBySummary: jiraCtx.subtasksBySummary,
+      });
+
+      // Atualiza mapa e libera fase
+      setJiraCtx((ctx) => ({
+        ...ctx,
+        subtasksBySummary: ensured.nextMap,
+      }));
+
+      setUnlockedPhaseIdx(toIdx);
+
+      // Fecha o modal do gate
+      closeStepGate();
+
+      // Mostra modal final (aproveita seu syncOverlay com botão OK)
+      showSyncOverlay({
+        title: "Próximo step liberado",
+        message:
+          ensured.createdSummaries.length > 0
+            ? `Fase "${PHASES[toIdx].title}" liberada. Subtarefas criadas: ${ensured.createdSummaries.length}.`
+            : `Fase "${PHASES[toIdx].title}" liberada. Nenhuma subtarefa nova precisou ser criada.`,
+        done: true,
+        created: ensured.createdSummaries,
+        current: ensured.createdSummaries.length,
+        total: ensured.createdSummaries.length,
+      });
+    } catch (e) {
+      console.error(e);
+
+      showSyncOverlay({
+        title: "Erro",
+        message: "Erro ao liberar o próximo step.",
+        error: e?.message ? String(e.message) : String(e),
+        done: true,
+      });
+    } finally {
+      setAdvancingStep(false);
+    }
+  }
+
   /* ---------- Jira: sincronização ---------- */
 
   async function sincronizarJira() {
@@ -257,7 +412,7 @@ function ChecklistGMUDTab({
 
       const projectId = issue.fields.project.id;
       const subtasks = issue.fields.subtasks || [];
-      const subtasksBySummary = {};
+      let subtasksBySummary = {};
 
       const descText = adfSafeToText(issue?.fields?.description);
       const criteriosText = adfSafeToText(issue?.fields?.customfield_10903);
@@ -271,6 +426,7 @@ function ChecklistGMUDTab({
             key: st.key,
             id: st.id,
             status: st.fields?.status?.name || "",
+            statusCategory: st.fields?.status?.statusCategory?.key || "",
           };
         }
       });
@@ -283,87 +439,49 @@ function ChecklistGMUDTab({
         setNomeProjeto(parsed.checklist);
       }
 
-      // ----------- Criar subtarefas faltantes com overlay/progresso -----------
+      // ----------- Criar subtarefas faltantes APENAS da fase atual (step) -----------
       const items = getChecklistItems();
-      const missing = items.filter((it) => {
-        const k = it.summary.trim().toLowerCase();
-        return !subtasksBySummary[k];
-      });
 
-      const createdSummaries = [];
+      // Descobre qual fase está liberada (primeira não-concluída)
+      const initialUnlockedIdx = computeUnlockedPhaseIdx(subtasksBySummary);
+      setUnlockedPhaseIdx(initialUnlockedIdx);
 
-      if (missing.length) {
-        showSyncOverlay({
-          title: "Criando subtarefas",
-          message: `Criando subtarefas (${0}/${missing.length})...`,
-          current: 0,
-          total: missing.length,
-          created: [],
-        });
+      let createdSummaries = [];
 
-        for (let i = 0; i < missing.length; i++) {
-          const it = missing[i];
+      if (initialUnlockedIdx < PHASES.length) {
+        const ensureCtx = {
+          ticketKey: issue.key,
+          projectId,
+          subtasksBySummary,
+        };
+        const ensured = await ensurePhaseSubtasks(
+          initialUnlockedIdx,
+          ensureCtx
+        );
 
-          showSyncOverlay({
-            message: `Criando subtarefas (${i + 1}/${missing.length})...`,
-            current: i,
-            total: missing.length,
-          });
+        subtasksBySummary = ensured.nextMap;
+        createdSummaries = ensured.createdSummaries;
 
-          const created = await createSubtask(
-            projectId,
-            ticketJira,
-            it.summary
-          );
-
-          const key = it.summary.trim().toLowerCase();
-          subtasksBySummary[key] = {
-            key: created.key,
-            id: created.id,
-            status: "",
-          };
-          createdSummaries.push(it.summary);
-
-          // força a UI a “respirar” entre criações (evita parecer travado)
-          // (principalmente quando a API demora e React não repinta)
-          await new Promise((r) => setTimeout(r, 0));
-
-          showSyncOverlay({
-            current: i + 1,
-            created: [...createdSummaries],
-          });
-        }
-
-        showSyncOverlay({
-          title: "Subtarefas criadas",
-          message: `Foram criadas ${createdSummaries.length} subtarefas. Finalizando sincronização...`,
-          current: missing.length,
-          total: missing.length,
-          created: [...createdSummaries],
-        });
+        // Atualiza ctx do Jira com o mapa pós-criação
+        setJiraCtx({ ticketKey: issue.key, projectId, subtasksBySummary });
       } else {
-        showSyncOverlay({
-          title: "Sincronizando com Jira",
-          message:
-            "Nenhuma subtarefa precisava ser criada. Atualizando checklist...",
-          current: 0,
-          total: 0,
-        });
+        // Tudo concluído
+        setJiraCtx({ ticketKey: issue.key, projectId, subtasksBySummary });
       }
       // ----------------------------------------------------------------------
 
       // Atualiza checkboxes com status vindo do Jira
       const newChecks = {};
       items.forEach((it) => {
-        const s =
-          subtasksBySummary[
-            it.summary.trim().toLowerCase()
-          ]?.status?.toLowerCase() || "";
-        newChecks[it.id] = ["concluído", "concluido", "done"].includes(s);
+        const st = subtasksBySummary[it.summary.trim().toLowerCase()];
+        newChecks[it.id] = !!st && isDoneSubtask(st);
       });
       setCheckboxes((prev) => ({ ...prev, ...newChecks }));
 
-      // ----------- Comentários e anexos (também dentro do fluxo, com mensagem) -----------
+      // Recalcula fase liberada
+      setUnlockedPhaseIdx(computeUnlockedPhaseIdx(subtasksBySummary));
+
+      // ----------- Comentários e anexos -----------
       showSyncOverlay({
         title: "Carregando dados",
         message: "Carregando comentários e anexos do Jira...",
@@ -440,45 +558,131 @@ function ChecklistGMUDTab({
   }
 
   async function onToggleChecklist(id) {
-    const checked = !checkboxes[id];
-
-    if (!checked) {
-      setCheckboxes({ ...checkboxes, [id]: false });
-      return;
-    }
-
-    setCheckboxes({ ...checkboxes, [id]: true });
-
-    if (!jiraCtx) {
-      alert("Sincronize com o Jira antes.");
-      return;
-    }
-
-    const summary = LABELS[id] || id;
-    const key = summary.toLowerCase();
-    let sub = jiraCtx.subtasksBySummary?.[key];
+    // trava por item (evita clique rápido disparar duas requisições concorrentes)
+    if (!onToggleChecklist._inFlight) onToggleChecklist._inFlight = new Set();
+    const inFlight = onToggleChecklist._inFlight;
+    if (inFlight.has(id)) return;
+    inFlight.add(id);
 
     try {
-      if (!sub) {
-        const created = await createSubtask(
-          jiraCtx.projectId,
-          jiraCtx.ticketKey,
-          summary
-        );
-        sub = { key: created.key, id: created.id, status: "" };
+      const currentJiraCtx = jiraCtxRef.current;
 
-        setJiraCtx((ctx) => ({
-          ...ctx,
-          subtasksBySummary: { ...ctx.subtasksBySummary, [key]: sub },
-        }));
+      if (currentJiraCtx) {
+        const phaseIdx = PHASE_INDEX_BY_ID[id];
+        const unlockedNow = unlockedIdxRef.current;
+
+        if (typeof phaseIdx === "number" && phaseIdx > unlockedNow) {
+          const current = PHASES[unlockedNow]?.title || "Fase atual";
+          const target = PHASES[phaseIdx]?.title || "Fase";
+          alert(`"${target}" ainda não está liberada. Conclua: "${current}".`);
+          return;
+        }
       }
 
-      await transitionToDone(sub.key);
-      sub.status = "Concluído";
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao concluir subtarefa no Jira: " + e.message);
-      setCheckboxes((prev) => ({ ...prev, [id]: false }));
+      const isChecked = !!checkboxes[id]; // mantém como está no seu código
+      const summary = (LABELS[id] || id).trim();
+      const mapKey = summary.toLowerCase();
+
+      // ---------- DESMARCAR: volta no Jira ----------
+      if (isChecked) {
+        // UI primeiro
+        setCheckboxes((prev) => ({ ...prev, [id]: false }));
+
+        if (!currentJiraCtx) return;
+
+        const existing = currentJiraCtx.subtasksBySummary?.[mapKey];
+        if (!existing?.key) return;
+
+        try {
+          const backPayload = await transitionToBacklog(existing.key);
+
+          // calcula antes (evita ReferenceError por variável fora do escopo)
+          const newStatus = backPayload?.status || "Backlog";
+          const newCategory = backPayload?.statusCategory || "new";
+
+          setJiraCtx((ctx) => {
+            if (!ctx) return ctx;
+
+            const base = ctx.subtasksBySummary || {};
+            const prev = base[mapKey] || {};
+
+            return {
+              ...ctx,
+              subtasksBySummary: {
+                ...base,
+                [mapKey]: {
+                  ...prev,
+                  ...(existing || {}),
+                  status: newStatus,
+                  statusCategory: newCategory,
+                },
+              },
+            };
+          });
+
+          const phaseIdx = PHASE_INDEX_BY_ID[id];
+          if (typeof phaseIdx === "number") {
+            setUnlockedPhaseIdx((prev) => Math.min(prev, phaseIdx));
+          }
+
+          if (stepGate?.open) closeStepGate();
+        } catch (e) {
+          console.error(e);
+          alert("Erro ao retornar subtarefa: " + (e?.message || e));
+          setCheckboxes((prev) => ({ ...prev, [id]: true }));
+        }
+
+        return;
+      }
+
+      // ---------- MARCAR: conclui no Jira ----------
+      if (!currentJiraCtx) {
+        alert("Sincronize com o Jira antes.");
+        return;
+      }
+
+      // UI primeiro
+      setCheckboxes((prev) => ({ ...prev, [id]: true }));
+
+      let sub = currentJiraCtx.subtasksBySummary?.[mapKey];
+
+      try {
+        // garante subtask
+        if (!sub) {
+          const created = await createSubtask(
+            currentJiraCtx.projectId,
+            currentJiraCtx.ticketKey,
+            summary
+          );
+
+          sub = {
+            key: created.key,
+            id: created.id,
+            status: "",
+            statusCategory: "",
+          };
+
+          setJiraCtx((ctx) => {
+            if (!ctx) return ctx;
+            const base = ctx.subtasksBySummary || {};
+            return {
+              ...ctx,
+              subtasksBySummary: {
+                ...base,
+                [mapKey]: sub,
+              },
+            };
+          });
+        }
+
+        await transitionToDone(sub.key);
+      } catch (e) {
+        console.error(e);
+        alert("Erro ao concluir subtarefa no Jira: " + (e?.message || e));
+        setCheckboxes((prev) => ({ ...prev, [id]: false }));
+      }
+    } finally {
+      inFlight.delete(id);
     }
   }
 
@@ -671,6 +875,110 @@ function ChecklistGMUDTab({
 
   return (
     <>
+      {stepGate.open && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "min(560px, 100%)",
+              background: "#fff",
+              borderRadius: 16,
+              padding: 16,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+              border: "1px solid #eee",
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 16 }}>
+              {stepGate.toIdx >= PHASES.length
+                ? "Checklist concluído"
+                : "Step concluído"}
+            </div>
+
+            <div style={{ marginTop: 6, color: "#555", fontSize: 13 }}>
+              {stepGate.toIdx >= PHASES.length ? (
+                <>
+                  Você concluiu a última fase:{" "}
+                  <strong>{PHASES[stepGate.fromIdx]?.title}</strong>.
+                </>
+              ) : (
+                <>
+                  Você concluiu a fase:{" "}
+                  <strong>{PHASES[stepGate.fromIdx]?.title}</strong>.
+                  <br />
+                  Clique para liberar o próximo step:{" "}
+                  <strong>{PHASES[stepGate.toIdx]?.title}</strong>.
+                </>
+              )}
+            </div>
+
+            {stepGate.toIdx < PHASES.length && (
+              <div
+                style={{
+                  marginTop: 12,
+                  border: "1px solid #eee",
+                  borderRadius: 12,
+                  padding: 10,
+                  background: "#fafafa",
+                  maxHeight: 180,
+                  overflow: "auto",
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 6 }}>
+                  Itens do próximo step:
+                </div>
+                <ul
+                  style={{ margin: "0 0 0 18px", fontSize: 12, color: "#333" }}
+                >
+                  {PHASES[stepGate.toIdx].ids.map((cid) => (
+                    <li key={cid}>{LABELS[cid]}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={closeStepGate}
+                disabled={advancingStep}
+              >
+                Agora não
+              </button>
+
+              <button
+                type="button"
+                className="primary"
+                onClick={avancarParaProximoStep}
+                disabled={advancingStep}
+              >
+                {advancingStep
+                  ? "Liberando..."
+                  : stepGate.toIdx >= PHASES.length
+                  ? "Ok"
+                  : `Ir para ${PHASES[stepGate.toIdx].title}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {syncOverlay.open && (
         <div
           style={{
@@ -793,22 +1101,20 @@ function ChecklistGMUDTab({
               </div>
             )}
 
-            <style jsx>{`
-              .sync-spinner {
-                width: 18px;
-                height: 18px;
-                border-radius: 999px;
-                border: 3px solid #ddd;
-                border-top-color: #1677ff;
-                animation: spin 0.85s linear infinite;
-                flex: 0 0 auto;
-              }
-              @keyframes spin {
-                to {
-                  transform: rotate(360deg);
-                }
-              }
-            `}</style>
+            <style>{`
+  .sync-spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 3px solid #ddd;
+    border-top-color: #1677ff;
+    animation: spin 0.85s linear infinite;
+    flex: 0 0 auto;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+`}</style>
           </div>
         </div>
       )}
@@ -858,16 +1164,12 @@ function ChecklistGMUDTab({
       </div>
 
       {/* Animação opcional */}
-      <style jsx>{`
-        @keyframes pulse {
-          from {
-            box-shadow: 0 4px 12px rgba(255, 77, 79, 0.25);
-          }
-          to {
-            box-shadow: 0 6px 20px rgba(255, 77, 79, 0.4);
-          }
-        }
-      `}</style>
+      <style>{`
+  @keyframes pulse {
+    from { box-shadow: 0 4px 12px rgba(255, 77, 79, 0.25); }
+    to   { box-shadow: 0 6px 20px rgba(255, 77, 79, 0.4); }
+  }
+`}</style>
 
       {/* Infos projeto */}
       <div className="project-info">
@@ -944,7 +1246,7 @@ function ChecklistGMUDTab({
 
       {/* Fases */}
       <div className="checklist-grid">
-        {PHASES.map((p) => {
+        {PHASES.map((p, idx) => {
           const pct = calcPhasePct(p.ids, checkboxes);
           const complete = pct === 100;
 
@@ -954,29 +1256,87 @@ function ChecklistGMUDTab({
               className={`phase-card ${complete ? "complete" : ""}`}
               title={`${pct}%`}
             >
-              <div className="phase-header">
-                <i className={p.icon} />
-                <h2>{p.title}</h2>
+              <div
+                className="phase-header"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <i className={p.icon} />
+                  <h2 style={{ margin: 0 }}>{p.title}</h2>
+                </div>
+
+                {(() => {
+                  const pct = calcPhasePct(p.ids, checkboxes);
+                  const complete = pct === 100;
+
+                  // ✅ somente o step ATUAL (liberado) pode liberar o próximo
+                  const isCandidate = idx === unlockedPhaseIdx;
+
+                  const nextIdx = idx + 1;
+                  const hasNext = nextIdx < PHASES.length;
+
+                  const label = hasNext
+                    ? `Liberar: ${PHASES[nextIdx].title}`
+                    : "Finalizar checklist";
+
+                  const disabled =
+                    !jiraCtx || advancingStep || !isCandidate || !complete;
+
+                  const title = !jiraCtx
+                    ? "Sincronize com o Jira antes."
+                    : !isCandidate
+                    ? "Apenas o step atual pode liberar o próximo."
+                    : !complete
+                    ? "Conclua este step para liberar o próximo."
+                    : "";
+
+                  return (
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={disabled}
+                      title={title}
+                      onClick={() =>
+                        openStepGate(idx, hasNext ? nextIdx : PHASES.length)
+                      }
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })()}
               </div>
+
               <div className="progress-phase">
                 <div className="bar" style={{ width: `${pct}%` }} />
               </div>
 
-              {p.ids.map((id) => (
-                <div
-                  key={id}
-                  className={`checklist-item ${
-                    checkboxes[id] ? "checked" : ""
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={!!checkboxes[id]}
-                    onChange={() => onToggleChecklist(id)}
-                  />
-                  <label>{LABELS[id]}</label>
-                </div>
-              ))}
+              {p.ids.map((id) => {
+                const locked =
+                  !!jiraCtx && PHASE_INDEX_BY_ID[id] > unlockedPhaseIdx;
+
+                return (
+                  <div
+                    key={id}
+                    className={`checklist-item ${
+                      checkboxes[id] ? "checked" : ""
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!checkboxes[id]}
+                      disabled={locked}
+                      onChange={() => onToggleChecklist(id)}
+                    />
+                    <label>{LABELS[id]}</label>
+                  </div>
+                );
+              })}
             </div>
           );
         })}

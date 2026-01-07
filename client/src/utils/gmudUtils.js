@@ -229,3 +229,65 @@ export function calcPhasePct(ids, checkboxes) {
   const done = ids.reduce((a, id) => a + (checkboxes?.[id] ? 1 : 0), 0);
   return Math.round((done / total) * 100) || 0;
 }
+
+export const DONE_STATUS_NAMES = [
+  "concluído",
+  "concluido",
+  "done",
+  "resolved",
+  "closed",
+  "finalizado",
+  "finalizada",
+];
+
+// Aceita:
+// - string (nome do status)
+// - objeto { status, statusCategory }
+// - objeto Jira salvo no subtasksBySummary
+export function isDoneSubtask(st) {
+  const cat = String(st?.statusCategory || "")
+    .trim()
+    .toLowerCase();
+  if (cat === "done") return true;
+
+  const name =
+    typeof st === "string" ? st : String(st?.status || st?.name || "").trim();
+
+  const s = name.toLowerCase();
+  return DONE_STATUS_NAMES.includes(s);
+}
+
+export const PHASE_INDEX_BY_ID = PHASES.reduce((acc, p, idx) => {
+  (p.ids || []).forEach((id) => (acc[id] = idx));
+  return acc;
+}, {});
+
+export function getChecklistItemsForPhase(phaseIdxOrKey) {
+  const phase =
+    typeof phaseIdxOrKey === "number"
+      ? PHASES[phaseIdxOrKey]
+      : PHASES.find((p) => p.key === phaseIdxOrKey);
+
+  if (!phase) return [];
+
+  return (phase.ids || []).map((id) => ({
+    id,
+    summary: (LABELS[id] || id).trim(),
+  }));
+}
+
+// Retorna o índice da fase "atual" (primeira fase NÃO concluída).
+// Se todas concluídas => PHASES.length
+export function computeUnlockedPhaseIdx(subtasksBySummary) {
+  for (let i = 0; i < PHASES.length; i++) {
+    const phase = PHASES[i];
+    const allDone = (phase.ids || []).every((id) => {
+      const summary = (LABELS[id] || id).trim().toLowerCase();
+      const st = subtasksBySummary?.[summary];
+      return st && isDoneSubtask(st);
+    });
+
+    if (!allDone) return i;
+  }
+  return PHASES.length;
+}
