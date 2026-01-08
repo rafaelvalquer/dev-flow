@@ -101,6 +101,26 @@ app.post("/api/jira/issue", async (req, res) => {
   }
 });
 
+// GET transitions (necessário para o front tentar descobrir a transição pelo nome)
+app.get("/api/jira/issue/:key/transitions", async (req, res) => {
+  try {
+    const { key } = req.params;
+    const qs = new URLSearchParams(req.query).toString();
+
+    const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
+      key
+    )}/transitions${qs ? `?${qs}` : ""}`;
+
+    const r = await fetch(url, { headers: jiraHeaders() });
+    return sendUpstream(res, r);
+  } catch (err) {
+    console.error("GET transitions error:", err);
+    return res
+      .status(500)
+      .json({ error: "Proxy error on GET transitions", details: String(err) });
+  }
+});
+
 // POST transition
 app.post("/api/jira/issue/:key/transitions", async (req, res) => {
   try {

@@ -1099,11 +1099,10 @@ function ChecklistGMUDTab({
   function statusTone(status) {
     const s = String(status || "").toLowerCase();
     // ajuste os termos conforme o teu workflow
-    if (/(done|conclu|fechad|closed|resol)/.test(s)) return "success";
-    if (/(andamento|in progress|progresso|doing|em exec|implement)/.test(s))
-      return "info";
-    if (/(bloq|blocked|imped)/.test(s)) return "danger";
-    if (/(review|valida|homolog|qa|teste|aprova)/.test(s)) return "warning";
+    if (/(concluído)/.test(s)) return "success";
+    if (/(backlog)/.test(s)) return "info";
+    if (/(para deploy)/.test(s)) return "danger";
+    if (/(desenvolvimento)/.test(s)) return "warning";
     return "neutral";
   }
 
