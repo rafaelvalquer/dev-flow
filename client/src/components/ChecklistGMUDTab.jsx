@@ -39,6 +39,14 @@ import {
   isDoneSubtask,
 } from "../utils/gmudUtils";
 
+const JIRA_CACHE_PREFIX = "GMUD_JIRA_CACHE_V1:";
+
+function jiraCacheKey(ticket) {
+  return `${JIRA_CACHE_PREFIX}${String(ticket || "")
+    .trim()
+    .toUpperCase()}`;
+}
+
 function ChecklistGMUDTab({
   onProgressChange,
   onRdmTitleChange,
@@ -203,6 +211,7 @@ function ChecklistGMUDTab({
     if (s) {
       try {
         const d = JSON.parse(s);
+
         setNomeProjeto(d.projeto || "");
         setNumeroGMUD(d.gmud || "");
         setTicketJira(d.ticketJira || "");
@@ -217,6 +226,37 @@ function ChecklistGMUDTab({
             pendente: false,
           }))
         );
+
+        // ✅ RESTAURA “SINCRONIZAÇÃO” DO JIRA
+        const tk = String(d.ticketJira || "")
+          .trim()
+          .toUpperCase();
+        if (tk) {
+          const cacheRaw = localStorage.getItem(jiraCacheKey(tk));
+          if (cacheRaw) {
+            const cache = JSON.parse(cacheRaw);
+
+            if (cache?.jiraCtx) setJiraCtx(cache.jiraCtx);
+            if (cache?.ticketSideInfo) setTicketSideInfo(cache.ticketSideInfo);
+
+            setDescricaoProjeto(cache?.descricaoProjeto || "");
+            setCriteriosAceite(cache?.criteriosAceite || "");
+
+            if (cache?.scriptsComment) setScriptsComment(cache.scriptsComment);
+            if (cache?.varsComment) {
+              setVarsComment(cache.varsComment);
+              varsBaselineRef.current = new Set(
+                (cache.varsComment.originalText || "")
+                  .split("\n")
+                  .filter(Boolean)
+              );
+            }
+
+            if (typeof cache?.unlockedPhaseIdx === "number") {
+              setUnlockedPhaseIdx(cache.unlockedPhaseIdx);
+            }
+          }
+        }
       } catch {}
     }
 
@@ -251,6 +291,42 @@ function ChecklistGMUDTab({
   ]);
 
   useEffect(() => {
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return;
+
+    // só salva quando realmente existe “sync”
+    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) return;
+
+    const cache = {
+      ticketJira: tk,
+      syncedAt: Date.now(),
+
+      jiraCtx,
+      unlockedPhaseIdx,
+
+      ticketSideInfo,
+      descricaoProjeto,
+      criteriosAceite,
+
+      scriptsComment,
+      varsComment,
+    };
+
+    localStorage.setItem(jiraCacheKey(tk), JSON.stringify(cache));
+  }, [
+    ticketJira,
+    jiraCtx,
+    unlockedPhaseIdx,
+    ticketSideInfo,
+    descricaoProjeto,
+    criteriosAceite,
+    scriptsComment,
+    varsComment,
+  ]);
+
+  useEffect(() => {
     localStorage.setItem(TAB_KEY, activeTab);
   }, [activeTab]);
 
@@ -281,6 +357,27 @@ function ChecklistGMUDTab({
   useEffect(() => {
     if (typeof onProgressChange === "function") onProgressChange(geralPct);
   }, [geralPct, onProgressChange]);
+
+  useEffect(() => {
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return;
+
+    const syncedKey = String(jiraCtx?.ticketKey || "")
+      .trim()
+      .toUpperCase();
+    if (syncedKey && syncedKey !== tk) {
+      setJiraCtx(null);
+      setTicketSideInfo(null);
+      setDescricaoProjeto("");
+      setCriteriosAceite("");
+      setScriptsComment({ id: null, originalText: "" });
+      setVarsComment({ id: null, originalText: "" });
+      varsBaselineRef.current = new Set();
+      setUnlockedPhaseIdx(PHASES.length);
+    }
+  }, [ticketJira]); // intencional
 
   // ====== Avanço manual de step (UI) ======
   async function ensurePhaseSubtasks(phaseIdx, ctx) {
