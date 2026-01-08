@@ -585,6 +585,8 @@ function ChecklistGMUDTab({
           ? fmtDateBr(startDateRaw.value)
           : "";
 
+      const statusTicket = fields?.status?.name || "";
+
       // Prioridade: tenta ticket; se quiser a prioridade do 1º subtask, busca via API
       let prioridade = fields?.priority?.name || "";
       if (!prioridade && fields?.subtasks?.length) {
@@ -605,6 +607,7 @@ function ChecklistGMUDTab({
         frente,
         startDate,
         prioridade,
+        status: statusTicket,
       });
 
       // ----------- Data limite com override -----------
@@ -624,7 +627,7 @@ function ChecklistGMUDTab({
 
       setDataLimite(duePicked);
       setDataLimiteLabel(
-        hasCustomDue ? "Data limite Aleterada:" : "Data limite:"
+        hasCustomDue ? "Data limite Alterada:" : "Data limite:"
       );
 
       onRdmDueDateChange?.(duePicked);
@@ -1091,6 +1094,17 @@ function ChecklistGMUDTab({
   async function listarAnexos() {
     const data = await listAttachments(ticketJira);
     setAttachments(data.attachments || []);
+  }
+
+  function statusTone(status) {
+    const s = String(status || "").toLowerCase();
+    // ajuste os termos conforme o teu workflow
+    if (/(done|conclu|fechad|closed|resol)/.test(s)) return "success";
+    if (/(andamento|in progress|progresso|doing|em exec|implement)/.test(s))
+      return "info";
+    if (/(bloq|blocked|imped)/.test(s)) return "danger";
+    if (/(review|valida|homolog|qa|teste|aprova)/.test(s)) return "warning";
+    return "neutral";
   }
 
   //#region HTML
@@ -1912,10 +1926,23 @@ function ChecklistGMUDTab({
                 <span className="gmud-ticket-pill">
                   {ticketJira ? ticketJira : "—"}
                 </span>
+
                 {ticketSideInfo?.prioridade ? (
                   <span className="gmud-ticket-pill gmud-ticket-pill--ghost">
                     <i className="fa-solid fa-flag" aria-hidden="true" />
                     {ticketSideInfo.prioridade}
+                  </span>
+                ) : null}
+
+                {ticketSideInfo?.status ? (
+                  <span
+                    className={`gmud-ticket-pill gmud-ticket-pill--status tone-${statusTone(
+                      ticketSideInfo.status
+                    )}`}
+                    title={`Status: ${ticketSideInfo.status}`}
+                  >
+                    <i className="fa-solid fa-circle" aria-hidden="true" />
+                    {ticketSideInfo.status}
                   </span>
                 ) : null}
               </div>
@@ -1923,10 +1950,8 @@ function ChecklistGMUDTab({
 
             <button
               type="button"
-              className="gmud-sidebar-close"
-              onClick={() => setSideOpen(false)}
-              aria-label="Fechar"
-              title="Fechar"
+              className="gmud-footer-btn"
+              onClick={toggleSide}
             >
               <i className="fa-solid fa-xmark" aria-hidden="true" />
             </button>
@@ -2058,16 +2083,6 @@ function ChecklistGMUDTab({
                 </div>
 
                 {/* Footer (ação rápida) */}
-                <div className="gmud-side-footer">
-                  <button
-                    type="button"
-                    className="gmud-footer-btn"
-                    onClick={toggleSide}
-                  >
-                    <i className="fa-solid fa-xmark" aria-hidden="true" />
-                    Fechar
-                  </button>
-                </div>
               </div>
             )}
           </div>
