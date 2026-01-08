@@ -1,6 +1,7 @@
 // src/components/ChecklistGMUDTab.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { adfFromTagAndText } from "../lib/adf";
+import { motion } from "framer-motion";
 import {
   getIssue,
   getComments,
@@ -72,6 +73,30 @@ function ChecklistGMUDTab({
   const [descricaoProjeto, setDescricaoProjeto] = useState("");
   const [criteriosAceite, setCriteriosAceite] = useState("");
 
+  // Painel lateral (detalhes do ticket)
+  const [ticketSideInfo, setTicketSideInfo] = useState(null);
+  // Sidebar (drawer)
+  const [sideOpen, setSideOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sideOpen) return;
+
+    const onKey = (e) => {
+      if (e.key === "Escape") setSideOpen(false);
+    };
+
+    window.addEventListener("keydown", onKey);
+
+    // trava scroll do body quando abrir
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [sideOpen]);
+
   // topo do componente
   const fileInputRef = useRef(null);
 
@@ -119,7 +144,13 @@ function ChecklistGMUDTab({
     unlockedIdxRef.current = unlockedPhaseIdx;
   }, [unlockedPhaseIdx]);
 
-  // helper opcional (facilita atualizar)
+  const canToggleSide = !!ticketJira?.trim() || sideOpen;
+
+  function toggleSide() {
+    if (!ticketJira?.trim() && !sideOpen) return;
+    setSideOpen((v) => !v);
+  }
+
   function showSyncOverlay(patch) {
     setSyncOverlay((prev) => ({
       ...prev,
@@ -138,6 +169,32 @@ function ChecklistGMUDTab({
     const [y, m, d] = String(yyyyMmDd).split("-");
     if (!y || !m || !d) return String(yyyyMmDd);
     return `${d}/${m}/${y}`;
+  }
+
+  function fmtDateBr(yyyyMmDd) {
+    if (!yyyyMmDd) return "";
+    const ymd = String(yyyyMmDd).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return String(yyyyMmDd);
+    const [y, m, d] = ymd.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  function toNamesArray(v) {
+    if (!v) return [];
+    if (Array.isArray(v)) {
+      return v
+        .map((x) =>
+          typeof x === "string" ? x : x?.value || x?.name || x?.label || ""
+        )
+        .map((s) => String(s).trim())
+        .filter(Boolean);
+    }
+    if (typeof v === "string") return [v.trim()].filter(Boolean);
+    if (typeof v === "object") {
+      const one = v?.value || v?.name || v?.label || "";
+      return [String(one).trim()].filter(Boolean);
+    }
+    return [String(v)].filter(Boolean);
   }
 
   /* ---------- Load localStorage (GMUD) ---------- */
@@ -377,10 +434,29 @@ function ChecklistGMUDTab({
       setCheckboxes(buildEmptyCheckboxes());
       setScriptsAlterados("");
       setChaves([]);
+      setTicketSideInfo(null);
+      setSideOpen(true);
 
       const issue = await getIssue(
         ticketJira,
-        "summary,subtasks,status,project,description,customfield_10903,duedate,customfield_11519"
+        [
+          "summary",
+          "subtasks",
+          "status",
+          "project",
+          "description",
+          "customfield_10903",
+          "duedate",
+          "customfield_11519",
+          // ===== painel lateral =====
+          "assignee",
+          "creator",
+          "components",
+          "customfield_11520", // Diretorias
+          "customfield_13604", // Frente
+          "customfield_10015", // Start date
+          "priority", // prioridade do ticket
+        ].join(",")
       );
 
       // envia o título para o App (preencher a aba RDM)
@@ -388,6 +464,53 @@ function ChecklistGMUDTab({
 
       // ----------- Data limite com override -----------
       const fields = issue?.fields ?? {};
+      const responsavel = fields?.assignee?.displayName || "";
+      const relator = fields?.creator?.displayName || "";
+
+      const diretorias = toNamesArray(fields?.customfield_11520);
+      const componentes = (fields?.components || [])
+        .map((c) => c?.name)
+        .filter(Boolean);
+
+      const frente =
+        fields?.customfield_13604?.value ||
+        fields?.customfield_13604?.name ||
+        fields?.customfield_13604?.label ||
+        (typeof fields?.customfield_13604 === "string"
+          ? fields.customfield_13604
+          : "");
+
+      const startDateRaw = fields?.customfield_10015;
+      const startDate =
+        typeof startDateRaw === "string"
+          ? fmtDateBr(startDateRaw)
+          : startDateRaw?.value
+          ? fmtDateBr(startDateRaw.value)
+          : "";
+
+      // Prioridade: tenta ticket; se quiser a prioridade do 1º subtask, busca via API
+      let prioridade = fields?.priority?.name || "";
+      if (!prioridade && fields?.subtasks?.length) {
+        const st0 = fields.subtasks[0];
+        if (st0?.key) {
+          try {
+            const stIssue = await getIssue(st0.key, "priority");
+            prioridade = stIssue?.fields?.priority?.name || "";
+          } catch {}
+        }
+      }
+
+      setTicketSideInfo({
+        responsavel,
+        relator,
+        diretorias,
+        componentes,
+        frente,
+        startDate,
+        prioridade,
+      });
+
+      // ----------- Data limite com override -----------
       const customDueRaw = fields.customfield_11519;
 
       const customDue =
@@ -873,8 +996,16 @@ function ChecklistGMUDTab({
     setAttachments(data.attachments || []);
   }
 
+  //#region HTML
   return (
-    <>
+    <motion.section
+      key="rdm"
+      initial={{ opacity: 0, x: -30 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 30 }}
+      transition={{ duration: 0.4, ease: "easeInOut" }}
+      className="rdm-wrap"
+    >
       {stepGate.open && (
         <div
           style={{
@@ -1111,539 +1242,741 @@ function ChecklistGMUDTab({
     animation: spin 0.85s linear infinite;
     flex: 0 0 auto;
   }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+              @keyframes spin { to { transform: rotate(360deg); } }
 `}</style>
           </div>
         </div>
       )}
 
-      {/* Data limite (topo, destaque vermelho moderno) */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginBottom: 16,
-        }}
-      >
-        <div
-          style={{
-            background: "linear-gradient(135deg, #ff4d4f22, #ff1b1f33)",
-            border: "1px solid #ff4d4f",
-            color: "#c41c1c",
-            padding: "10px 16px",
-            borderRadius: 16,
-            fontWeight: 700,
-            fontSize: "0.95rem",
-            letterSpacing: 0.3,
-            boxShadow: "0 4px 12px rgba(255, 77, 79, 0.25)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            backdropFilter: "blur(4px)",
-            animation: "pulse 2s infinite alternate",
-          }}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            style={{ flexShrink: 0 }}
-          >
-            <path d="M12 8v4l3 3" />
-            <circle cx="12" cy="12" r="10" />
-          </svg>
-          <span>
-            {dataLimiteLabel} {dataLimite ? fmtDueDate(dataLimite) : "—"}
-          </span>
-        </div>
-      </div>
+      {/* ===== Layout: Conteúdo + Painel lateral ===== */}
+      <div className="gmud-shell">
+        <div className="gmud-main">
+          {/* Data limite (topo) */}
+          <div className="gmud-topbar">
+            <div className="gmud-deadline" title="Data limite do ticket">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                className="gmud-deadline__icon"
+              >
+                <path d="M12 8v4l3 3" />
+                <circle cx="12" cy="12" r="10" />
+              </svg>
+              <span>
+                {dataLimiteLabel} {dataLimite ? fmtDueDate(dataLimite) : "—"}
+              </span>
+            </div>
 
-      {/* Animação opcional */}
-      <style>{`
+            <button
+              type="button"
+              className={`gmud-side-toggle ${sideOpen ? "is-open" : ""}`}
+              onClick={toggleSide}
+              disabled={!canToggleSide}
+              aria-expanded={sideOpen}
+              aria-controls="gmud-sidebar"
+              title={
+                !ticketJira?.trim() && !sideOpen
+                  ? "Informe o ticket do Jira"
+                  : sideOpen
+                  ? "Fechar detalhes"
+                  : "Abrir detalhes"
+              }
+            >
+              <i
+                className={`fa-solid ${
+                  sideOpen ? "fa-xmark" : "fa-circle-info"
+                }`}
+                aria-hidden="true"
+              />
+              <span>{sideOpen ? "Fechar detalhes" : "Detalhes do ticket"}</span>
+            </button>
+          </div>
+
+          {/* Animação opcional */}
+          <style>{`
   @keyframes pulse {
     from { box-shadow: 0 4px 12px rgba(255, 77, 79, 0.25); }
     to   { box-shadow: 0 6px 20px rgba(255, 77, 79, 0.4); }
   }
 `}</style>
 
-      {/* Infos projeto */}
-      <div className="project-info">
-        <div>
-          <label>Projeto</label>
-          <input
-            value={nomeProjeto}
-            onChange={(e) => setNomeProjeto(e.target.value)}
-            placeholder="Ex: Sistema de Cobrança"
-          />
-        </div>
-        <div>
-          <label>Número da OS</label>
-          <input
-            value={numeroGMUD}
-            onChange={(e) => setNumeroGMUD(e.target.value)}
-            placeholder="Ex: GMUD-2025-12345"
-          />
-        </div>
-        <div>
-          <label>Ticket do Jira</label>
-          <input
-            value={ticketJira}
-            onChange={(e) => setTicketJira(e.target.value.toUpperCase())}
-            onBlur={() => ticketJira && listarAnexos()}
-            placeholder="Ex: ICON-1234"
-          />
-        </div>
-        <div style={{ gridColumn: "span 3", textAlign: "right" }}>
-          <button
-            className="primary"
-            onClick={sincronizarJira}
-            disabled={syncing}
-          >
-            {syncing ? "Sincronizando..." : "Sincronizar com Jira"}
-          </button>
-        </div>
-      </div>
-
-      {/* Accordions: Descrição e Critérios */}
-      <div className="accordion">
-        <details className="acc-item" open={!!descricaoProjeto}>
-          <summary className="acc-summary">
-            <span className="acc-left">
-              <i
-                className="fa-solid fa-circle-info acc-icon"
-                aria-hidden="true"
-              ></i>
-              <span>Descrição do Projeto</span>
-            </span>
-            <span className="acc-chevron">▾</span>
-          </summary>
-          <div className="acc-content">
-            {descricaoProjeto || "Sem descrição no ticket."}
-          </div>
-        </details>
-
-        <details className="acc-item" open={!!criteriosAceite}>
-          <summary className="acc-summary">
-            <span className="acc-left">
-              <i
-                className="fa-solid fa-clipboard-check acc-icon"
-                aria-hidden="true"
-              ></i>
-              <span>Critérios de Aceite</span>
-            </span>
-            <span className="acc-chevron">▾</span>
-          </summary>
-          <div className="acc-content">
-            {criteriosAceite || "Sem critérios cadastrados no ticket."}
-          </div>
-        </details>
-      </div>
-
-      {/* Fases */}
-      {/* Fases */}
-      <div className="checklist-grid">
-        {PHASES.map((p, idx) => {
-          const pct = calcPhasePct(p.ids, checkboxes);
-          const complete = pct === 100;
-          const isCandidate = idx === unlockedPhaseIdx;
-          const nextIdx = idx + 1;
-          const hasNext = nextIdx < PHASES.length;
-
-          return (
-            <div
-              key={p.key}
-              className={`phase-card ${complete ? "complete" : ""} ${
-                isCandidate ? "active" : ""
-              }`}
-              title={`${pct}% concluído`}
-            >
-              <div className="phase-header">
-                <div className="phase-title">
-                  <i className={p.icon} />
-                  <h2>{p.title}</h2>
-                </div>
-                <div className="phase-actions">
-                  {hasNext && isCandidate && complete && (
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={!jiraCtx || advancingStep || !complete}
-                      title={
-                        !jiraCtx
-                          ? "Sincronize com o Jira antes."
-                          : !complete
-                          ? "Conclua este step para liberar o próximo."
-                          : ""
-                      }
-                      onClick={() => openStepGate(idx, nextIdx)}
-                    >
-                      Liberar: {PHASES[nextIdx].title}
-                    </button>
-                  )}
-                  {!hasNext && isCandidate && complete && (
-                    <button
-                      type="button"
-                      className="primary"
-                      disabled={!jiraCtx || advancingStep || !complete}
-                      title={
-                        !jiraCtx
-                          ? "Sincronize com o Jira antes."
-                          : !complete
-                          ? "Conclua este step para finalizar."
-                          : ""
-                      }
-                      onClick={() => openStepGate(idx, PHASES.length)}
-                    >
-                      Finalizar checklist
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="progress-phase">
-                <div className="bar" style={{ width: `${pct}%` }} />
-                <span className="progress-label">{pct}%</span>
-              </div>
-
-              <ul className="checklist-items">
-                {p.ids.map((id) => {
-                  const locked =
-                    !!jiraCtx && PHASE_INDEX_BY_ID[id] > unlockedPhaseIdx;
-
-                  return (
-                    <li
-                      key={id}
-                      className={`checklist-item ${
-                        checkboxes[id] ? "checked" : ""
-                      } ${locked ? "locked" : ""}`}
-                    >
-                      <input
-                        type="checkbox"
-                        id={`check-${id}`}
-                        checked={!!checkboxes[id]}
-                        disabled={locked}
-                        onChange={() => onToggleChecklist(id)}
-                      />
-                      <label htmlFor={`check-${id}`}>{LABELS[id]}</label>
-                    </li>
-                  );
-                })}
-              </ul>
+          {/* Infos projeto */}
+          <div className="project-info">
+            <div>
+              <label>Projeto</label>
+              <input
+                value={nomeProjeto}
+                onChange={(e) => setNomeProjeto(e.target.value)}
+                placeholder="Ex: Sistema de Cobrança"
+              />
             </div>
-          );
-        })}
-      </div>
-
-      {/* Tabs internas do GMUD */}
-      <div className="tabs">
-        <button
-          className={`tab-btn ${activeTab === "scripts" ? "active" : ""}`}
-          onClick={() => setActiveTab("scripts")}
-        >
-          Scripts
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "vars" ? "active" : ""}`}
-          onClick={() => setActiveTab("vars")}
-        >
-          Chaves (Variáveis)
-        </button>
-        <button
-          className={`tab-btn ${activeTab === "evidencias" ? "active" : ""}`}
-          onClick={() => setActiveTab("evidencias")}
-        >
-          Evidências
-        </button>
-      </div>
-
-      {/* Tab: Scripts */}
-      <div className={`tab-content ${activeTab === "scripts" ? "active" : ""}`}>
-        <textarea
-          style={{
-            width: "100%",
-            height: 150,
-            padding: 10,
-            borderRadius: 8,
-            border: "1px solid #ccc",
-          }}
-          value={scriptsAlterados}
-          onChange={(e) => setScriptsAlterados(e.target.value)}
-          placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV, DEV\ivr_controle_1052_rest, etc."
-        />
-        <div style={{ textAlign: "right", marginTop: 10 }}>
-          <button
-            className="primary"
-            onClick={salvarScripts}
-            disabled={savingScripts}
-          >
-            {savingScripts ? "Salvando..." : "Salvar Scripts no Jira"}
-          </button>
-        </div>
-      </div>
-
-      {/* Tab: Variáveis */}
-      <div className={`tab-content ${activeTab === "vars" ? "active" : ""}`}>
-        <p style={{ margin: "0 0 10px", fontSize: 13, color: "#555" }}>
-          Use este campo apenas se o projeto utilizar variáveis de ambiente.
-        </p>
-
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <button className="primary" onClick={addChave}>
-            Adicionar chave
-          </button>
-          <button
-            className="primary"
-            onClick={salvarVariaveis}
-            disabled={savingVars}
-          >
-            {savingVars ? "Salvando..." : "Salvar Variáveis no Jira"}
-          </button>
-        </div>
-
-        {varsBanner && (
-          <div id="vars-dirty-banner">
-            Há alterações pendentes que ainda não foram enviadas ao Jira.
-          </div>
-        )}
-
-        <div className="chaves-list">
-          {chaves.map((row) => (
-            <div
-              key={row.id}
-              className={`chave-row ${row.pendente ? "pendente" : ""}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.2fr 1fr 1.2fr auto",
-                gap: 8,
-                marginBottom: 8,
-                alignItems: "center",
-              }}
-            >
+            <div>
+              <label>Número da OS</label>
               <input
-                className="chave-ambiente"
-                placeholder="Ambiente (ex: URA_PME, CONTROLE, POS)"
-                value={row.ambiente}
-                onChange={(e) => updChave(row.id, { ambiente: e.target.value })}
+                value={numeroGMUD}
+                onChange={(e) => setNumeroGMUD(e.target.value)}
+                placeholder="Ex: GMUD-2025-12345"
               />
+            </div>
+            <div>
+              <label>Ticket do Jira</label>
               <input
-                className="chave-nome"
-                placeholder="Nome da chave"
-                value={row.nome}
-                onChange={(e) => updChave(row.id, { nome: e.target.value })}
+                value={ticketJira}
+                onChange={(e) => setTicketJira(e.target.value.toUpperCase())}
+                onBlur={() => ticketJira && listarAnexos()}
+                placeholder="Ex: ICON-1234"
               />
-              <input
-                className="chave-valor"
-                placeholder="Valor"
-                value={row.valor}
-                onChange={(e) => updChave(row.id, { valor: e.target.value })}
-              />
+            </div>
+            <div style={{ gridColumn: "span 3", textAlign: "right" }}>
               <button
-                type="button"
-                className="remover-chave"
-                onClick={() => rmChave(row.id)}
-                title="Remover"
+                className="primary"
+                onClick={sincronizarJira}
+                disabled={syncing}
               >
-                X
+                {syncing ? "Sincronizando..." : "Sincronizar com Jira"}
               </button>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Tab: Evidências */}
-      <div
-        className={`tab-content ${activeTab === "evidencias" ? "active" : ""}`}
-      >
-        <input
-          type="file"
-          multiple
-          ref={fileInputRef}
-          onChange={(e) => setPreviewFiles(Array.from(e.target.files || []))}
-        />
-
-        <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            className="primary"
-            onClick={limparPreview}
-            disabled={!previewFiles.length}
-          >
-            Limpar pré-visualização
-          </button>
-
-          <button
-            type="button"
-            className="primary"
-            onClick={enviarArquivos}
-            disabled={uploading}
-          >
-            {uploading ? "Enviando..." : "Enviar para o Jira"}
-          </button>
-
-          <button type="button" className="primary" onClick={listarAnexos}>
-            Atualizar lista do Jira
-          </button>
-        </div>
-
-        <h3 style={{ marginTop: 16 }}>Pré-visualização local</h3>
-        <div
-          className="imagens-anexadas"
-          style={{
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-          }}
-        >
-          {previewFiles.map((f) => {
-            const isImg = /^image\//i.test(f.type);
-            const url = URL.createObjectURL(f);
-
-            return (
-              <div
-                key={f.name + f.size}
-                className="imagem-item"
-                style={{
-                  border: "1px solid #eee",
-                  borderRadius: 8,
-                  padding: 8,
-                  position: "relative",
-                }}
-              >
-                <button
-                  className="remover-img"
-                  onClick={() =>
-                    setPreviewFiles((prev) => prev.filter((x) => x !== f))
-                  }
-                  style={{ position: "absolute", right: 8, top: 8 }}
-                >
-                  X
-                </button>
-
-                <div>
-                  <strong>{f.name}</strong> {(f.size / 1024).toFixed(1)} KB
-                </div>
-
-                {isImg ? (
-                  <img
-                    src={url}
-                    onLoad={() => URL.revokeObjectURL(url)}
-                    style={{
-                      width: "100%",
-                      height: 120,
-                      objectFit: "cover",
-                      marginTop: 6,
-                      borderRadius: 6,
-                    }}
-                    alt=""
-                  />
-                ) : (
-                  <div style={{ marginTop: 6 }}>Prévia indisponível</div>
-                )}
-
-                <textarea
-                  placeholder="Descrição (opcional, não vai pro Jira por padrão)"
-                  style={{ width: "100%", height: 60, marginTop: 6 }}
-                />
+          {/* Accordions: Descrição e Critérios */}
+          <div className="accordion">
+            <details className="acc-item" open={!!descricaoProjeto}>
+              <summary className="acc-summary">
+                <span className="acc-left">
+                  <i
+                    className="fa-solid fa-circle-info acc-icon"
+                    aria-hidden="true"
+                  ></i>
+                  <span>Descrição do Projeto</span>
+                </span>
+                <span className="acc-chevron">▾</span>
+              </summary>
+              <div className="acc-content">
+                {descricaoProjeto || "Sem descrição no ticket."}
               </div>
-            );
-          })}
-        </div>
+            </details>
 
-        <h3 style={{ marginTop: 16 }}>Anexos no Jira</h3>
-        <div id="lista-anexos-jira">
-          {!attachments.length ? (
-            <div>Nenhum anexo encontrado.</div>
-          ) : (
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              {attachments.map((a) => {
-                const links = buildDownloadLinks(a);
-                const isImg = a.mimeType?.startsWith("image/");
+            <details className="acc-item" open={!!criteriosAceite}>
+              <summary className="acc-summary">
+                <span className="acc-left">
+                  <i
+                    className="fa-solid fa-clipboard-check acc-icon"
+                    aria-hidden="true"
+                  ></i>
+                  <span>Critérios de Aceite</span>
+                </span>
+                <span className="acc-chevron">▾</span>
+              </summary>
+              <div className="acc-content">
+                {criteriosAceite || "Sem critérios cadastrados no ticket."}
+              </div>
+            </details>
+          </div>
+
+          {/* Fases */}
+          <div className="checklist-grid">
+            {PHASES.map((p, idx) => {
+              const pct = calcPhasePct(p.ids, checkboxes);
+              const complete = pct === 100;
+              const isCandidate = idx === unlockedPhaseIdx;
+              const nextIdx = idx + 1;
+              const hasNext = nextIdx < PHASES.length;
+
+              return (
+                <div
+                  key={p.key}
+                  className={`phase-card ${complete ? "complete" : ""} ${
+                    isCandidate ? "active" : ""
+                  }`}
+                  title={`${pct}% concluído`}
+                >
+                  <div className="phase-header">
+                    <div className="phase-title">
+                      <i className={p.icon} />
+                      <h2>{p.title}</h2>
+                    </div>
+                    <div className="phase-actions">
+                      {hasNext && isCandidate && complete && (
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={!jiraCtx || advancingStep || !complete}
+                          title={
+                            !jiraCtx
+                              ? "Sincronize com o Jira antes."
+                              : !complete
+                              ? "Conclua este step para liberar o próximo."
+                              : ""
+                          }
+                          onClick={() => openStepGate(idx, nextIdx)}
+                        >
+                          Liberar: {PHASES[nextIdx].title}
+                        </button>
+                      )}
+                      {!hasNext && isCandidate && complete && (
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={!jiraCtx || advancingStep || !complete}
+                          title={
+                            !jiraCtx
+                              ? "Sincronize com o Jira antes."
+                              : !complete
+                              ? "Conclua este step para finalizar."
+                              : ""
+                          }
+                          onClick={() => openStepGate(idx, PHASES.length)}
+                        >
+                          Finalizar checklist
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="progress-phase">
+                    <div className="bar" style={{ width: `${pct}%` }} />
+                    <span className="progress-label">{pct}%</span>
+                  </div>
+
+                  <ul className="checklist-items">
+                    {p.ids.map((id) => {
+                      const locked =
+                        !!jiraCtx && PHASE_INDEX_BY_ID[id] > unlockedPhaseIdx;
+
+                      return (
+                        <li
+                          key={id}
+                          className={`checklist-item ${
+                            checkboxes[id] ? "checked" : ""
+                          } ${locked ? "locked" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            id={`check-${id}`}
+                            checked={!!checkboxes[id]}
+                            disabled={locked}
+                            onChange={() => onToggleChecklist(id)}
+                          />
+                          <label htmlFor={`check-${id}`}>{LABELS[id]}</label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Tabs internas do GMUD */}
+          <div className="tabs">
+            <button
+              className={`tab-btn ${activeTab === "scripts" ? "active" : ""}`}
+              onClick={() => setActiveTab("scripts")}
+            >
+              Scripts
+            </button>
+            <button
+              className={`tab-btn ${activeTab === "vars" ? "active" : ""}`}
+              onClick={() => setActiveTab("vars")}
+            >
+              Chaves (Variáveis)
+            </button>
+            <button
+              className={`tab-btn ${
+                activeTab === "evidencias" ? "active" : ""
+              }`}
+              onClick={() => setActiveTab("evidencias")}
+            >
+              Evidências
+            </button>
+          </div>
+
+          {/* Tab: Scripts */}
+          <div
+            className={`tab-content ${activeTab === "scripts" ? "active" : ""}`}
+          >
+            <textarea
+              style={{
+                width: "100%",
+                height: 150,
+                padding: 10,
+                borderRadius: 8,
+                border: "1px solid #ccc",
+              }}
+              value={scriptsAlterados}
+              onChange={(e) => setScriptsAlterados(e.target.value)}
+              placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV, DEV\ivr_controle_1052_rest, etc."
+            />
+            <div style={{ textAlign: "right", marginTop: 10 }}>
+              <button
+                className="primary"
+                onClick={salvarScripts}
+                disabled={savingScripts}
+              >
+                {savingScripts ? "Salvando..." : "Salvar Scripts no Jira"}
+              </button>
+            </div>
+          </div>
+
+          {/* Tab: Variáveis */}
+          <div
+            className={`tab-content ${activeTab === "vars" ? "active" : ""}`}
+          >
+            <p style={{ margin: "0 0 10px", fontSize: 13, color: "#555" }}>
+              Use este campo apenas se o projeto utilizar variáveis de ambiente.
+            </p>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button className="primary" onClick={addChave}>
+                Adicionar chave
+              </button>
+              <button
+                className="primary"
+                onClick={salvarVariaveis}
+                disabled={savingVars}
+              >
+                {savingVars ? "Salvando..." : "Salvar Variáveis no Jira"}
+              </button>
+            </div>
+
+            {varsBanner && (
+              <div id="vars-dirty-banner">
+                Há alterações pendentes que ainda não foram enviadas ao Jira.
+              </div>
+            )}
+
+            <div className="chaves-list">
+              {chaves.map((row) => (
+                <div
+                  key={row.id}
+                  className={`chave-row ${row.pendente ? "pendente" : ""}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.2fr 1fr 1.2fr auto",
+                    gap: 8,
+                    marginBottom: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    className="chave-ambiente"
+                    placeholder="Ambiente (ex: URA_PME, CONTROLE, POS)"
+                    value={row.ambiente}
+                    onChange={(e) =>
+                      updChave(row.id, { ambiente: e.target.value })
+                    }
+                  />
+                  <input
+                    className="chave-nome"
+                    placeholder="Nome da chave"
+                    value={row.nome}
+                    onChange={(e) => updChave(row.id, { nome: e.target.value })}
+                  />
+                  <input
+                    className="chave-valor"
+                    placeholder="Valor"
+                    value={row.valor}
+                    onChange={(e) =>
+                      updChave(row.id, { valor: e.target.value })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="remover-chave"
+                    onClick={() => rmChave(row.id)}
+                    title="Remover"
+                  >
+                    X
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Tab: Evidências */}
+          <div
+            className={`tab-content ${
+              activeTab === "evidencias" ? "active" : ""
+            }`}
+          >
+            <input
+              type="file"
+              multiple
+              ref={fileInputRef}
+              onChange={(e) =>
+                setPreviewFiles(Array.from(e.target.files || []))
+              }
+            />
+
+            <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="primary"
+                onClick={limparPreview}
+                disabled={!previewFiles.length}
+              >
+                Limpar pré-visualização
+              </button>
+
+              <button
+                type="button"
+                className="primary"
+                onClick={enviarArquivos}
+                disabled={uploading}
+              >
+                {uploading ? "Enviando..." : "Enviar para o Jira"}
+              </button>
+
+              <button type="button" className="primary" onClick={listarAnexos}>
+                Atualizar lista do Jira
+              </button>
+            </div>
+
+            <h3 style={{ marginTop: 16 }}>Pré-visualização local</h3>
+            <div
+              className="imagens-anexadas"
+              style={{
+                display: "grid",
+                gap: 12,
+                gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+              }}
+            >
+              {previewFiles.map((f) => {
+                const isImg = /^image\//i.test(f.type);
+                const url = URL.createObjectURL(f);
 
                 return (
-                  <li
-                    key={a.id}
+                  <div
+                    key={f.name + f.size}
+                    className="imagem-item"
                     style={{
-                      borderBottom: "1px dashed #ddd",
-                      padding: "8px 0",
+                      border: "1px solid #eee",
+                      borderRadius: 8,
+                      padding: 8,
+                      position: "relative",
                     }}
                   >
+                    <button
+                      className="remover-img"
+                      onClick={() =>
+                        setPreviewFiles((prev) => prev.filter((x) => x !== f))
+                      }
+                      style={{ position: "absolute", right: 8, top: 8 }}
+                    >
+                      X
+                    </button>
+
                     <div>
-                      <strong>
-                        <a
-                          href={links.download}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                        >
-                          {a.filename}
-                        </a>
-                      </strong>
+                      <strong>{f.name}</strong> {(f.size / 1024).toFixed(1)} KB
                     </div>
 
-                    <div style={{ fontSize: 12, color: "#555" }}>
-                      {a.size ? (a.size / 1024).toFixed(1) + " KB" : ""}{" "}
-                      {a.created
-                        ? " • " + new Date(a.created).toLocaleString()
-                        : ""}{" "}
-                      {a.author ? " • " + a.author : ""}
-                    </div>
+                    {isImg ? (
+                      <img
+                        src={url}
+                        onLoad={() => URL.revokeObjectURL(url)}
+                        style={{
+                          width: "100%",
+                          height: 120,
+                          objectFit: "cover",
+                          marginTop: 6,
+                          borderRadius: 6,
+                        }}
+                        alt=""
+                      />
+                    ) : (
+                      <div style={{ marginTop: 6 }}>Prévia indisponível</div>
+                    )}
 
-                    <div style={{ marginTop: 6 }}>
-                      <a
-                        href={links.download}
-                        target="_blank"
-                        rel="noreferrer noopener"
+                    <textarea
+                      placeholder="Descrição (opcional, não vai pro Jira por padrão)"
+                      style={{ width: "100%", height: 60, marginTop: 6 }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <h3 style={{ marginTop: 16 }}>Anexos no Jira</h3>
+            <div id="lista-anexos-jira">
+              {!attachments.length ? (
+                <div>Nenhum anexo encontrado.</div>
+              ) : (
+                <ul style={{ listStyle: "none", padding: 0 }}>
+                  {attachments.map((a) => {
+                    const links = buildDownloadLinks(a);
+                    const isImg = a.mimeType?.startsWith("image/");
+
+                    return (
+                      <li
+                        key={a.id}
+                        style={{
+                          borderBottom: "1px dashed #ddd",
+                          padding: "8px 0",
+                        }}
                       >
-                        Baixar
-                      </a>
-                      {isImg && (
-                        <>
-                          {" "}
-                          &nbsp;•&nbsp;
+                        <div>
+                          <strong>
+                            <a
+                              href={links.download}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                            >
+                              {a.filename}
+                            </a>
+                          </strong>
+                        </div>
+
+                        <div style={{ fontSize: 12, color: "#555" }}>
+                          {a.size ? (a.size / 1024).toFixed(1) + " KB" : ""}{" "}
+                          {a.created
+                            ? " • " + new Date(a.created).toLocaleString()
+                            : ""}{" "}
+                          {a.author ? " • " + a.author : ""}
+                        </div>
+
+                        <div style={{ marginTop: 6 }}>
                           <a
-                            href={links.inline}
+                            href={links.download}
                             target="_blank"
                             rel="noreferrer noopener"
                           >
-                            Abrir
+                            Baixar
                           </a>
-                        </>
-                      )}
+                          {isImg && (
+                            <>
+                              {" "}
+                              &nbsp;•&nbsp;
+                              <a
+                                href={links.inline}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                              >
+                                Abrir
+                              </a>
+                            </>
+                          )}
+                        </div>
+
+                        {isImg && (
+                          <div style={{ marginTop: 6 }}>
+                            <img
+                              src={links.inline}
+                              style={{
+                                maxHeight: 100,
+                                maxWidth: 180,
+                                border: "1px solid #ccc",
+                                borderRadius: 4,
+                              }}
+                              alt=""
+                            />
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          {/* Rodapé */}
+          <div className="botoes-finais">
+            <button className="primary pdf" onClick={() => window.print()}>
+              GERAR PDF (Imprimir)
+            </button>
+          </div>
+        </div>
+        {/* Overlay */}
+        <div
+          className={`gmud-sidebar-overlay ${sideOpen ? "open" : ""}`}
+          onClick={() => setSideOpen(false)}
+        />
+
+        {/* Sidebar (drawer) */}
+        <aside
+          id="gmud-sidebar"
+          className={`gmud-sidebar ${sideOpen ? "open" : ""}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Detalhes do ticket"
+        >
+          <div className="gmud-sidebar-head">
+            <div className="gmud-sidebar-head-left">
+              <div className="gmud-sidebar-title-row">
+                <span className="gmud-sidebar-dot" aria-hidden="true" />
+                <div className="gmud-sidebar-title">Detalhes do ticket</div>
+              </div>
+
+              <div className="gmud-sidebar-subrow">
+                <span className="gmud-ticket-pill">
+                  {ticketJira ? ticketJira : "—"}
+                </span>
+                {ticketSideInfo?.prioridade ? (
+                  <span className="gmud-ticket-pill gmud-ticket-pill--ghost">
+                    <i className="fa-solid fa-flag" aria-hidden="true" />
+                    {ticketSideInfo.prioridade}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="gmud-sidebar-close"
+              onClick={() => setSideOpen(false)}
+              aria-label="Fechar"
+              title="Fechar"
+            >
+              <i className="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="gmud-sidebar-body">
+            {!ticketSideInfo ? (
+              <div className="gmud-side-empty">
+                {syncing ? (
+                  <>
+                    <div className="gmud-side-empty-title">
+                      Carregando dados…
+                    </div>
+                    <div className="gmud-side-empty-sub">
+                      Sincronizando com o Jira. Assim que concluir, os detalhes
+                      aparecerão aqui.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="gmud-side-empty-title">
+                      Sem dados do ticket
+                    </div>
+                    <div className="gmud-side-empty-sub">
+                      Clique em <strong>Sincronizar com Jira</strong> para
+                      exibir: responsável, relator, diretorias, componentes,
+                      frente, start date e prioridade.
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="gmud-side-card gmud-side-card--modern">
+                {/* Pessoas */}
+                <div className="gmud-side-section">
+                  <div className="gmud-side-section-title">
+                    <i className="fa-solid fa-user-group" aria-hidden="true" />
+                    <span>Pessoas</span>
+                  </div>
+
+                  <div className="gmud-side-grid">
+                    <div className="gmud-side-row">
+                      <div className="gmud-side-label">Responsável</div>
+                      <div className="gmud-side-value">
+                        {ticketSideInfo.responsavel || "—"}
+                      </div>
+                    </div>
+                    <div className="gmud-side-row">
+                      <div className="gmud-side-label">Relator</div>
+                      <div className="gmud-side-value">
+                        {ticketSideInfo.relator || "—"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Contexto */}
+                <div className="gmud-side-section">
+                  <div className="gmud-side-section-title">
+                    <i className="fa-solid fa-layer-group" aria-hidden="true" />
+                    <span>Contexto</span>
+                  </div>
+
+                  <div className="gmud-side-grid">
+                    <div className="gmud-side-row">
+                      <div className="gmud-side-label">Frente</div>
+                      <div className="gmud-side-value">
+                        {ticketSideInfo.frente || "—"}
+                      </div>
                     </div>
 
-                    {isImg && (
-                      <div style={{ marginTop: 6 }}>
-                        <img
-                          src={links.inline}
-                          style={{
-                            maxHeight: 100,
-                            maxWidth: 180,
-                            border: "1px solid #ccc",
-                            borderRadius: 4,
-                          }}
-                          alt=""
-                        />
+                    <div className="gmud-side-row">
+                      <div className="gmud-side-label">Start date</div>
+                      <div className="gmud-side-value">
+                        {ticketSideInfo.startDate || "—"}
                       </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </div>
+                    </div>
+                  </div>
+                </div>
 
-      {/* Rodapé */}
-      <div className="botoes-finais">
-        <button className="primary pdf" onClick={() => window.print()}>
-          GERAR PDF (Imprimir)
-        </button>
+                {/* Classificação */}
+                <div className="gmud-side-section">
+                  <div className="gmud-side-section-title">
+                    <i className="fa-solid fa-tag" aria-hidden="true" />
+                    <span>Classificação</span>
+                  </div>
+
+                  <div className="gmud-side-grid">
+                    <div className="gmud-side-row">
+                      <div className="gmud-side-label">Diretorias</div>
+                      <div className="gmud-side-value">
+                        {ticketSideInfo.diretorias?.length ? (
+                          <div className="gmud-chip-wrap">
+                            {ticketSideInfo.diretorias.map((d, i) => (
+                              <span
+                                key={`${d}-${i}`}
+                                className="gmud-chip gmud-chip--red"
+                              >
+                                {d}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="gmud-side-row">
+                      <div className="gmud-side-label">Componentes</div>
+                      <div className="gmud-side-value">
+                        {ticketSideInfo.componentes?.length ? (
+                          <div className="gmud-chip-wrap">
+                            {ticketSideInfo.componentes.map((c, i) => (
+                              <span
+                                key={`${c}-${i}`}
+                                className="gmud-chip gmud-chip--gray"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer (ação rápida) */}
+                <div className="gmud-side-footer">
+                  <button
+                    type="button"
+                    className="gmud-footer-btn"
+                    onClick={toggleSide}
+                  >
+                    <i className="fa-solid fa-xmark" aria-hidden="true" />
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
-    </>
+    </motion.section>
   );
 }
 
