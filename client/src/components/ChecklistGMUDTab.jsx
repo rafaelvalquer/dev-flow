@@ -1535,501 +1535,688 @@ function ChecklistGMUDTab({
             </details>
           </div>
 
-          {/* ===== Kanban UI ===== */}
-          <div style={{ marginTop: 14 }}>
+          {/* ===== Kanban UI Wrapper (Scroll Horizontal) ===== */}
+          <div
+            style={{
+              marginTop: 20,
+              overflowX: "auto",
+              paddingBottom: 10,
+              display: "flex",
+              gap: 16,
+              scrollbarWidth: "thin", // Para Firefox
+            }}
+          >
             {!kanbanCfg ? (
               <div
                 style={{
-                  border: "1px solid #eee",
+                  border: "1px dashed #ccc",
                   borderRadius: 12,
-                  padding: 12,
-                  background: "#fafafa",
+                  padding: 30,
+                  background: "#fff",
+                  textAlign: "center",
+                  width: "100%",
                 }}
               >
-                <div style={{ fontWeight: 900 }}>Sem estrutura de Kanban</div>
-                <div style={{ fontSize: 13, color: "#666", marginTop: 6 }}>
-                  Clique em <strong>Sincronizar com Jira</strong>. Se o ticket
-                  não tiver config, o modal abrirá para montar a estrutura.
+                <div style={{ fontWeight: 700, fontSize: 16 }}>
+                  Sem estrutura de Kanban
                 </div>
-                <div style={{ marginTop: 10 }}>
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => setBuilderOpen(true)}
-                  >
-                    Montar estrutura
-                  </button>
-                </div>
+                <p style={{ color: "#666", fontSize: 13 }}>
+                  Sincronize com o Jira para visualizar o fluxo.
+                </p>
+                <button
+                  className="primary"
+                  onClick={() => setBuilderOpen(true)}
+                >
+                  Montar estrutura
+                </button>
               </div>
             ) : (
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(${
-                    getWorkflow().length
-                  }, minmax(260px, 1fr))`,
-                  gap: 12,
-                  alignItems: "start",
-                }}
-              >
-                {getWorkflow().map((step, idx) => {
-                  const stepKey = step.key;
-                  const col = kanbanCfg.columns?.[stepKey];
-                  const stat = computeStepPct(
-                    kanbanCfg,
-                    stepKey,
-                    jiraCtx?.subtasksBySummary || {}
-                  );
-                  const isCandidate = idx === unlockedStepIdx;
-                  const hasNext = idx + 1 < getWorkflow().length;
+              getWorkflow().map((step, idx) => {
+                const stepKey = step.key;
+                const col = kanbanCfg.columns?.[stepKey];
+                const stat = computeStepPct(
+                  kanbanCfg,
+                  stepKey,
+                  jiraCtx?.subtasksBySummary || {}
+                );
 
-                  return (
+                const isDone = idx < unlockedStepIdx;
+                const isActive = idx === unlockedStepIdx;
+                const isLocked = idx > unlockedStepIdx;
+                const hasNext = idx + 1 < getWorkflow().length;
+
+                // Definição da cor lateral baseada no status do Step
+                const statusColor = isDone
+                  ? "#28a745"
+                  : isActive
+                  ? "#ee0000"
+                  : "#d1d1d1";
+
+                return (
+                  <div
+                    key={stepKey}
+                    style={{
+                      flex: "0 0 280px", // Largura fixa para permitir o scroll horizontal
+                      display: "flex",
+                      flexDirection: "column",
+                      opacity: isLocked ? 0.6 : 1,
+                    }}
+                  >
+                    {/* Header do Step - Super Clean */}
                     <div
-                      key={stepKey}
                       style={{
-                        border: "1px solid #eee",
-                        borderRadius: 14,
-                        overflow: "hidden",
-                        background: "#fff",
-                        boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+                        padding: "0 4px 12px 4px",
+                        borderBottom: `2px solid ${
+                          isActive ? "#ee0000" : "#eee"
+                        }`,
+                        marginBottom: 12,
                       }}
                     >
                       <div
                         style={{
-                          padding: 10,
-                          borderBottom: "1px solid #eee",
-                          background: "#fafafa",
                           display: "flex",
-                          justifyContent: "space-between",
                           alignItems: "center",
-                          gap: 10,
+                          justifyContent: "space-between",
                         }}
                       >
                         <div
                           style={{
                             display: "flex",
                             alignItems: "center",
-                            gap: 8,
+                            gap: 6,
                           }}
                         >
-                          <i className={step.icon} aria-hidden="true" />
-                          <div style={{ fontWeight: 900, fontSize: 13 }}>
-                            {step.title}
-                          </div>
-                          <div style={{ fontSize: 12, color: "#666" }}>
-                            {stat.pct}%
-                          </div>
-                        </div>
-
-                        {isCandidate && stat.complete && (
-                          <button
-                            type="button"
-                            className="primary"
-                            disabled={!jiraCtx || advancingStep}
-                            onClick={() =>
-                              openStepGate(
-                                idx,
-                                hasNext ? idx + 1 : getWorkflow().length
-                              )
-                            }
-                          >
-                            {hasNext
-                              ? `Liberar: ${getStepTitle(idx + 1)}`
-                              : "Finalizar"}
-                          </button>
-                        )}
-                      </div>
-
-                      <div style={{ padding: 10, display: "grid", gap: 10 }}>
-                        {(col?.cards || []).map((card) => (
-                          <div
-                            key={card.id}
+                          <i
+                            className={step.icon}
+                            style={{ color: statusColor, fontSize: 14 }}
+                          />
+                          <span
                             style={{
-                              border: "1px solid #eee",
-                              borderRadius: 12,
-                              padding: 10,
-                              background: "#fff",
+                              fontWeight: 800,
+                              fontSize: 13,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px",
                             }}
                           >
-                            <div style={{ fontWeight: 900, fontSize: 13 }}>
-                              {card.title}
-                            </div>
-
-                            <div
-                              style={{ marginTop: 8, display: "grid", gap: 6 }}
-                            >
-                              {(card.subtasks || []).map((st) => {
-                                const summary = buildKanbanSummary({
-                                  stepTitle: col.title,
-                                  cardTitle: card.title,
-                                  subTitle: st.title,
-                                });
-                                const mapKey = normalizeKey(summary);
-                                const jira =
-                                  jiraCtx?.subtasksBySummary?.[mapKey];
-                                const checked = jira
-                                  ? isDoneStatus(jira)
-                                  : false;
-
-                                const locked = idx > unlockedStepIdx;
-
-                                return (
-                                  <label
-                                    key={st.id}
-                                    style={{
-                                      display: "flex",
-                                      gap: 8,
-                                      alignItems: "center",
-                                      fontSize: 12,
-                                      opacity: locked ? 0.55 : 1,
-                                    }}
-                                    title={
-                                      locked ? "Step ainda não liberado." : ""
-                                    }
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      disabled={locked}
-                                      onChange={() =>
-                                        onToggleKanbanSubtask(
-                                          stepKey,
-                                          card.id,
-                                          st.id
-                                        )
-                                      }
-                                    />
-                                    <span>{st.title}</span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-
-                        {!(col?.cards || []).length && (
-                          <div style={{ fontSize: 12, color: "#777" }}>
-                            Sem cards neste step.
-                          </div>
-                        )}
+                            {step.title}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: statusColor,
+                          }}
+                        >
+                          {isDone ? "CONCLUÍDO" : `${stat.pct}%`}
+                        </span>
                       </div>
+
+                      {/* Botão de Ação Minimalista */}
+                      {isActive && stat.complete && (
+                        <button
+                          type="button"
+                          className="primary"
+                          style={{
+                            width: "100%",
+                            marginTop: 8,
+                            padding: "4px 8px",
+                            fontSize: 11,
+                            borderRadius: 6,
+                          }}
+                          disabled={!jiraCtx || advancingStep}
+                          onClick={() =>
+                            openStepGate(
+                              idx,
+                              hasNext ? idx + 1 : getWorkflow().length
+                            )
+                          }
+                        >
+                          {hasNext ? `Liberar Próximo` : "Finalizar"}
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
+
+                    {/* Lista de Cards */}
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {(col?.cards || []).map((card) => (
+                        <div
+                          key={card.id}
+                          style={{
+                            background: "#fff",
+                            border: "1px solid #e1e1e1",
+                            borderLeft: `4px solid ${statusColor}`, // Borda lateral solicitada
+                            borderRadius: "4px 8px 8px 4px",
+                            padding: "10px 12px",
+                            transition: "transform 0.2s",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              fontSize: 13,
+                              color: "#333",
+                              marginBottom: 6,
+                            }}
+                          >
+                            {card.title}
+                          </div>
+
+                          <div style={{ display: "grid", gap: 4 }}>
+                            {(card.subtasks || []).map((st) => {
+                              const summary = buildKanbanSummary({
+                                stepTitle: col.title,
+                                cardTitle: card.title,
+                                subTitle: st.title,
+                              });
+                              const mapKey = normalizeKey(summary);
+                              const jira = jiraCtx?.subtasksBySummary?.[mapKey];
+                              const checked = jira ? isDoneStatus(jira) : false;
+
+                              return (
+                                <label
+                                  key={st.id}
+                                  style={{
+                                    display: "flex",
+                                    gap: 8,
+                                    alignItems: "flex-start",
+                                    fontSize: 12,
+                                    cursor: isActive ? "pointer" : "default",
+                                    color: checked ? "#999" : "#444",
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    disabled={!isActive}
+                                    onChange={() =>
+                                      onToggleKanbanSubtask(
+                                        stepKey,
+                                        card.id,
+                                        st.id
+                                      )
+                                    }
+                                    style={{
+                                      marginTop: 2,
+                                      accentColor: "#ee0000",
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      textDecoration: checked
+                                        ? "line-through"
+                                        : "none",
+                                    }}
+                                  >
+                                    {st.title}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+
+                      {!(col?.cards || []).length && (
+                        <div
+                          style={{
+                            fontSize: 11,
+                            color: "#999",
+                            textAlign: "center",
+                            padding: 10,
+                            border: "1px dashed #eee",
+                          }}
+                        >
+                          Nenhuma subtarefa
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
 
-          {/* Tabs internas */}
-          <div className="tabs">
-            <button
-              className={`tab-btn ${activeTab === "scripts" ? "active" : ""}`}
-              onClick={() => setActiveTab("scripts")}
-            >
-              Scripts
-            </button>
-            <button
-              className={`tab-btn ${activeTab === "vars" ? "active" : ""}`}
-              onClick={() => setActiveTab("vars")}
-            >
-              Chaves (Variáveis)
-            </button>
-            <button
-              className={`tab-btn ${
-                activeTab === "evidencias" ? "active" : ""
-              }`}
-              onClick={() => setActiveTab("evidencias")}
-            >
-              Evidências
-            </button>
+          {/* ===== Navegação por Tabs (Estilo Moderno) ===== */}
+          <div
+            style={{
+              display: "flex",
+              gap: 24,
+              borderBottom: "1px solid #eee",
+              marginBottom: 20,
+              padding: "0 4px",
+            }}
+          >
+            {[
+              { id: "scripts", label: "Scripts", icon: "fas fa-code" },
+              { id: "vars", label: "Chaves (Variáveis)", icon: "fas fa-key" },
+              {
+                id: "evidencias",
+                label: "Evidências",
+                icon: "fas fa-paperclip",
+              },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: "12px 0",
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: activeTab === tab.id ? 700 : 500,
+                  color: activeTab === tab.id ? "#ee0000" : "#777",
+                  borderBottom: `2px solid ${
+                    activeTab === tab.id ? "#ee0000" : "transparent"
+                  }`,
+                  transition: "all 0.2s",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <i className={tab.icon} style={{ fontSize: 12 }} />
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Tab: Scripts */}
-          <div
-            className={`tab-content ${activeTab === "scripts" ? "active" : ""}`}
-          >
-            <textarea
-              style={{
-                width: "100%",
-                height: 150,
-                padding: 10,
-                borderRadius: 8,
-                border: "1px solid #ccc",
-              }}
-              value={scriptsAlterados}
-              onChange={(e) => setScriptsAlterados(e.target.value)}
-              placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV, DEV\ivr_controle_1052_rest, etc."
-            />
-            <div style={{ textAlign: "right", marginTop: 10 }}>
-              <button
-                className="primary"
-                onClick={salvarScripts}
-                disabled={savingScripts}
-              >
-                {savingScripts ? "Salvando..." : "Salvar Scripts no Jira"}
-              </button>
-            </div>
-          </div>
-
-          {/* Tab: Variáveis */}
-          <div
-            className={`tab-content ${activeTab === "vars" ? "active" : ""}`}
-          >
-            <p style={{ margin: "0 0 10px", fontSize: 13, color: "#555" }}>
-              Use este campo apenas se o projeto utilizar variáveis de ambiente.
-            </p>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <button className="primary" onClick={addChave}>
-                Adicionar chave
-              </button>
-              <button
-                className="primary"
-                onClick={salvarVariaveis}
-                disabled={savingVars}
-              >
-                {savingVars ? "Salvando..." : "Salvar Variáveis no Jira"}
-              </button>
-            </div>
-
-            {varsBanner && (
-              <div id="vars-dirty-banner">
-                Há alterações pendentes que ainda não foram enviadas ao Jira.
-              </div>
-            )}
-
-            <div className="chaves-list">
-              {chaves.map((row) => (
+          {/* ===== Conteúdo das Tabs ===== */}
+          <div style={{ minHeight: 300 }}>
+            {/* Tab: Scripts */}
+            {activeTab === "scripts" && (
+              <div className="animate-fade-in">
+                <div style={{ position: "relative" }}>
+                  <textarea
+                    style={{
+                      width: "100%",
+                      height: 180,
+                      padding: 14,
+                      borderRadius: 12,
+                      border: "1px solid #e1e1e1",
+                      fontFamily: "'Fira Code', monospace",
+                      fontSize: 13,
+                      lineHeight: "1.5",
+                      outline: "none",
+                      backgroundColor: "#fcfcfc",
+                    }}
+                    value={scriptsAlterados}
+                    onChange={(e) => setScriptsAlterados(e.target.value)}
+                    placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV..."
+                  />
+                </div>
                 <div
-                  key={row.id}
-                  className={`chave-row ${row.pendente ? "pendente" : ""}`}
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "1.2fr 1fr 1.2fr auto",
-                    gap: 8,
-                    marginBottom: 8,
+                    display: "flex",
+                    justifyContent: "flex-end",
+                    marginTop: 12,
+                  }}
+                >
+                  <button
+                    className="primary"
+                    style={{ borderRadius: 8, padding: "10px 20px" }}
+                    onClick={salvarScripts}
+                    disabled={savingScripts}
+                  >
+                    {savingScripts
+                      ? "Processando..."
+                      : "Salvar Scripts no Jira"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Tab: Variáveis */}
+            {activeTab === "vars" && (
+              <div className="animate-fade-in">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
                     alignItems: "center",
+                    marginBottom: 16,
+                    padding: "12px",
+                    background: "#f8f9fa",
+                    borderRadius: 8,
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: "#666" }}>
+                    <i
+                      className="fas fa-info-circle"
+                      style={{ marginRight: 6 }}
+                    />
+                    Gerencie chaves de ambiente para este projeto.
+                  </span>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      className="secondary"
+                      onClick={addChave}
+                      style={{ padding: "8px 14px" }}
+                    >
+                      + Adicionar
+                    </button>
+                    <button
+                      className="primary"
+                      onClick={salvarVariaveis}
+                      disabled={savingVars}
+                      style={{ padding: "8px 14px" }}
+                    >
+                      {savingVars ? "Salvando..." : "Salvar no Jira"}
+                    </button>
+                  </div>
+                </div>
+
+                {varsBanner && (
+                  <div
+                    style={{
+                      background: "#fff3cd",
+                      color: "#856404",
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      marginBottom: 16,
+                      borderLeft: "4px solid #ffeeba",
+                    }}
+                  >
+                    <b>Atenção:</b> Você possui alterações não enviadas ao Jira.
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  {chaves.map((row) => (
+                    <div
+                      key={row.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr 40px",
+                        gap: 12,
+                        padding: 10,
+                        background: "#fff",
+                        border: `1px solid ${
+                          row.pendente ? "#ffeeba" : "#eee"
+                        }`,
+                        borderLeft: row.pendente
+                          ? "4px solid #ffc107"
+                          : "1px solid #eee",
+                        borderRadius: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <input
+                        style={{
+                          border: "none",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          outline: "none",
+                        }}
+                        placeholder="Ambiente"
+                        value={row.ambiente}
+                        onChange={(e) =>
+                          updChave(row.id, { ambiente: e.target.value })
+                        }
+                      />
+                      <input
+                        style={{
+                          border: "none",
+                          fontSize: 13,
+                          color: "#ee0000",
+                          outline: "none",
+                        }}
+                        placeholder="Nome da chave"
+                        value={row.nome}
+                        onChange={(e) =>
+                          updChave(row.id, { nome: e.target.value })
+                        }
+                      />
+                      <input
+                        style={{
+                          border: "none",
+                          fontSize: 13,
+                          color: "#666",
+                          outline: "none",
+                        }}
+                        placeholder="Valor"
+                        value={row.valor}
+                        onChange={(e) =>
+                          updChave(row.id, { valor: e.target.value })
+                        }
+                      />
+                      <button
+                        onClick={() => rmChave(row.id)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#ccc",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <i className="fas fa-trash-alt" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Tab: Evidências */}
+            {activeTab === "evidencias" && (
+              <div className="animate-fade-in">
+                {/* Upload Zone */}
+                <div
+                  style={{
+                    border: "2px dashed #eee",
+                    padding: 24,
+                    borderRadius: 12,
+                    textAlign: "center",
+                    background: "#fafafa",
+                    marginBottom: 20,
                   }}
                 >
                   <input
-                    className="chave-ambiente"
-                    placeholder="Ambiente (ex: URA_PME, CONTROLE, POS)"
-                    value={row.ambiente}
+                    type="file"
+                    multiple
+                    ref={fileInputRef}
                     onChange={(e) =>
-                      updChave(row.id, { ambiente: e.target.value })
+                      setPreviewFiles(Array.from(e.target.files || []))
                     }
+                    style={{ display: "none" }}
+                    id="upload-input"
                   />
-                  <input
-                    className="chave-nome"
-                    placeholder="Nome da chave"
-                    value={row.nome}
-                    onChange={(e) => updChave(row.id, { nome: e.target.value })}
-                  />
-                  <input
-                    className="chave-valor"
-                    placeholder="Valor"
-                    value={row.valor}
-                    onChange={(e) =>
-                      updChave(row.id, { valor: e.target.value })
-                    }
-                  />
+                  <label htmlFor="upload-input" style={{ cursor: "pointer" }}>
+                    <i
+                      className="fas fa-cloud-upload-alt"
+                      style={{ fontSize: 32, color: "#ccc", marginBottom: 10 }}
+                    />
+                    <div style={{ fontWeight: 600, color: "#555" }}>
+                      Clique para anexar arquivos
+                    </div>
+                    <div style={{ fontSize: 12, color: "#999" }}>
+                      Imagens, logs ou documentos
+                    </div>
+                  </label>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
                   <button
-                    type="button"
-                    className="remover-chave"
-                    onClick={() => rmChave(row.id)}
-                    title="Remover"
+                    className="primary"
+                    onClick={enviarArquivos}
+                    disabled={uploading || !previewFiles.length}
                   >
-                    X
+                    {uploading ? "Enviando..." : "Enviar Selecionados"}
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={limparPreview}
+                    disabled={!previewFiles.length}
+                  >
+                    Limpar
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={listarAnexos}
+                    style={{ marginLeft: "auto" }}
+                  >
+                    <i className="fas fa-sync" />
                   </button>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Tab: Evidências */}
-          <div
-            className={`tab-content ${
-              activeTab === "evidencias" ? "active" : ""
-            }`}
-          >
-            <input
-              type="file"
-              multiple
-              ref={fileInputRef}
-              onChange={(e) =>
-                setPreviewFiles(Array.from(e.target.files || []))
-              }
-            />
-
-            <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                className="primary"
-                onClick={limparPreview}
-                disabled={!previewFiles.length}
-              >
-                Limpar pré-visualização
-              </button>
-
-              <button
-                type="button"
-                className="primary"
-                onClick={enviarArquivos}
-                disabled={uploading}
-              >
-                {uploading ? "Enviando..." : "Enviar para o Jira"}
-              </button>
-
-              <button type="button" className="primary" onClick={listarAnexos}>
-                Atualizar lista do Jira
-              </button>
-            </div>
-
-            <h3 style={{ marginTop: 16 }}>Pré-visualização local</h3>
-            <div
-              className="imagens-anexadas"
-              style={{
-                display: "grid",
-                gap: 12,
-                gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-              }}
-            >
-              {previewFiles.map((f) => {
-                const isImg = /^image\//i.test(f.type);
-                const url = URL.createObjectURL(f);
-
-                return (
-                  <div
-                    key={f.name + f.size}
-                    className="imagem-item"
-                    style={{
-                      border: "1px solid #eee",
-                      borderRadius: 8,
-                      padding: 8,
-                      position: "relative",
-                    }}
-                  >
-                    <button
-                      className="remover-img"
-                      onClick={() =>
-                        setPreviewFiles((prev) => prev.filter((x) => x !== f))
-                      }
-                      style={{ position: "absolute", right: 8, top: 8 }}
+                {/* Grid de Previews Locais */}
+                {previewFiles.length > 0 && (
+                  <div style={{ marginBottom: 30 }}>
+                    <h4
+                      style={{
+                        fontSize: 13,
+                        marginBottom: 12,
+                        color: "#888",
+                        textTransform: "uppercase",
+                      }}
                     >
-                      X
-                    </button>
-
-                    <div>
-                      <strong>{f.name}</strong> {(f.size / 1024).toFixed(1)} KB
-                    </div>
-
-                    {isImg ? (
-                      <img
-                        src={url}
-                        onLoad={() => URL.revokeObjectURL(url)}
-                        style={{
-                          width: "100%",
-                          height: 120,
-                          objectFit: "cover",
-                          marginTop: 6,
-                          borderRadius: 6,
-                        }}
-                        alt=""
-                      />
-                    ) : (
-                      <div style={{ marginTop: 6 }}>Prévia indisponível</div>
-                    )}
-
-                    <textarea
-                      placeholder="Descrição (opcional, não vai pro Jira por padrão)"
-                      style={{ width: "100%", height: 60, marginTop: 6 }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            <h3 style={{ marginTop: 16 }}>Anexos no Jira</h3>
-            <div id="lista-anexos-jira">
-              {!attachments.length ? (
-                <div>Nenhum anexo encontrado.</div>
-              ) : (
-                <ul style={{ listStyle: "none", padding: 0 }}>
-                  {attachments.map((a) => {
-                    const links = buildDownloadLinks(a);
-                    const isImg = a.mimeType?.startsWith("image/");
-
-                    return (
-                      <li
-                        key={a.id}
-                        style={{
-                          borderBottom: "1px dashed #ddd",
-                          padding: "8px 0",
-                        }}
-                      >
-                        <div>
-                          <strong>
-                            <a
-                              href={links.download}
-                              target="_blank"
-                              rel="noreferrer noopener"
+                      Prévia para Envio
+                    </h4>
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 12,
+                        gridTemplateColumns:
+                          "repeat(auto-fill, minmax(200px, 1fr))",
+                      }}
+                    >
+                      {previewFiles.map((f) => {
+                        const isImg = /^image\//i.test(f.type);
+                        const url = URL.createObjectURL(f);
+                        return (
+                          <div
+                            key={f.name}
+                            style={{
+                              border: "1px solid #eee",
+                              borderRadius: 10,
+                              padding: 8,
+                              background: "#fff",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                marginBottom: 6,
+                              }}
                             >
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  maxWidth: "140px",
+                                }}
+                              >
+                                {f.name}
+                              </span>
+                              <i
+                                className="fas fa-times"
+                                onClick={() =>
+                                  setPreviewFiles((prev) =>
+                                    prev.filter((x) => x !== f)
+                                  )
+                                }
+                                style={{ cursor: "pointer", color: "#ccc" }}
+                              />
+                            </div>
+                            {isImg && (
+                              <img
+                                src={url}
+                                style={{
+                                  width: "100%",
+                                  height: 100,
+                                  objectFit: "cover",
+                                  borderRadius: 6,
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Lista de Anexos no Jira */}
+                <h4
+                  style={{
+                    fontSize: 13,
+                    marginBottom: 12,
+                    color: "#888",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Arquivos no Jira
+                </h4>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {!attachments.length ? (
+                    <div
+                      style={{
+                        padding: 20,
+                        textAlign: "center",
+                        color: "#bbb",
+                        fontSize: 13,
+                      }}
+                    >
+                      Nenhum arquivo encontrado.
+                    </div>
+                  ) : (
+                    attachments.map((a) => {
+                      const links = buildDownloadLinks(a);
+                      return (
+                        <div
+                          key={a.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            padding: "10px 16px",
+                            background: "#fff",
+                            border: "1px solid #eee",
+                            borderRadius: 8,
+                            gap: 12,
+                          }}
+                        >
+                          <i
+                            className={
+                              a.mimeType?.includes("image")
+                                ? "fas fa-image"
+                                : "fas fa-file-alt"
+                            }
+                            style={{ color: "#aaa" }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
                               {a.filename}
-                            </a>
-                          </strong>
-                        </div>
-
-                        <div style={{ fontSize: 12, color: "#555" }}>
-                          {a.size ? (a.size / 1024).toFixed(1) + " KB" : ""}{" "}
-                          {a.created
-                            ? " • " + new Date(a.created).toLocaleString()
-                            : ""}{" "}
-                          {a.author ? " • " + a.author : ""}
-                        </div>
-
-                        <div style={{ marginTop: 6 }}>
+                            </div>
+                            <div style={{ fontSize: 11, color: "#999" }}>
+                              {(a.size / 1024).toFixed(1)} KB •{" "}
+                              {new Date(a.created).toLocaleDateString()}
+                            </div>
+                          </div>
                           <a
                             href={links.download}
                             target="_blank"
-                            rel="noreferrer noopener"
+                            style={{
+                              fontSize: 12,
+                              color: "#ee0000",
+                              fontWeight: 600,
+                              textDecoration: "none",
+                            }}
                           >
                             Baixar
                           </a>
-                          {isImg && (
-                            <>
-                              {" "}
-                              &nbsp;•&nbsp;
-                              <a
-                                href={links.inline}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                              >
-                                Abrir
-                              </a>
-                            </>
-                          )}
                         </div>
-
-                        {isImg && (
-                          <div style={{ marginTop: 6 }}>
-                            <img
-                              src={links.inline}
-                              style={{
-                                maxHeight: 100,
-                                maxWidth: 180,
-                                border: "1px solid #ccc",
-                                borderRadius: 4,
-                              }}
-                              alt=""
-                            />
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Rodapé */}
