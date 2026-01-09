@@ -986,3 +986,270 @@ button {
   border-color: rgba(120, 120, 120, 0.25);
   color: #444;
 }
+/* Container Principal e Overlay */
+.kb-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  zindex: 20000;
+  padding: 20px;
+  backdrop-filter: blur(3px);
+}
+
+.kb-modal {
+  width: min(1200px, 100%);
+  height: min(800px, 90vh);
+  background: #fff;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  border-top: 6px solid #ee0000;
+}
+
+/* Header Claro */
+.kb-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kb-header-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.kb-logo {
+  color: #ee0000;
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: -1px;
+}
+
+.kb-divider {
+  width: 1px;
+  height: 30px;
+  background: #ddd;
+}
+
+.kb-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #333;
+  text-transform: uppercase;
+}
+.kb-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+}
+.kb-close-btn {
+  border: none;
+  background: none;
+  font-size: 30px;
+  cursor: pointer;
+  color: #ccc;
+}
+
+/* Stepper */
+.kb-stepper {
+  display: flex;
+  padding: 0 24px;
+  background: #f9f9f9;
+  border-bottom: 1px solid #eee;
+  gap: 30px;
+  overflow-x: auto;
+}
+
+.kb-step-item {
+  padding: 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 3px solid transparent;
+}
+
+.kb-step-item.active {
+  border-bottom-color: #ee0000;
+  color: #ee0000;
+}
+.kb-step-item.completed {
+  color: #333;
+}
+.kb-step-item.pending {
+  color: #999;
+}
+
+.kb-step-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background-color: #ccc;
+}
+
+.kb-step-item.active .kb-step-circle,
+.kb-step-item.completed .kb-step-circle {
+  background-color: #ee0000;
+}
+
+/* Grid e Colunas */
+.kb-main {
+  flex: 1;
+  padding: 20px 24px;
+  overflow: hidden;
+}
+.kb-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  height: 100%;
+}
+
+.kb-column {
+  border: 1px solid #eee;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.kb-column-header {
+  padding: 12px 16px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kb-scroll {
+  padding: 12px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Cards */
+.kb-card-label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 4px;
+  border: 1px solid #eee;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.kb-sort-card {
+  background: #fff;
+  border: 1px solid #ddd;
+  padding: 12px;
+  border-radius: 4px;
+  display: flex;
+  align-items: flex-start; /* Alinhado ao topo para as subtarefas */
+  gap: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.kb-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #333;
+}
+
+/* Listagem de Subtarefas dentro do Card Selecionado */
+.kb-subtasks-preview {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #777;
+  line-height: 1.4;
+  padding-left: 2px;
+  border-left: 2px solid #eee;
+  padding-left: 8px;
+}
+
+/* Botões e Badges */
+.kb-badge {
+  background: #ee0000;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.kb-drag-handle {
+  cursor: grab;
+  color: #aaa;
+  font-size: 20px;
+  line-height: 1;
+  margin-top: -2px;
+}
+.kb-remove-btn {
+  border: none;
+  background: none;
+  color: #ee0000;
+  font-size: 11px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.kb-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.kb-btn {
+  padding: 10px 24px;
+  border-radius: 4px;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-size: 12px;
+  border: none;
+}
+.kb-btn-primary {
+  background: #ee0000;
+  color: #fff;
+}
+.kb-btn-save {
+  background: #000;
+  color: #fff;
+}
+.kb-btn-secondary {
+  background: #fff;
+  border: 1px solid #ccc;
+  color: #666;
+}
+.kb-btn-disabled {
+  background: #eee;
+  color: #ccc;
+  cursor: not-allowed;
+}
+
+.claro-sortable-ghost {
+  opacity: 0.4;
+  background: #fdf2f2;
+  border: 2px dashed #ee0000;
+}
