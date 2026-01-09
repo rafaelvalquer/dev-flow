@@ -132,6 +132,58 @@ function ChecklistGMUDTab({
     toIdx: null,
   });
   const [advancingStep, setAdvancingStep] = useState(false);
+  // --- Estados para Nova Tarefa Avulsa ---
+  const makeCustomTaskModal = (patch = {}) => ({
+    open: false,
+    stepKey: null, // string (key do step)
+    title: "",
+    subtasks: [""], // sempre array
+    ...patch,
+  });
+
+  const [customTaskModal, setCustomTaskModal] = useState(() =>
+    makeCustomTaskModal()
+  );
+
+  const [creatingCustomTask, setCreatingCustomTask] = useState(false);
+
+  // Comentários (Jira) - Tab "Comentários"
+  const [jiraCommentsList, setJiraCommentsList] = useState([]); // [{id, author, created, updated, text}]
+  const [newJiraCommentText, setNewJiraCommentText] = useState("");
+  const [loadingJiraComments, setLoadingJiraComments] = useState(false);
+  const [postingJiraComment, setPostingJiraComment] = useState(false);
+
+  // Helpers seguros
+  const handleAddSubtaskField = () => {
+    setCustomTaskModal((prev) => {
+      const subs = Array.isArray(prev.subtasks) ? prev.subtasks : [""];
+      return { ...prev, subtasks: [...subs, ""] };
+    });
+  };
+
+  const handleUpdateSubtaskField = (index, value) => {
+    setCustomTaskModal((prev) => {
+      const subs = Array.isArray(prev.subtasks) ? [...prev.subtasks] : [""];
+      subs[index] = value;
+      return { ...prev, subtasks: subs };
+    });
+  };
+
+  const handleRemoveSubtaskField = (index) => {
+    setCustomTaskModal((prev) => {
+      const subs = Array.isArray(prev.subtasks) ? prev.subtasks : [""];
+      const next = subs.filter((_, i) => i !== index);
+      return { ...prev, subtasks: next.length ? next : [""] };
+    });
+  };
+
+  // Para exibir o título do step pelo stepKey (string)
+  function getStepTitleByKey(stepKey) {
+    const wf = getWorkflow();
+    const idx = getWorkflowIndex(wf, stepKey);
+    if (typeof idx === "number" && idx >= 0) return wf[idx]?.title || stepKey;
+    return kanbanCfg?.columns?.[stepKey]?.title || stepKey || "";
+  }
 
   const jiraCtxRef = useRef(null);
   useEffect(() => {
@@ -207,6 +259,120 @@ function ChecklistGMUDTab({
     return [String(v)].filter(Boolean);
   }
 
+  function fmtDateTimeBr(iso) {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleString("pt-BR");
+    } catch {
+      return String(iso);
+    }
+  }
+
+  // ADF simples (Jira Cloud) para comentário "normal" (sem TAG)
+  function adfFromPlainText(text) {
+    const raw = String(text ?? "");
+    const lines = raw.split(/\r?\n/);
+
+    const content = lines.map((line) => {
+      const t = String(line ?? "");
+      return {
+        type: "paragraph",
+        content: t ? [{ type: "text", text: t }] : [],
+      };
+    });
+
+    return {
+      type: "doc",
+      version: 1,
+      content: content.length ? content : [{ type: "paragraph", content: [] }],
+    };
+  }
+
+  function extractAllJiraComments(payload) {
+    // Jira costuma retornar { comments: [...] } em Cloud
+    const arr =
+      payload?.comments ||
+      payload?.comments?.comments ||
+      payload?.values ||
+      payload?.comment?.comments ||
+      [];
+
+    const list = Array.isArray(arr) ? arr : [];
+
+    const out = list
+      .map((c) => {
+        const text = String(adfSafeToText(c?.body) || "").trim();
+
+        return {
+          id: c?.id,
+          author:
+            c?.author?.displayName ||
+            c?.updateAuthor?.displayName ||
+            c?.author?.name ||
+            "—",
+          created: c?.created || "",
+          updated: c?.updated || "",
+          text,
+        };
+      })
+      .filter((c) => c.id && c.text)
+      // EXCLUI SOMENTE o comentário de config do Kanban
+      .filter((c) => !/\[GMUD Kanban Config\]/i.test(c.text))
+      // Ordena por data (mais antigo -> mais novo)
+      .sort(
+        (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime()
+      );
+
+    return out;
+  }
+
+  async function refreshJiraComments() {
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return;
+
+    setLoadingJiraComments(true);
+    try {
+      const payload = await getComments(tk);
+      setJiraCommentsList(extractAllJiraComments(payload));
+    } catch (e) {
+      console.warn("Falha ao atualizar comentários:", e);
+      alert("Erro ao atualizar comentários do Jira: " + (e?.message || e));
+    } finally {
+      setLoadingJiraComments(false);
+    }
+  }
+
+  async function addJiraComment() {
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    const text = String(newJiraCommentText || "").trim();
+
+    if (!tk) {
+      alert("Informe o ticket do Jira.");
+      return;
+    }
+    if (!text) {
+      alert("Digite um comentário.");
+      return;
+    }
+
+    setPostingJiraComment(true);
+    try {
+      await createComment(tk, adfFromPlainText(text));
+      setNewJiraCommentText("");
+      await refreshJiraComments();
+      alert("Comentário adicionado no Jira.");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao adicionar comentário no Jira: " + (e?.message || e));
+    } finally {
+      setPostingJiraComment(false);
+    }
+  }
+
   function getWorkflow() {
     return kanbanCfg?.workflow || DEFAULT_KANBAN_WORKFLOW;
   }
@@ -252,6 +418,8 @@ function ChecklistGMUDTab({
             pendente: false,
           }))
         );
+        setJiraCommentsList([]);
+        setNewJiraCommentText("");
 
         // restaura cache do Jira
         const tk = String(d.ticketJira || "")
@@ -389,6 +557,9 @@ function ChecklistGMUDTab({
       setKanbanCfg(null);
       setKanbanComment({ id: null, originalText: "" });
       setUnlockedStepIdx(0);
+
+      setJiraCommentsList([]);
+      setNewJiraCommentText("");
     }
   }, [ticketJira]); // intencional
 
@@ -945,6 +1116,11 @@ function ChecklistGMUDTab({
       let payload = null;
       try {
         payload = await getComments(ticketJira);
+        if (payload) {
+          setJiraCommentsList(extractAllJiraComments(payload));
+        } else {
+          setJiraCommentsList([]);
+        }
       } catch (e) {
         console.warn("Falha ao carregar comentários:", e);
       }
@@ -1159,6 +1335,126 @@ function ChecklistGMUDTab({
         done: true,
         error: e?.message ? String(e.message) : String(e),
       });
+    }
+  }
+
+  async function handleCreateCustomTask() {
+    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) {
+      alert("Sincronize com o Jira antes.");
+      return;
+    }
+    if (!kanbanCfg) {
+      alert("Crie a estrutura do Kanban primeiro.");
+      return;
+    }
+
+    const stepKey = customTaskModal?.stepKey;
+    const title = String(customTaskModal?.title || "").trim();
+    const subsRaw = Array.isArray(customTaskModal?.subtasks)
+      ? customTaskModal.subtasks
+      : [];
+
+    const validSubs = subsRaw
+      .map((s) => String(s || "").trim())
+      .filter(Boolean);
+
+    if (!stepKey) {
+      alert("Step inválido. Abra o modal a partir do step ativo.");
+      return;
+    }
+    if (!title || validSubs.length === 0) {
+      alert("Preencha o título e pelo menos uma subtarefa.");
+      return;
+    }
+
+    const stepCol = kanbanCfg?.columns?.[stepKey];
+    const stepTitle = stepCol?.title || getStepTitleByKey(stepKey) || stepKey;
+
+    setCreatingCustomTask(true);
+
+    try {
+      const createdJiraTasks = [];
+      const nextMap = { ...(jiraCtx?.subtasksBySummary || {}) };
+
+      // 1) cria subtarefas no Jira + atualiza map local (evita re-criar onToggle)
+      for (const subTitle of validSubs) {
+        const summary = buildKanbanSummary({
+          stepTitle,
+          cardTitle: title,
+          subTitle,
+        });
+
+        const res = await createSubtask(
+          jiraCtx.projectId,
+          jiraCtx.ticketKey,
+          summary
+        );
+
+        createdJiraTasks.push({
+          id: crypto.randomUUID(),
+          title: subTitle,
+          jiraKey: res.key,
+          jiraId: res.id,
+        });
+
+        nextMap[normalizeKey(summary)] = {
+          key: res.key,
+          id: res.id,
+          status: "",
+          statusCategory: "",
+        };
+      }
+
+      // 2) atualiza cfg local
+      const nextCfg =
+        typeof structuredClone === "function"
+          ? structuredClone(kanbanCfg)
+          : JSON.parse(JSON.stringify(kanbanCfg));
+
+      if (!nextCfg.columns?.[stepKey]) {
+        nextCfg.columns = {
+          ...(nextCfg.columns || {}),
+          [stepKey]: { title: stepTitle, cards: [] },
+        };
+      }
+
+      const cards = Array.isArray(nextCfg.columns[stepKey].cards)
+        ? nextCfg.columns[stepKey].cards
+        : [];
+
+      nextCfg.columns[stepKey].cards = cards;
+      nextCfg.columns[stepKey].cards.push({
+        id: crypto.randomUUID(),
+        title,
+        subtasks: createdJiraTasks,
+      });
+
+      // 3) persiste no comentário do Jira
+      const saved = await upsertKanbanConfigComment({
+        ticketKey: jiraCtx.ticketKey,
+        config: nextCfg,
+        existingCommentId: kanbanComment.id,
+        createComment,
+        updateComment,
+      });
+
+      // 4) atualiza estados
+      setKanbanCfg(applyJiraStatusesToConfig(saved.savedConfig, nextMap));
+      setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
+
+      setJiraCtx((prev) =>
+        prev ? { ...prev, subtasksBySummary: nextMap } : prev
+      );
+
+      // fecha e reseta modal
+      setCustomTaskModal(makeCustomTaskModal());
+
+      alert("Tarefa adicionada com sucesso!");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao criar tarefa: " + (e?.message || e));
+    } finally {
+      setCreatingCustomTask(false);
     }
   }
 
@@ -1410,6 +1706,173 @@ function ChecklistGMUDTab({
               }
               @keyframes spin { to { transform: rotate(360deg); } }
             `}</style>
+          </div>
+        </div>
+      )}
+
+      {/* 3. NOVO MODAL: ADICIONAR TAREFA A PARTE */}
+      {customTaskModal.open && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10001,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "min(520px, 100%)",
+              background: "#fff",
+              borderRadius: 16,
+              padding: 20,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 4 }}>
+              Nova Tarefa
+            </div>
+
+            <div style={{ fontSize: 13, color: "#666", marginBottom: 16 }}>
+              Adicionar no step:{" "}
+              <strong>{getStepTitleByKey(customTaskModal.stepKey)}</strong>
+            </div>
+
+            <label
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              Título do Card
+            </label>
+            <input
+              autoFocus
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: 8,
+                border: "1px solid #ddd",
+                marginBottom: 14,
+                outline: "none",
+              }}
+              placeholder="Ex: Validar logs de erro"
+              value={customTaskModal.title || ""}
+              onChange={(e) =>
+                setCustomTaskModal((prev) => ({
+                  ...prev,
+                  title: e.target.value,
+                }))
+              }
+            />
+
+            <label
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                display: "block",
+                marginBottom: 6,
+              }}
+            >
+              Subtarefas
+            </label>
+
+            <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+              {(Array.isArray(customTaskModal.subtasks)
+                ? customTaskModal.subtasks
+                : [""]
+              ).map((st, idx) => (
+                <div key={idx} style={{ display: "flex", gap: 8 }}>
+                  <input
+                    style={{
+                      flex: 1,
+                      padding: "10px",
+                      borderRadius: 8,
+                      border: "1px solid #ddd",
+                      outline: "none",
+                    }}
+                    placeholder={`Subtarefa ${idx + 1} (ex: Coletar evidência)`}
+                    value={st || ""}
+                    onChange={(e) =>
+                      handleUpdateSubtaskField(idx, e.target.value)
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSubtaskField(idx)}
+                    disabled={
+                      (customTaskModal.subtasks?.length || 1) <= 1 ||
+                      creatingCustomTask
+                    }
+                    title="Remover"
+                    style={{
+                      width: 42,
+                      borderRadius: 8,
+                      border: "1px solid #eee",
+                      background: "#fff",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleAddSubtaskField}
+              disabled={creatingCustomTask}
+              style={{
+                width: "100%",
+                padding: "10px",
+                marginBottom: 16,
+                background: "transparent",
+                border: "1px dashed #ccc",
+                borderRadius: 10,
+                color: "#666",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              <i className="fas fa-plus" style={{ marginRight: 8 }} />
+              Adicionar subtarefa
+            </button>
+
+            <div
+              style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}
+            >
+              <button
+                type="button"
+                className="secondary"
+                disabled={creatingCustomTask}
+                onClick={() => setCustomTaskModal(makeCustomTaskModal())}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                className="primary"
+                disabled={
+                  creatingCustomTask ||
+                  !String(customTaskModal.title || "").trim() ||
+                  !(
+                    Array.isArray(customTaskModal.subtasks) &&
+                    customTaskModal.subtasks.some((s) => String(s || "").trim())
+                  )
+                }
+                onClick={handleCreateCustomTask}
+              >
+                {creatingCustomTask ? "Criando..." : "Criar Tarefa"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1771,6 +2234,31 @@ function ChecklistGMUDTab({
                         </div>
                       )}
                     </div>
+                    {/* ADICIONE O TRECHO AQUI */}
+                    {isActive && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCustomTaskModal(
+                            makeCustomTaskModal({ open: true, stepKey })
+                          )
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "10px",
+                          marginTop: "12px",
+                          background: "transparent",
+                          border: "1px dashed #ccc",
+                          borderRadius: "8px",
+                          color: "#666",
+                          cursor: "pointer",
+                          fontSize: "13px",
+                        }}
+                      >
+                        <i className="fas fa-plus" style={{ marginRight: 8 }} />
+                        Adicionar tarefa à parte
+                      </button>
+                    )}
                   </div>
                 );
               })
@@ -1794,6 +2282,11 @@ function ChecklistGMUDTab({
                 id: "evidencias",
                 label: "Evidências",
                 icon: "fas fa-paperclip",
+              },
+              {
+                id: "comentarios",
+                label: "Comentários",
+                icon: "fas fa-comments",
               },
             ].map((tab) => (
               <button
@@ -2213,6 +2706,198 @@ function ChecklistGMUDTab({
                         </div>
                       );
                     })
+                  )}
+                </div>
+              </div>
+            )}
+            {/* Tab: Comentários */}
+            {activeTab === "comentarios" && (
+              <div className="animate-fade-in">
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 12,
+                    padding: "12px",
+                    background: "#f8f9fa",
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 13, color: "#666" }}>
+                    <i className="fas fa-comments" style={{ marginRight: 6 }} />
+                    {jiraCommentsList.length} comentário(s) no ticket
+                  </div>
+
+                  <button
+                    className="secondary"
+                    onClick={refreshJiraComments}
+                    disabled={loadingJiraComments || !ticketJira.trim()}
+                    style={{ padding: "8px 14px" }}
+                    title={!ticketJira.trim() ? "Informe o ticket do Jira" : ""}
+                  >
+                    <i className="fas fa-sync" style={{ marginRight: 8 }} />
+                    {loadingJiraComments ? "Atualizando..." : "Atualizar"}
+                  </button>
+                </div>
+
+                {/* Novo comentário */}
+                <div
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #eee",
+                    borderRadius: 12,
+                    padding: 12,
+                    marginBottom: 14,
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      marginBottom: 8,
+                      color: "#333",
+                    }}
+                  >
+                    Novo comentário
+                  </label>
+
+                  <textarea
+                    value={newJiraCommentText}
+                    onChange={(e) => setNewJiraCommentText(e.target.value)}
+                    placeholder="Digite aqui o comentário que será adicionado no Jira..."
+                    style={{
+                      width: "100%",
+                      minHeight: 90,
+                      padding: 12,
+                      borderRadius: 10,
+                      border: "1px solid #e1e1e1",
+                      outline: "none",
+                      background: "#fcfcfc",
+                      fontSize: 13,
+                      lineHeight: "1.5",
+                      resize: "vertical",
+                    }}
+                    onKeyDown={(e) => {
+                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                        e.preventDefault();
+                        addJiraComment();
+                      }
+                    }}
+                  />
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "flex-end",
+                      gap: 10,
+                      marginTop: 10,
+                    }}
+                  >
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => setNewJiraCommentText("")}
+                      disabled={
+                        postingJiraComment || !newJiraCommentText.trim()
+                      }
+                    >
+                      Limpar
+                    </button>
+
+                    <button
+                      className="primary"
+                      type="button"
+                      onClick={addJiraComment}
+                      disabled={
+                        postingJiraComment ||
+                        !ticketJira.trim() ||
+                        !newJiraCommentText.trim()
+                      }
+                      title={
+                        !ticketJira.trim() ? "Informe o ticket do Jira" : ""
+                      }
+                    >
+                      {postingJiraComment
+                        ? "Enviando..."
+                        : "Adicionar comentário no Jira"}
+                    </button>
+                  </div>
+
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
+                    Dica: Ctrl+Enter para enviar.
+                  </div>
+                </div>
+
+                {/* Lista */}
+                <div style={{ display: "grid", gap: 10 }}>
+                  {!jiraCommentsList.length ? (
+                    <div
+                      style={{
+                        padding: 20,
+                        textAlign: "center",
+                        color: "#bbb",
+                        fontSize: 13,
+                        border: "1px dashed #eee",
+                        borderRadius: 12,
+                        background: "#fff",
+                      }}
+                    >
+                      Nenhum comentário para exibir.
+                    </div>
+                  ) : (
+                    jiraCommentsList.map((c) => (
+                      <div
+                        key={c.id}
+                        style={{
+                          background: "#fff",
+                          border: "1px solid #eee",
+                          borderRadius: 12,
+                          padding: 12,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            alignItems: "baseline",
+                          }}
+                        >
+                          <div style={{ fontWeight: 800, fontSize: 12 }}>
+                            {c.author}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#999" }}>
+                            {fmtDateTimeBr(c.created)}
+                          </div>
+                        </div>
+
+                        {c.updated && c.updated !== c.created && (
+                          <div
+                            style={{
+                              marginTop: 4,
+                              fontSize: 11,
+                              color: "#aaa",
+                            }}
+                          >
+                            Atualizado: {fmtDateTimeBr(c.updated)}
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            marginTop: 10,
+                            fontSize: 13,
+                            color: "#333",
+                            whiteSpace: "pre-wrap",
+                            lineHeight: "1.5",
+                          }}
+                        >
+                          {c.text}
+                        </div>
+                      </div>
+                    ))
                   )}
                 </div>
               </div>
