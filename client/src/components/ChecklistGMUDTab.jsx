@@ -2234,7 +2234,6 @@ function ChecklistGMUDTab({
                         </div>
                       )}
                     </div>
-                    {/* ADICIONE O TRECHO AQUI */}
                     {isActive && (
                       <button
                         type="button"

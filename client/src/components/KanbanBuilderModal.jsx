@@ -4,14 +4,26 @@ import Sortable from "sortablejs";
 import "../App.css";
 
 function ensureDefaultSelection(workflow, library) {
-  const w = workflow || [];
-  const libIds = new Set((library || []).map((c) => c.id));
+  const w = Array.isArray(workflow) ? workflow : [];
+  const lib = Array.isArray(library) ? library : [];
+
+  // Index library by columnKey -> Set(ids)
+  const idsByColumnKey = lib.reduce((acc, c) => {
+    const ck = String(c?.columnKey || "").trim();
+    if (!ck) return acc;
+    if (!acc[ck]) acc[ck] = new Set();
+    acc[ck].add(String(c.id));
+    return acc;
+  }, {});
+
   const out = {};
   for (const step of w) {
     const defaults = Array.isArray(step.defaultTemplateIds)
-      ? step.defaultTemplateIds
+      ? step.defaultTemplateIds.map(String)
       : [];
-    out[step.key] = defaults.map(String).filter((id) => libIds.has(id));
+
+    const allowed = idsByColumnKey[String(step.key)] || new Set();
+    out[step.key] = defaults.filter((id) => allowed.has(id));
   }
   return out;
 }
@@ -34,11 +46,27 @@ export default function KanbanBuilderModal({
 
   const libById = useMemo(() => {
     const o = {};
-    for (const c of lib) o[c.id] = c;
+    for (const c of lib) o[String(c.id)] = c;
     return o;
   }, [lib]);
 
   const currentStep = wf[activeStepIndex];
+  const currentStepKey = String(currentStep?.key || "").trim();
+
+  // ✅ Cards disponíveis APENAS para o step atual (columnKey === stepKey)
+  const cardsForCurrentStep = useMemo(() => {
+    return lib
+      .filter(
+        (c) =>
+          String(c?.columnKey || "").trim() === String(currentStepKey).trim()
+      )
+      .sort((a, b) => {
+        const ao = Number(a?.order ?? 9999);
+        const bo = Number(b?.order ?? 9999);
+        if (ao !== bo) return ao - bo;
+        return String(a?.title || "").localeCompare(String(b?.title || ""));
+      });
+  }, [lib, currentStepKey]);
 
   useEffect(() => {
     if (open) {
@@ -86,7 +114,12 @@ export default function KanbanBuilderModal({
   }
 
   const isLastStep = activeStepIndex === wf.length - 1;
-  const pickedInCurrentStep = selectedByStepKey[currentStep?.key] || [];
+  const pickedInCurrentStep = Array.isArray(selectedByStepKey[currentStep?.key])
+    ? selectedByStepKey[currentStep.key]
+    : [];
+
+  // Badge de "disponíveis" deve refletir a coluna atual
+  const availableCount = cardsForCurrentStep.length;
 
   return (
     <div
@@ -131,42 +164,56 @@ export default function KanbanBuilderModal({
 
         <main className="kb-main">
           <div className="kb-grid">
-            {/* BIBLIOTECA */}
+            {/* BIBLIOTECA (FILTRADA POR COLUMNKEY DO STEP ATUAL) */}
             <section className="kb-column">
               <div className="kb-column-header">
                 <h4 className="kb-title" style={{ fontSize: "12px" }}>
                   Biblioteca de Cards
                 </h4>
-                <span className="kb-badge">{lib.length} disponíveis</span>
+                <span className="kb-badge">{availableCount} disponíveis</span>
               </div>
+
               <div className="kb-scroll">
-                {lib.map((card) => {
-                  const isChecked = pickedInCurrentStep.includes(card.id);
-                  return (
-                    <label
-                      key={card.id}
-                      className="kb-card-label"
-                      style={{
-                        borderColor: isChecked ? "#ee0000" : "#eee",
-                        backgroundColor: isChecked ? "#fdf2f2" : "#fff",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleCard(currentStep.key, card.id)}
-                        className="kb-checkbox"
-                        style={{ accentColor: "#ee0000" }}
-                      />
-                      <div style={{ flex: 1 }}>
-                        <div className="kb-card-title">{card.title}</div>
-                        <div style={{ fontSize: "11px", color: "#888" }}>
-                          {(card.subtasks || []).length} subtarefas
+                {cardsForCurrentStep.length === 0 ? (
+                  <div
+                    style={{
+                      textAlign: "center",
+                      marginTop: 24,
+                      color: "#999",
+                      fontSize: 12,
+                    }}
+                  >
+                    Nenhum card disponível para <b>{currentStep?.title}</b>.
+                  </div>
+                ) : (
+                  cardsForCurrentStep.map((card) => {
+                    const isChecked = pickedInCurrentStep.includes(card.id);
+                    return (
+                      <label
+                        key={card.id}
+                        className="kb-card-label"
+                        style={{
+                          borderColor: isChecked ? "#ee0000" : "#eee",
+                          backgroundColor: isChecked ? "#fdf2f2" : "#fff",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleCard(currentStep.key, card.id)}
+                          className="kb-checkbox"
+                          style={{ accentColor: "#ee0000" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div className="kb-card-title">{card.title}</div>
+                          <div style={{ fontSize: "11px", color: "#888" }}>
+                            {(card.subtasks || []).length} subtarefas
+                          </div>
                         </div>
-                      </div>
-                    </label>
-                  );
-                })}
+                      </label>
+                    );
+                  })
+                )}
               </div>
             </section>
 

@@ -1,4 +1,3 @@
-// src/utils/kanbanJiraConfig.js
 // src/utils/kanbanSync.js
 import {
   DEFAULT_KANBAN_LIBRARY,
