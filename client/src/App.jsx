@@ -3,7 +3,14 @@ import React, { useEffect, useState } from "react";
 import "./App.css";
 import ChecklistGMUDTab from "./components/ChecklistGMUDTab";
 import RDMTab from "./components/RDMTab";
+import AMPanelTab from "./components/AMPanelTab";
 import { CONFIG_KEY } from "./utils/gmudUtils";
+
+const TAB_TITLES = {
+  gmud: "Checklist GMUD",
+  rdm: "RDM – Requisição de Mudança",
+  am: "Painel de Acompanhamento (PO)", // Sugestão de nome (troque se quiser)
+};
 
 export default function App() {
   const [mainTab, setMainTab] = useState("gmud");
@@ -59,6 +66,7 @@ export default function App() {
         >
           Checklist GMUD
         </button>
+
         <button
           role="tab"
           aria-selected={mainTab === "rdm"}
@@ -66,6 +74,16 @@ export default function App() {
           onClick={() => setMainTab("rdm")}
         >
           RDM – Requisição de Mudança
+        </button>
+
+        {/* NOVO: Aba do Painel */}
+        <button
+          role="tab"
+          aria-selected={mainTab === "am"}
+          className={`main-tab ${mainTab === "am" ? "active" : ""}`}
+          onClick={() => setMainTab("am")}
+        >
+          Painel de Acompanhamento (PO)
         </button>
       </div>
 
@@ -78,11 +96,7 @@ export default function App() {
               src="https://upload.wikimedia.org/wikipedia/commons/0/0c/Claro.svg"
               alt="Logo Claro"
             />
-            <h1>
-              {mainTab === "gmud"
-                ? "Checklist GMUD"
-                : "RDM – Requisição de Mudança"}
-            </h1>
+            <h1>{TAB_TITLES[mainTab] || "Módulo"}</h1>
 
             {mainTab === "gmud" && (
               <div className="progress-general">
@@ -101,14 +115,23 @@ export default function App() {
         </header>
 
         {/* Conteúdo das abas */}
-        {mainTab === "rdm" ? (
+        {mainTab === "rdm" && (
           <RDMTab initialTitle={rdmTitle} initialDueDate={rdmDueDate} />
-        ) : (
-          // NOVO: entrega um callback para receber o título do Jira
+        )}
+
+        {mainTab === "gmud" && (
           <ChecklistGMUDTab
             onProgressChange={setGmudProgressPct}
             onRdmTitleChange={setRdmTitle}
             onRdmDueDateChange={setRdmDueDate}
+          />
+        )}
+
+        {mainTab === "am" && (
+          <AMPanelTab
+            // opcional: você pode passar settingsEmail/settingsToken se for usar em chamadas futuras
+            settingsEmail={settingsEmail}
+            settingsToken={settingsToken}
           />
         )}
 
@@ -135,6 +158,7 @@ export default function App() {
               ×
             </button>
           </div>
+
           <div className="settings-body" style={{ display: "grid", gap: 10 }}>
             <label htmlFor="settingsEmail">E-mail (uso local)</label>
             <input
@@ -144,6 +168,7 @@ export default function App() {
               onChange={(e) => setSettingsEmail(e.target.value)}
               placeholder="seu.email@dominio"
             />
+
             <label htmlFor="settingsToken">
               Token (não é usado pelo navegador)
             </label>
@@ -153,6 +178,7 @@ export default function App() {
               onChange={(e) => setSettingsToken(e.target.value)}
               placeholder="Token de acesso"
             />
+
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
               <button
                 type="button"
