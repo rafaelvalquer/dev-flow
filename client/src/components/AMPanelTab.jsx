@@ -49,6 +49,8 @@ import {
   ListChecks,
 } from "lucide-react";
 import { buildCronogramaADF } from "../utils/cronograma";
+import { DateValuePicker } from "@/components/ui/date-range-picker";
+import { jiraEditIssue, jiraTransitionToStatus } from "../lib/jiraClient";
 
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -607,9 +609,6 @@ export default function AMPanelTab() {
                     <h2 className="text-base font-semibold text-zinc-900">
                       Calendário
                     </h2>
-                    <p className="text-sm text-zinc-600">
-                      Cronograma por atividade (customfield_14017)
-                    </p>
                   </div>
                 </div>
 
@@ -884,29 +883,49 @@ function TicketDashboardPage({
           <TabsList className="rounded-xl bg-zinc-100 p-1">
             <TabsTrigger
               value="alertas"
-              className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              className="
+        rounded-lg
+        text-zinc-700 hover:bg-white/60
+        data-[state=active]:bg-green-600
+        data-[state=active]:text-white
+        data-[state=active]:shadow-sm
+      "
             >
-              <AlertTriangle className="mr-2 h-4 w-4 text-red-600" />
+              <AlertTriangle className="mr-2 h-4 w-4 text-red-600 data-[state=active]:text-white" />
               Alertas
               <Badge className="ml-2 rounded-full bg-red-600 text-white">
                 {alertasRows.length}
               </Badge>
             </TabsTrigger>
+
             <TabsTrigger
               value="andamento"
-              className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              className="
+        rounded-lg
+        text-zinc-700 hover:bg-white/60
+        data-[state=active]:bg-green-600
+        data-[state=active]:text-white
+        data-[state=active]:shadow-sm
+      "
             >
               Em andamento
-              <Badge className="ml-2 rounded-full bg-zinc-900 text-white">
+              <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
                 {andamentoRows.length}
               </Badge>
             </TabsTrigger>
+
             <TabsTrigger
               value="todos"
-              className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm"
+              className="
+        rounded-lg
+        text-zinc-700 hover:bg-white/60
+        data-[state=active]:bg-green-600
+        data-[state=active]:text-white
+        data-[state=active]:shadow-sm
+      "
             >
               Todos
-              <Badge className="ml-2 rounded-full bg-zinc-900 text-white">
+              <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
                 {todosRows.length}
               </Badge>
             </TabsTrigger>
@@ -1509,7 +1528,7 @@ function TicketDetailsDialog({
                 <Skeleton className="h-4 w-1/2" />
               </div>
             ) : (
-              <div className="whitespace-pre-wrap text-sm text-zinc-800">
+              <div className="whitespace-pre-wrap break-words text-sm text-zinc-800 max-h-56 overflow-auto">
                 {descText || "—"}
               </div>
             )}
@@ -2023,113 +2042,213 @@ function CronogramaEditorModal({
     });
   }
 
+  function inferMode(v) {
+    const s = String(v || "");
+    if (/\s+a\s+/i.test(s)) return "range";
+    if (s.trim()) return "single";
+    return "range";
+  }
+
+  const [modeById, setModeById] = useState(() => {
+    const init = {};
+    (draft || []).forEach((a) => {
+      init[a.id] = inferMode(a.data);
+    });
+    return init;
+  });
+
+  useEffect(() => {
+    // quando trocar de issue, recalcula modos iniciais a partir do draft atual
+    const next = {};
+    (draft || []).forEach((a) => {
+      next[a.id] = inferMode(a.data);
+    });
+    setModeById(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issue?.key]);
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-        zIndex: 9999,
+    <Dialog
+      open={true}
+      onOpenChange={(o) => {
+        if (!o) onClose?.();
       }}
     >
-      <div
-        style={{
-          width: "min(980px, 98vw)",
-          background: "rgba(20,20,20,0.96)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 14,
-          padding: 14,
-          display: "grid",
-          gap: 12,
-        }}
-      >
-        <div
-          style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
-        >
-          <div style={{ display: "grid", gap: 4 }}>
-            <div style={{ fontWeight: 800 }}>
-              Criar cronograma — {issue.key}
-            </div>
-            <div style={{ opacity: 0.8, fontSize: 13 }}>{issue.summary}</div>
-            <div style={{ opacity: 0.75, fontSize: 12 }}>
-              Data aceita: <code>DD/MM</code> ou <code>DD/MM a DD/MM</code>
-            </div>
-          </div>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-start gap-2 min-w-0">
+            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+              {issue.key}
+            </code>
 
-          <div style={{ display: "flex", gap: 8, alignItems: "start" }}>
-            <button type="button" onClick={onClose}>
-              Cancelar
-            </button>
-            <button
-              type="button"
-              className="primary"
-              onClick={onSave}
-              disabled={loading}
-            >
-              {loading ? "Salvando..." : "Salvar no Jira"}
-            </button>
-          </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="min-w-0 text-base leading-snug text-zinc-900"
+                  style={CLAMP_2}
+                >
+                  Criar cronograma — {issue.summary}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[520px]">
+                {issue.summary}
+              </TooltipContent>
+            </Tooltip>
+          </DialogTitle>
+
+          <DialogDescription className="text-sm text-zinc-600">
+            Selecione datas no calendário. O valor é salvo em{" "}
+            <code className="rounded bg-zinc-100 px-1">DD/MM</code> ou{" "}
+            <code className="rounded bg-zinc-100 px-1">DD/MM a DD/MM</code>.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4">
+          {/* Seção: Atividades */}
+          <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">
+                Atividades do cronograma
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Preencha Data, Recurso e Área. Campos padronizados e
+                responsivos.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="grid gap-3">
+              <div className="overflow-x-auto overflow-y-hidden md:overflow-visible rounded-2xl border border-zinc-200">
+                <div className="min-w-0">
+                  {/* Header sticky (md+) */}
+                  <div
+                    className="sticky top-0 z-10 hidden md:grid
+  md:grid-cols-[minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)]
+  gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700"
+                  >
+                    <div>Atividade</div>
+                    <div>Data</div>
+                    <div>Recurso</div>
+                    <div>Área</div>
+                  </div>
+
+                  {/* Rows */}
+                  <div className="grid">
+                    {draft.map((a, idx) => {
+                      const mode = modeById[a.id] || inferMode(a.data);
+
+                      return (
+                        <div
+                          key={a.id}
+                          className={cn(
+                            "border-t border-zinc-200 px-3 py-2",
+                            "md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)] md:items-start md:gap-2",
+                            "grid gap-3"
+                          )}
+                        >
+                          {/* Atividade */}
+                          <div className="min-w-0">
+                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                              Atividade
+                            </div>
+                            <div className="truncate text-sm font-semibold text-zinc-900">
+                              {a.name}
+                            </div>
+                          </div>
+
+                          {/* Data */}
+                          <div className="min-w-0">
+                            <div className="md:hidden text-[10px] font-bold uppercase text-zinc-400 mb-1">
+                              Data
+                            </div>
+                            <DateValuePicker
+                              value={a.data}
+                              mode={mode}
+                              onModeChange={(m) =>
+                                setModeById((prev) => ({ ...prev, [a.id]: m }))
+                              }
+                              onChange={(val) => setCell(idx, "data", val)}
+                              disabled={loading}
+                              className="w-full"
+                            />
+                          </div>
+
+                          {/* Recurso */}
+                          <div className="min-w-0">
+                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                              Recurso
+                            </div>
+                            <Input
+                              value={a.recurso || ""}
+                              onChange={(e) =>
+                                setCell(idx, "recurso", e.target.value)
+                              }
+                              placeholder="ex.: João"
+                              disabled={loading}
+                              className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
+                            />
+                          </div>
+
+                          {/* Área */}
+                          <div className="min-w-0">
+                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                              Área
+                            </div>
+                            <Input
+                              value={a.area || ""}
+                              onChange={(e) =>
+                                setCell(idx, "area", e.target.value)
+                              }
+                              placeholder="ex.: TI"
+                              disabled={loading}
+                              className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Prévia ADF (colapsável) */}
+          <details className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50">
+              Prévia do ADF gerado
+            </summary>
+            <div className="px-4 pb-4">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap font-mono text-xs text-zinc-800">
+                  {JSON.stringify(buildCronogramaADF(draft), null, 2)}
+                </pre>
+              </div>
+            </div>
+          </details>
         </div>
 
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <Th>Atividade</Th>
-                <Th>Data</Th>
-                <Th>Recurso</Th>
-                <Th>Área</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {draft.map((a, idx) => (
-                <tr key={a.id}>
-                  <Td style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
-                    {a.name}
-                  </Td>
-                  <Td>
-                    <input
-                      value={a.data}
-                      onChange={(e) => setCell(idx, "data", e.target.value)}
-                      placeholder="ex.: 15/01 ou 15/01 a 18/01"
-                      style={{ width: "100%" }}
-                    />
-                  </Td>
-                  <Td>
-                    <input
-                      value={a.recurso}
-                      onChange={(e) => setCell(idx, "recurso", e.target.value)}
-                      placeholder="ex.: João"
-                      style={{ width: "100%" }}
-                    />
-                  </Td>
-                  <Td>
-                    <input
-                      value={a.area}
-                      onChange={(e) => setCell(idx, "area", e.target.value)}
-                      placeholder="ex.: TI"
-                      style={{ width: "100%" }}
-                    />
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl border-zinc-200 bg-white"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancelar
+          </Button>
 
-        <details style={{ opacity: 0.85 }}>
-          <summary>Prévia do ADF gerado</summary>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
-            {JSON.stringify(buildCronogramaADF(draft), null, 2)}
-          </pre>
-        </details>
-      </div>
-    </div>
+          <Button
+            type="button"
+            className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+            onClick={onSave}
+            disabled={loading}
+          >
+            {loading ? "Salvando..." : "Salvar no Jira"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

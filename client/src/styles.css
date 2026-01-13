@@ -163,16 +163,26 @@ body {
 #vars-dirty-banner.mostrar {
   display: inline-block;
 }
-button {
+.btn {
   padding: 12px 24px;
   margin: 8px;
-  background: #4caf50;
-  color: #fff;
   border: none;
   border-radius: 6px;
   cursor: pointer;
   font-size: 16px;
+  color: #fff;
 }
+
+.btn-green {
+  background: #4caf50;
+}
+.btn-blue {
+  background: #3498db;
+}
+.btn-red {
+  background: #e74c3c;
+}
+
 button.exportar {
   background: #3498db;
 }

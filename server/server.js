@@ -1,5 +1,4 @@
-// server/server.js  (ou o caminho onde seu server.js está)
-// Copie e cole este arquivo inteiro.
+// server/server.js
 //
 // Requisitos:
 // - Node 18+ (fetch global)
@@ -60,8 +59,14 @@ function jiraHeaders(extra = {}) {
 
 function sendUpstream(res, r, fallbackType = "application/json") {
   res.status(r.status);
+
   const ct = r.headers.get("content-type") || fallbackType;
   res.type(ct);
+
+  // importante p/ rate limit
+  const ra = r.headers.get("retry-after");
+  if (ra) res.setHeader("Retry-After", ra);
+
   return r.text().then((t) => res.send(t));
 }
 
@@ -339,6 +344,45 @@ app.get("/api/jira/attachment/:id/download", async (req, res) => {
       .status(500)
       .type("text/plain")
       .send("Proxy error on attachment download");
+  }
+});
+
+// POST busca paginada por JQL (Jira Cloud: /rest/api/3/search/jql)
+app.post("/api/jira/search/jql", async (req, res) => {
+  try {
+    const url = `${JIRA_BASE}/rest/api/3/search/jql`;
+    const r = await fetch(url, {
+      method: "POST",
+      headers: jiraHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(req.body),
+    });
+    return sendUpstream(res, r);
+  } catch (err) {
+    console.error("POST search/jql error:", err);
+    return res.status(500).json({
+      error: "Proxy error on POST search/jql",
+      details: String(err),
+    });
+  }
+});
+
+// PUT atualizar issue (ex.: customfield_14017)
+app.put("/api/jira/issue/:key", async (req, res) => {
+  try {
+    const { key } = req.params;
+    const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(key)}`;
+    const r = await fetch(url, {
+      method: "PUT",
+      headers: jiraHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(req.body),
+    });
+    return sendUpstream(res, r);
+  } catch (err) {
+    console.error("PUT issue error:", err);
+    return res.status(500).json({
+      error: "Proxy error on PUT issue",
+      details: String(err),
+    });
   }
 });
 

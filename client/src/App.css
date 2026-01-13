@@ -5,14 +5,36 @@
 @tailwind utilities;
 
 :root {
-  --primary: #e30613; /* vermelho */
-  --success: #00a650;
+  --primary: #e30613;
+  --success: #10b981; /* Alterado para um emerald mais moderno, ou use #3b82f6 (azul) se quiser zero verde */
   --bg: #f8f8f8;
   --card: #fff;
   --text: #222;
   --muted: #666;
   --line: #e7e7e7;
   --shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+/* AJUSTE PARA PLANILHA NÃO EXTRAVASAR O MODAL */
+.table-container {
+  width: 100%;
+  overflow-x: auto; /* Scroll apenas na tabela */
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto; /* Permite que colunas se ajustem ao conteúdo */
+}
+
+th,
+td {
+  white-space: nowrap; /* Evita quebra de linha em textos curtos */
+  padding: 10px 14px;
+  font-size: 13px;
 }
 
 * {
@@ -1390,8 +1412,6 @@ button {
   font-weight: 700;
 }
 
-
-
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -1447,8 +1467,6 @@ button {
     --chart-5: 340 75% 55%;
   }
 }
-
-
 
 @layer base {
   * {
