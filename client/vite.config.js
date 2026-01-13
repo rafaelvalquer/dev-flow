@@ -1,12 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "url";
 
-// Proxy para o backend em dev
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
       "/api": "http://localhost:3000",
+    },
+  },
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
   build: {

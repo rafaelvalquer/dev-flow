@@ -109,6 +109,54 @@ export async function jiraEditIssue(key, payload) {
   });
 }
 
+// ===== Transições de status (Workflow) =====
+
+export async function jiraGetIssueTransitions(key) {
+  const url = `/api/jira/issue/${encodeURIComponent(key)}/transitions`;
+  return requestJson(url, { method: "GET" });
+}
+
+export async function jiraDoIssueTransition(key, transitionId) {
+  const url = `/api/jira/issue/${encodeURIComponent(key)}/transitions`;
+  return requestJson(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transition: { id: String(transitionId) } }),
+  });
+}
+
+export async function jiraTransitionToStatus(key, statusName) {
+  const data = await jiraGetIssueTransitions(key);
+  const transitions = Array.isArray(data?.transitions) ? data.transitions : [];
+
+  const wanted = String(statusName || "")
+    .trim()
+    .toLowerCase();
+
+  const match = transitions.find((t) => {
+    const toName = String(t?.to?.name || "")
+      .trim()
+      .toLowerCase();
+    return toName === wanted;
+  });
+
+  if (!match) {
+    const available = transitions
+      .map((t) => t?.to?.name)
+      .filter(Boolean)
+      .join(", ");
+
+    throw new Error(
+      `Transição para "${statusName}" não encontrada. Disponíveis: ${
+        available || "—"
+      }`
+    );
+  }
+
+  await jiraDoIssueTransition(key, match.id);
+  return match;
+}
+
 // util: concorrência limitada
 export async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
