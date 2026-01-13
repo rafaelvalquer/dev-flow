@@ -1,7 +1,4 @@
-/* =========================
-   1) IMPORTS (adicione no topo do arquivo)
-   Ajuste os paths do shadcn/ui conforme seu projeto.
-========================= */
+// src/components/AMPanelTab.jsx
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -51,6 +48,7 @@ import {
   AlertTriangle,
   ListChecks,
 } from "lucide-react";
+import { buildCronogramaADF } from "../utils/cronograma";
 
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -69,10 +67,52 @@ import { getIssue, getComments, createComment } from "../lib/jira";
 import { adfSafeToText } from "../utils/gmudUtils";
 
 /* =========================
-   2) HELPERS (mesmo arquivo)
+   2) HELPERS 
 ========================= */
 function cn(...a) {
   return a.filter(Boolean).join(" ");
+}
+
+const CLAMP_2 = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+  wordBreak: "break-word",
+};
+
+const DEFAULT_JIRA_BROWSE_BASE = "https://clarobr-jsw-tecnologia.atlassian.net";
+
+function inferJiraBaseFromSelf(selfUrl) {
+  try {
+    const u = new URL(selfUrl);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return "";
+  }
+}
+
+function getJiraBrowseUrl(issueKey, issue) {
+  const envBase = String(import.meta?.env?.VITE_JIRA_BROWSE_BASE || "").trim();
+  const inferred = inferJiraBaseFromSelf(issue?.self || issue?.url || "");
+  const base = (envBase || inferred || DEFAULT_JIRA_BROWSE_BASE).replace(
+    /\/$/,
+    ""
+  );
+  return issueKey ? `${base}/browse/${issueKey}` : "";
+}
+
+// estilos padrão para botões de navegação (Tickets / Calendário)
+function topNavButtonClasses(active) {
+  const base =
+    "rounded-xl border px-4 py-2 text-sm font-medium transition " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 " +
+    "disabled:opacity-60";
+  const on =
+    "bg-red-600 text-white border-red-600 shadow-sm hover:bg-red-700 hover:border-red-700";
+  const off =
+    "bg-white text-zinc-900 border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300 hover:shadow-sm";
+  return cn(base, active ? on : off);
 }
 
 function fmtUpdatedBR(isoOrDate) {
@@ -475,28 +515,22 @@ export default function AMPanelTab() {
               {/* Ações globais (mantém sua navegação Alertas/Calendário) */}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
-                  variant={subView === "alertas" ? "default" : "outline"}
-                  className={cn(
-                    "rounded-xl",
-                    subView === "alertas"
-                      ? "bg-red-600 text-white hover:bg-red-700"
-                      : "border-zinc-200 bg-white hover:bg-zinc-50"
-                  )}
+                  type="button"
+                  variant="outline"
+                  className={topNavButtonClasses(subView === "alertas")}
                   onClick={() => setSubView("alertas")}
+                  aria-pressed={subView === "alertas"}
                 >
                   <ListChecks className="mr-2 h-4 w-4" />
                   Tickets
                 </Button>
 
                 <Button
-                  variant={subView === "calendario" ? "default" : "outline"}
-                  className={cn(
-                    "rounded-xl",
-                    subView === "calendario"
-                      ? "bg-red-600 text-white hover:bg-red-700"
-                      : "border-zinc-200 bg-white hover:bg-zinc-50"
-                  )}
+                  type="button"
+                  variant="outline"
+                  className={topNavButtonClasses(subView === "calendario")}
                   onClick={() => setSubView("calendario")}
+                  aria-pressed={subView === "calendario"}
                 >
                   <CalendarDays className="mr-2 h-4 w-4" />
                   Calendário
@@ -1117,7 +1151,7 @@ function TicketSection({
       </div>
 
       {/* Grid de cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {loading
           ? Array.from({ length: 8 }).map((_, i) => (
               <TicketCardSkeleton key={i} />
@@ -1178,27 +1212,35 @@ function TicketCardImpl({
     >
       <Card className="group h-full rounded-2xl border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md">
         <CardHeader className="space-y-2">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <code className="rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-800">
+          <div className="flex items-start justify-between gap-2 min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-800">
                 {key}
               </code>
+
               {isNew ? (
-                <Badge className="rounded-full bg-red-600 text-white">
+                <Badge className="shrink-0 rounded-full bg-red-600 text-white">
                   Novo
                 </Badge>
               ) : null}
+
               {missingSchedule ? (
-                <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                <Badge className="max-w-full rounded-full border border-amber-200 bg-amber-50 text-amber-800">
                   Sem cronograma
                 </Badge>
               ) : null}
             </div>
 
-            <StatusBadge status={status} />
+            <div className="shrink-0">
+              <StatusBadge status={status} />
+            </div>
           </div>
 
-          <CardTitle className="line-clamp-2 text-sm font-semibold leading-snug text-zinc-900">
+          <CardTitle
+            className="text-sm font-semibold leading-snug text-zinc-900"
+            style={CLAMP_2}
+            title={summary}
+          >
             {summary}
           </CardTitle>
 
@@ -1233,9 +1275,10 @@ function TicketCardImpl({
             </Button>
 
             <Button
+              type="button"
               variant="outline"
               onClick={onDetails}
-              className="rounded-xl border-zinc-200 bg-white hover:bg-zinc-50"
+              className="rounded-xl border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
             >
               Ver detalhes
             </Button>
@@ -1276,7 +1319,12 @@ function StatusBadge({ status }) {
 
   return (
     <Badge
-      className={cn("rounded-full px-2.5 py-1 text-[11px] font-semibold", cls)}
+      title={status || "—"}
+      className={cn(
+        "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+        "max-w-[180px] truncate", // impede status muito grande de estourar
+        cls
+      )}
     >
       {status || "—"}
     </Badge>
@@ -1333,7 +1381,11 @@ function TicketDetailsDialog({
     setComments([]);
 
     Promise.allSettled([
-      getIssue(issueKey, "summary,status,assignee,updated,project"),
+      getIssue(
+        issueKey,
+        "summary,status,assignee,updated,project,description,customfield_14017"
+      ),
+
       getComments(issueKey),
     ])
       .then((res) => {
@@ -1356,31 +1408,54 @@ function TicketDetailsDialog({
   }, [open, issueKey]);
 
   const f = issue?.fields || {};
-  const jiraBrowseUrl =
-    (import.meta?.env?.VITE_JIRA_BROWSE_BASE || "").replace(/\/$/, "") &&
-    issueKey
-      ? `${String(import.meta.env.VITE_JIRA_BROWSE_BASE).replace(
-          /\/$/,
-          ""
-        )}/browse/${issueKey}`
-      : "";
+  function getFirstDescriptionText(descriptionAdf) {
+    try {
+      const t = descriptionAdf?.content?.[0]?.content?.[0]?.text;
+      return typeof t === "string" ? t.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+
+  const descText =
+    getFirstDescriptionText(f?.description) || safeText(f?.description) || "—";
+
+  const infoAdicText = safeText(f?.customfield_14017) || "—";
+
+  const hasCronograma = Boolean(
+    String(infoAdicText || "")
+      .trim()
+      .replace(/^—$/, "")
+  );
+
+  const jiraBrowseUrl = useMemo(
+    () => getJiraBrowseUrl(issueKey, issue),
+    [issueKey, issue]
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl rounded-2xl">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <code className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold">
+          <DialogTitle className="flex items-start gap-2 min-w-0">
+            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold">
               {issueKey || "—"}
             </code>
-            <span className="truncate">
-              {f?.summary || "Detalhes do ticket"}
-            </span>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="min-w-0 text-base leading-snug text-zinc-900"
+                  style={CLAMP_2}
+                >
+                  {f?.summary || "Detalhes do ticket"}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-[520px]">
+                {f?.summary || "Detalhes do ticket"}
+              </TooltipContent>
+            </Tooltip>
           </DialogTitle>
-          <DialogDescription className="text-zinc-600">
-            Status, responsável, updated e comentários recentes (destaque para
-            [INICIADO]).
-          </DialogDescription>
         </DialogHeader>
 
         {err ? (
@@ -1390,6 +1465,7 @@ function TicketDetailsDialog({
         ) : null}
 
         <div className="grid gap-3">
+          {/* BLOCO ANTIGO (volta aqui) */}
           <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
             {loading ? (
               <div className="grid gap-2">
@@ -1417,6 +1493,51 @@ function TicketDetailsDialog({
                   </span>{" "}
                   {fmtUpdatedBR(f?.updated)}
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Descrição */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-3">
+            <div className="mb-2 text-sm font-semibold text-zinc-900">
+              Descrição
+            </div>
+            {loading ? (
+              <div className="grid gap-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-4 w-1/2" />
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap text-sm text-zinc-800">
+                {descText || "—"}
+              </div>
+            )}
+          </div>
+
+          {/* Informações Adicionais (Cronograma) */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-zinc-900">
+                Informações Adicionais
+              </div>
+
+              {!loading && !hasCronograma ? (
+                <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                  Sem cronograma
+                </Badge>
+              ) : null}
+            </div>
+
+            {loading ? (
+              <div className="grid gap-2">
+                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-4 w-3/5" />
+                <Skeleton className="h-4 w-2/5" />
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap text-sm text-zinc-800">
+                {hasCronograma ? infoAdicText : "—"}
               </div>
             )}
           </div>
@@ -1509,22 +1630,26 @@ function TicketDetailsDialog({
             </Button>
           </div>
 
-          <Button
-            className="rounded-xl bg-red-600 text-white hover:bg-red-700"
-            onClick={() => {
-              if (jiraBrowseUrl)
-                window.open(jiraBrowseUrl, "_blank", "noopener,noreferrer");
-            }}
-            disabled={!jiraBrowseUrl}
-            title={
-              jiraBrowseUrl
-                ? "Abrir no Jira"
-                : "Defina VITE_JIRA_BROWSE_BASE para habilitar o link"
-            }
-          >
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Abrir no Jira
-          </Button>
+          {jiraBrowseUrl ? (
+            <Button
+              asChild
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+            >
+              <a href={jiraBrowseUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Abrir no Jira
+              </a>
+            </Button>
+          ) : (
+            <Button
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              disabled
+              title="Não foi possível montar a URL do Jira"
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Abrir no Jira
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
