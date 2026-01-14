@@ -47,6 +47,19 @@ import {
   buildKanbanSummary,
 } from "../utils/kanbanSync";
 
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import {
+  RotateCw,
+  Save,
+  Check,
+  MessageSquarePlus,
+  UploadCloud,
+  X,
+  FileCode2,
+  Layers3,
+} from "lucide-react";
+
 const JIRA_CACHE_PREFIX = "GMUD_JIRA_CACHE_V1:";
 function jiraCacheKey(ticket) {
   return `${JIRA_CACHE_PREFIX}${String(ticket || "")
@@ -1684,13 +1697,14 @@ function ChecklistGMUDTab({
                   justifyContent: "flex-end",
                 }}
               >
-                <button
+                <Button
                   type="button"
-                  className="primary"
                   onClick={closeSyncOverlay}
+                  className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                 >
+                  <Check className="mr-2 h-4 w-4" />
                   Ok
-                </button>
+                </Button>
               </div>
             )}
 
@@ -1953,13 +1967,17 @@ function ChecklistGMUDTab({
               />
             </div>
             <div style={{ gridColumn: "span 3", textAlign: "right" }}>
-              <button
-                className="primary"
+              <Button
                 onClick={sincronizarJira}
                 disabled={syncing}
+                aria-busy={syncing}
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
               >
+                <RotateCw
+                  className={cn("mr-2 h-4 w-4", syncing && "animate-spin")}
+                />
                 {syncing ? "Sincronizando..." : "Sincronizar com Jira"}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -2026,12 +2044,14 @@ function ChecklistGMUDTab({
                 <p style={{ color: "#666", fontSize: 13 }}>
                   Sincronize com o Jira para visualizar o fluxo.
                 </p>
-                <button
-                  className="primary"
+                <Button
+                  type="button"
                   onClick={() => setBuilderOpen(true)}
+                  className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                 >
+                  <Layers3 className="mr-2 h-4 w-4" />
                   Montar estrutura
-                </button>
+                </Button>
               </div>
             ) : (
               getWorkflow().map((step, idx) => {
@@ -2345,16 +2365,22 @@ function ChecklistGMUDTab({
                     marginTop: 12,
                   }}
                 >
-                  <button
-                    className="primary"
-                    style={{ borderRadius: 8, padding: "10px 20px" }}
+                  <Button
                     onClick={salvarScripts}
                     disabled={savingScripts}
+                    aria-busy={savingScripts}
+                    className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-2.5"
                   >
+                    <FileCode2
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        savingScripts && "animate-spin"
+                      )}
+                    />
                     {savingScripts
                       ? "Processando..."
                       : "Salvar Scripts no Jira"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -2388,14 +2414,20 @@ function ChecklistGMUDTab({
                     >
                       + Adicionar
                     </button>
-                    <button
-                      className="primary"
+                    <Button
                       onClick={salvarVariaveis}
                       disabled={savingVars}
-                      style={{ padding: "8px 14px" }}
+                      aria-busy={savingVars}
+                      className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-4 py-2"
                     >
+                      <Save
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          savingVars && "animate-spin"
+                        )}
+                      />
                       {savingVars ? "Salvando..." : "Salvar no Jira"}
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -2530,13 +2562,22 @@ function ChecklistGMUDTab({
                 </div>
 
                 <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
-                  <button
-                    className="primary"
+                  <Button
+                    type="button"
                     onClick={enviarArquivos}
                     disabled={uploading || !previewFiles.length}
+                    aria-busy={uploading}
+                    className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                   >
+                    <UploadCloud
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        uploading && "animate-spin"
+                      )}
+                    />
                     {uploading ? "Enviando..." : "Enviar Selecionados"}
-                  </button>
+                  </Button>
+
                   <button
                     className="secondary"
                     onClick={limparPreview}
@@ -2805,8 +2846,7 @@ function ChecklistGMUDTab({
                       Limpar
                     </button>
 
-                    <button
-                      className="primary"
+                    <Button
                       type="button"
                       onClick={addJiraComment}
                       disabled={
@@ -2814,14 +2854,22 @@ function ChecklistGMUDTab({
                         !ticketJira.trim() ||
                         !newJiraCommentText.trim()
                       }
+                      aria-busy={postingJiraComment}
                       title={
                         !ticketJira.trim() ? "Informe o ticket do Jira" : ""
                       }
+                      className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                     >
+                      <MessageSquarePlus
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          postingJiraComment && "animate-spin"
+                        )}
+                      />
                       {postingJiraComment
                         ? "Enviando..."
                         : "Adicionar comentário no Jira"}
-                    </button>
+                    </Button>
                   </div>
 
                   <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
@@ -2905,7 +2953,14 @@ function ChecklistGMUDTab({
 
           {/* Rodapé */}
           <div className="botoes-finais">
-            <button className="primary pdf" onClick={() => window.print()}>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-5 py-3 text-sm font-semibold text-white shadow-md transition
+               hover:from-red-700 hover:to-red-800 hover:shadow-lg
+               active:scale-[0.98]
+               focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            >
               GERAR PDF (Imprimir)
             </button>
           </div>
@@ -2958,13 +3013,16 @@ function ChecklistGMUDTab({
               </div>
             </div>
 
-            <button
+            <Button
               type="button"
-              className="gmud-footer-btn"
+              variant="ghost"
+              size="icon"
               onClick={toggleSide}
+              className="rounded-xl hover:bg-red-100"
+              aria-label="Fechar"
             >
-              <i className="fa-solid fa-xmark" aria-hidden="true" />
-            </button>
+              <X className="h-5 w-5" />
+            </Button>
           </div>
 
           <div className="gmud-sidebar-body">

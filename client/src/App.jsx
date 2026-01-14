@@ -107,11 +107,13 @@ export default function App() {
           </div>
 
           <button
-            className="primary"
+            type="button"
             onClick={() => toggleSettings(true)}
             aria-expanded={settingsOpen}
+            className="btn-primary btn-primary--sm"
           >
-            ⚙ Configurações
+            <span aria-hidden="true">⚙</span>
+            Configurações
           </button>
         </header>
 

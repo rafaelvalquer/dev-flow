@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Sortable from "sortablejs";
 import "../App.css";
+import { ArrowLeft, ArrowRight, Save } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 function ensureDefaultSelection(workflow, library) {
   const w = Array.isArray(workflow) ? workflow : [];
@@ -287,30 +289,35 @@ export default function KanbanBuilderModal({
             A ordenação reflete a prioridade no Kanban.
           </div>
           <div style={{ display: "flex", gap: "12px" }}>
-            <button
+            <Button
+              type="button"
+              variant="outline"
               disabled={activeStepIndex === 0}
               onClick={() => setActiveStepIndex((v) => v - 1)}
-              className={`kb-btn kb-btn-secondary ${
-                activeStepIndex === 0 ? "kb-btn-disabled" : ""
-              }`}
+              className="rounded-xl border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-60"
             >
+              <ArrowLeft className="mr-2 h-4 w-4" />
               Voltar
-            </button>
+            </Button>
 
             {!isLastStep ? (
-              <button
+              <Button
+                type="button"
                 onClick={() => setActiveStepIndex((v) => v + 1)}
-                className="kb-btn kb-btn-primary"
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
               >
                 Próximo Passo
-              </button>
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
             ) : (
-              <button
+              <Button
+                type="button"
                 onClick={() => onSave?.(selectedByStepKey)}
-                className="kb-btn kb-btn-save"
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
               >
+                <Save className="mr-2 h-4 w-4" />
                 Salvar Configuração
-              </button>
+              </Button>
             )}
           </div>
         </footer>

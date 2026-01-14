@@ -4,6 +4,29 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+      rounded-xl px-5 py-3 text-sm font-semibold
+      text-white shadow-md transition
+      bg-gradient-to-r from-red-600 to-red-700
+      hover:from-red-700 hover:to-red-800 hover:shadow-lg
+      active:scale-[0.98]
+      focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2
+      disabled:opacity-60 disabled:pointer-events-none;
+  }
+
+  /* opcional: variações */
+  .btn-primary--sm {
+    @apply px-3 py-2 text-xs;
+  }
+
+  .btn-primary--green {
+    @apply bg-gradient-to-r from-green-600 to-green-700
+      hover:from-green-700 hover:to-green-800;
+  }
+}
+
 :root {
   --primary: #e30613;
   --success: #10b981; /* Alterado para um emerald mais moderno, ou use #3b82f6 (azul) se quiser zero verde */

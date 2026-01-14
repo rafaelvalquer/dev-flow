@@ -7,6 +7,9 @@ import { motion } from "framer-motion";
 import { buildCronogramaAtividades } from "../utils/buildCronograma";
 import { rdmCopilot } from "../lib/rdmCopilot";
 import RdmDocxPreviewModal from "./RdmDocxPreviewModal";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { X, Plus, Eye, FileText, Bot, Printer, Trash2 } from "lucide-react";
 
 /**
  * Observação:
@@ -590,24 +593,31 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                   updNested(`alinhamentos.${idx}.contato`, e.target.value)
                 }
               />
-              <button
+
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => rmLinha("alinhamentos", idx)}
+                className="h-9 w-9 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-600"
+                aria-label="Remover alinhamento"
+                title="Remover"
               >
-                X
-              </button>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           ))}
 
-          <button
+          <Button
             type="button"
-            className="primary small"
             onClick={() =>
               addLinha("alinhamentos", { nome: "", area: "", contato: "" })
             }
+            className="mt-2 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
           >
-            + Adicionar alinhamento
-          </button>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar alinhamento
+          </Button>
         </div>
 
         <div className="rdm-card span-2">
@@ -661,21 +671,31 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                   updNested(`executores.${idx}.contato`, e.target.value)
                 }
               />
-              <button type="button" onClick={() => rmLinha("executores", idx)}>
-                X
-              </button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => rmLinha("executores", idx)}
+                className="h-9 w-9 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-600"
+                aria-label="Remover executor"
+                title="Remover"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           ))}
 
-          <button
+          <Button
             type="button"
-            className="primary small"
             onClick={() =>
               addLinha("executores", { nome: "", area: "", contato: "" })
             }
+            className="mt-2 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
           >
-            + Adicionar executor
-          </button>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar executor
+          </Button>
         </div>
 
         {/* ===== CRONOGRAMA ===== */}
@@ -718,15 +738,23 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                   updNested(`atividades.${idx}.responsavel`, e.target.value)
                 }
               />
-              <button type="button" onClick={() => rmLinha("atividades", idx)}>
-                X
-              </button>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => rmLinha("atividades", idx)}
+                className="h-9 w-9 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-600"
+                aria-label="Remover atividade"
+                title="Remover"
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           ))}
 
-          <button
+          <Button
             type="button"
-            className="primary small"
             onClick={() =>
               addLinha("atividades", {
                 dataHora: "",
@@ -734,9 +762,11 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                 responsavel: "",
               })
             }
+            className="mt-2 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
           >
-            + Adicionar atividade
-          </button>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar atividade
+          </Button>
 
           <div
             style={{
@@ -780,6 +810,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         <i className="fas fa-undo-alt"></i>
         <h2>Plano de Rollback</h2>
       </div>
+
       <div className="rdm-grid">
         <div className="rdm-card span-2">
           {rdm.rollbackPlan.map((row, idx) => (
@@ -799,17 +830,23 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                   updNested(`rollbackPlan.${idx}.responsavel`, e.target.value)
                 }
               />
-              <button
+
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => rmLinha("rollbackPlan", idx)}
+                className="h-9 w-9 rounded-xl text-gray-500 hover:bg-red-50 hover:text-red-600"
+                aria-label="Remover passo de rollback"
+                title="Remover"
               >
-                X
-              </button>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           ))}
-          <button
+
+          <Button
             type="button"
-            className="primary small"
             onClick={() =>
               addLinha("rollbackPlan", {
                 dataHora: "",
@@ -817,9 +854,11 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                 responsavel: "",
               })
             }
+            className="mt-2 rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
           >
-            + Adicionar passo de rollback
-          </button>
+            <Plus className="mr-2 h-4 w-4" />
+            Adicionar passo de rollback
+          </Button>
         </div>
       </div>
 
@@ -835,7 +874,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
             gap: 12,
           }}
         >
-          {/* Título + hint (separa visualmente sem criar “vão”) */}
+          {/* Título + hint */}
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
             <span style={{ fontWeight: 900, color: "#222" }}>Ações finais</span>
             <span style={{ fontSize: 12, color: "#666" }}>
@@ -843,7 +882,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
             </span>
           </div>
 
-          {/* Botões agrupados (gap controlado e sem margin padrão) */}
+          {/* Botões agrupados */}
           <div
             style={{
               display: "flex",
@@ -853,50 +892,53 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               gap: 10,
             }}
           >
-            <button
-              style={{ margin: 0 }}
+            <Button
+              type="button"
               onClick={openPreview}
-              className="primary btn-red flex items-center gap-2 px-5 py-3 rounded-xl font-bold shadow-xl"
               title="Ver como vai sair no DOCX"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-3 font-bold shadow-xl"
             >
-              <i className="fas fa-eye"></i> Preview
-            </button>
+              <Eye className="mr-2 h-4 w-4" />
+              Preview
+            </Button>
 
-            <button
-              style={{ margin: 0 }}
+            <Button
+              type="button"
               onClick={() => gerarRdmDocx(rdm)}
-              className="primary btn-red flex items-center gap-2 px-5 py-3 rounded-xl font-bold shadow-xl"
               title="Gerar o DOCX final"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-3 font-bold shadow-xl"
             >
-              <i className="fas fa-file-word"></i> Gerar DOCX
-            </button>
+              <FileText className="mr-2 h-4 w-4" />
+              Gerar DOCX
+            </Button>
 
-            <button
-              style={{ margin: 0 }}
+            <Button
               type="button"
               onClick={() => {
                 setCopilotErr("");
                 setCopilotOpen(true);
               }}
-              className="primary btn-red flex items-center gap-2 px-4 py-3 rounded-xl font-semibold shadow-md"
               title="Preencher campos com Co-pilot"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-4 py-3 font-semibold shadow-md"
             >
-              <i className="fas fa-robot"></i> Co-pilot
-            </button>
+              <Bot className="mr-2 h-4 w-4" />
+              Co-pilot
+            </Button>
 
-            <button
-              style={{ margin: 0 }}
+            <Button
+              type="button"
               onClick={() => window.print()}
-              className="primary btn-red flex items-center gap-2 px-4 py-3 rounded-xl font-semibold shadow-md"
               title="Imprimir ou gerar PDF"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-4 py-3 font-semibold shadow-md"
             >
-              <i className="fas fa-print"></i> Imprimir/PDF
-            </button>
+              <Printer className="mr-2 h-4 w-4" />
+              Imprimir/PDF
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* “Safe area” para o conteúdo final não ficar escondido atrás da barra fixa */}
+      {/* Safe area */}
       <div aria-hidden="true" style={{ height: 96 }} />
 
       <datalist id="lista-pessoas">
@@ -933,12 +975,18 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               <h3 style={{ margin: 0, flex: 1 }}>
                 Co-pilot (Gemini) — preencher RDM
               </h3>
-              <button
+
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => !copilotBusy && setCopilotOpen(false)}
+                className="rounded-xl"
+                aria-label="Fechar modal"
+                title="Fechar"
               >
-                X
-              </button>
+                <X className="h-4 w-4" />
+              </Button>
             </div>
 
             <p style={{ marginTop: 8, color: "#555", fontSize: 13 }}>
@@ -1001,26 +1049,33 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                 gap: 8,
               }}
             >
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => {
                   if (copilotBusy) return;
                   setCopilotFiles([]);
                   setCopilotErr("");
                 }}
                 disabled={copilotBusy}
+                className="rounded-xl"
               >
+                <Trash2 className="mr-2 h-4 w-4" />
                 Limpar
-              </button>
+              </Button>
 
-              <button
+              <Button
                 type="button"
                 onClick={executarCopilot}
                 disabled={copilotBusy}
-                className="flex items-center gap-2 px-6 py-3 bg-[#e30613] text-white rounded-xl font-semibold shadow-md hover:bg-[#c41f14] transition duration-200"
+                aria-busy={copilotBusy}
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-6 py-3 font-semibold shadow-md"
               >
+                <Bot
+                  className={cn("mr-2 h-4 w-4", copilotBusy && "animate-spin")}
+                />
                 {copilotBusy ? "Processando..." : "Executar Co-pilot"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -599,7 +599,7 @@ export default function AMPanelTab() {
           )}
 
           {/* =========================
-            CALENDÁRIO (mantém o seu)
+            CALENDÁRIO 
         ========================= */}
           {subView === "calendario" && (
             <section className="grid gap-3">
