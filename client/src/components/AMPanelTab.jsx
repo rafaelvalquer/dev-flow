@@ -8,6 +8,7 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
+  CardFooter,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   Search,
+  AlertCircle,
   RefreshCcw,
   Filter,
   ArrowUpDown,
@@ -48,6 +50,8 @@ import {
   CalendarDays,
   AlertTriangle,
   ListChecks,
+  Clock,
+  History,
 } from "lucide-react";
 
 import FullCalendar from "@fullcalendar/react";
@@ -1555,106 +1559,113 @@ const TicketCard = memo(function TicketCard({
       transition={{ type: "spring", stiffness: 380, damping: 28 }}
       className="h-full"
     >
-      <Card className="group h-full rounded-2xl border-zinc-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-        <CardHeader className="space-y-2">
-          <div className="flex items-start justify-between gap-2 min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-800">
+      <Card className="group flex h-full flex-col overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm transition-all hover:shadow-md">
+        {/* HEADER: Identificação e Status */}
+        <CardHeader className="space-y-3 pb-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-600 border border-zinc-200/50">
                 {key}
-              </code>
+              </span>
 
-              {isNew ? (
-                <Badge className="shrink-0 rounded-full bg-red-600 text-white">
+              {isNew && (
+                <Badge className="h-5 rounded-full bg-blue-600 text-[10px] font-medium hover:bg-blue-600">
                   Novo
                 </Badge>
-              ) : null}
+              )}
 
-              {missingSchedule ? (
-                <Badge className="max-w-full rounded-full border border-amber-200 bg-amber-50 text-amber-800">
-                  Sem cronograma
-                </Badge>
-              ) : null}
+              {missingSchedule && (
+                <div
+                  className="flex items-center gap-1 text-amber-600"
+                  title="Sem cronograma"
+                >
+                  {/* Ícone corrigido aqui */}
+                  <AlertCircle className="h-4 w-4" />
+                </div>
+              )}
             </div>
 
-            {/* status */}
-            <div className="shrink-0 flex items-center gap-2">
-              <StatusBadge status={status} />
-            </div>
+            <StatusBadge status={status} />
           </div>
 
-          <CardTitle
-            className="text-sm font-semibold leading-snug text-zinc-900"
-            style={CLAMP_2}
-            title={summary}
-          >
-            {summary}
-          </CardTitle>
-
-          {/* ✅ agora aqui fica "Criado em:" */}
-          <CardDescription className="text-xs text-zinc-600">
-            Criado em:{" "}
-            <span className="font-medium text-zinc-800">{created}</span>
-          </CardDescription>
+          <div className="space-y-1">
+            <CardTitle
+              className="text-[15px] font-semibold leading-tight text-zinc-900 line-clamp-2 min-h-[40px]"
+              title={summary}
+            >
+              {summary}
+            </CardTitle>
+            <CardDescription className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+              <Clock className="h-3 w-3" />
+              Criado em {created}
+            </CardDescription>
+          </div>
         </CardHeader>
 
-        <CardContent className="grid gap-3">
-          <div className="flex items-center gap-2">
-            <Avatar className="h-7 w-7 border border-zinc-200">
-              <AvatarFallback className="bg-zinc-100 text-[11px] text-zinc-700">
+        {/* CONTENT: Responsável e Ações (flex-1 para empurrar o footer) */}
+        <CardContent className="flex flex-1 flex-col gap-4">
+          <div className="flex items-center gap-2.5 rounded-lg border border-zinc-100 bg-zinc-50/50 p-2">
+            <Avatar className="h-8 w-8 border border-white shadow-sm">
+              <AvatarFallback className="bg-zinc-200 text-[10px] font-medium text-zinc-600">
                 {initials(assignee)}
               </AvatarFallback>
             </Avatar>
-            <div className="min-w-0">
-              <div className="truncate text-xs font-medium text-zinc-900">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-zinc-800">
                 {assignee}
-              </div>
-              <div className="text-[11px] text-zinc-500">Responsável</div>
+              </p>
+              <p className="text-[10px] text-zinc-500">Responsável</p>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          {/* Botões de Ação - Layout Estável */}
+          <div className="grid grid-cols-2 gap-2 mt-auto">
             <Button
+              size="sm"
               onClick={onStart}
-              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              className="rounded-lg bg-red-600 font-medium text-white hover:bg-red-700 transition-colors"
             >
-              <Play className="mr-2 h-4 w-4" />
+              <Play className="mr-1.5 h-3.5 w-3.5 fill-current" />
               Iniciar
             </Button>
 
             <Button
-              type="button"
+              size="sm"
               variant="outline"
               onClick={onDetails}
-              className="rounded-xl border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2"
+              className="rounded-lg border-zinc-200 text-zinc-700 hover:bg-zinc-50"
             >
-              Ver detalhes
+              Detalhes
             </Button>
 
-            {missingSchedule && onSchedule ? (
+            {missingSchedule && onSchedule && (
               <Button
+                size="sm"
                 variant="secondary"
                 onClick={onSchedule}
-                className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800"
+                className="col-span-2 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800"
               >
                 Criar cronograma
               </Button>
-            ) : null}
-          </div>
-
-          {/* ✅ rodapé do card: Atualizado em */}
-          <div className="mt-1 border-t border-zinc-100 pt-2 text-[11px] text-zinc-500">
-            Atualizado em{" "}
-            <span className="font-medium text-zinc-700">{updated}</span>
-          </div>
-          {/* ✅ canto direito: idade + status */}
-          <div className="shrink-0 flex items-center gap-2">
-            {age ? (
-              <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700 px-2 py-1 text-[11px] font-semibold">
-                {age}
-              </Badge>
-            ) : null}
+            )}
           </div>
         </CardContent>
+
+        <Separator className="bg-zinc-100" />
+
+        {/* FOOTER: Metadados fixos no rodapé */}
+        <CardFooter className="flex items-center justify-between bg-zinc-50/30 py-3 text-[11px]">
+          <div className="flex items-center gap-1.5 text-zinc-500">
+            <History className="h-3 w-3" />
+            <span>Atu. {updated}</span>
+          </div>
+
+          {age && (
+            <span className="font-bold text-zinc-700 bg-zinc-200/50 px-2 py-0.5 rounded text-[10px]">
+              {age}
+            </span>
+          )}
+        </CardFooter>
       </Card>
     </motion.div>
   );
