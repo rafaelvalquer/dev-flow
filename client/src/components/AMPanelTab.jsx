@@ -1,5 +1,6 @@
 // src/components/AMPanelTab.jsx
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, memo } from "react";
+
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Card,
@@ -48,13 +49,14 @@ import {
   AlertTriangle,
   ListChecks,
 } from "lucide-react";
-import { buildCronogramaADF } from "../utils/cronograma";
-import { DateValuePicker } from "@/components/ui/date-range-picker";
-import { jiraEditIssue, jiraTransitionToStatus } from "../lib/jiraClient";
 
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
+
+import { buildCronogramaADF } from "../utils/cronograma";
+import { DateValuePicker } from "@/components/ui/date-range-picker";
+import { jiraEditIssue, jiraTransitionToStatus } from "../lib/jiraClient";
 
 import {
   fetchPoIssuesDetailed,
@@ -69,7 +71,7 @@ import { getIssue, getComments, createComment } from "../lib/jira";
 import { adfSafeToText } from "../utils/gmudUtils";
 
 /* =========================
-   2) HELPERS 
+   HELPERS
 ========================= */
 function cn(...a) {
   return a.filter(Boolean).join(" ");
@@ -228,9 +230,11 @@ function userName(u) {
   return u?.displayName || u?.name || u?.emailAddress || "—";
 }
 
+/* =========================
+   COMPONENT
+========================= */
 export default function AMPanelTab() {
   const [subView, setSubView] = useState("alertas"); // alertas | calendario
-  const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -247,7 +251,7 @@ export default function AMPanelTab() {
   const [editorIssue, setEditorIssue] = useState(null);
   const [draft, setDraft] = useState([]);
 
-  // ===== NOVO: modal "Iniciar ticket"
+  // modal "Iniciar ticket"
   const [startOpen, setStartOpen] = useState(false);
   const [startIssueKey, setStartIssueKey] = useState("");
   const [startIssue, setStartIssue] = useState(null);
@@ -255,11 +259,11 @@ export default function AMPanelTab() {
   const [startErr, setStartErr] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(STATUS_OPTIONS[0]);
 
-  // estados do dashboard
+  // dashboard tickets
   const [dashTab, setDashTab] = useState("alertas"); // alertas | andamento | todos
   const [searchText, setSearchText] = useState("");
 
-  // filtros
+  // filtros tickets
   const [selectedStatuses, setSelectedStatuses] = useState([]);
   const [selectedAssignees, setSelectedAssignees] = useState([]);
   const [selectedTypes, setSelectedTypes] = useState([]);
@@ -268,6 +272,103 @@ export default function AMPanelTab() {
   // modal detalhes
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsKey, setDetailsKey] = useState("");
+
+  // 1) modos de cor: ticket | recurso | atividade
+  // 2) filtro por texto (ticket/tarefa/recurso)
+  const [colorMode, setColorMode] = useState("ticket");
+  const [calendarFilter, setCalendarFilter] = useState("");
+
+  // ===== NOVO: Cores estáveis para FullCalendar
+  const CALENDAR_PALETTE = [
+    "#2563EB",
+    "#7C3AED",
+    "#DB2777",
+    "#DC2626",
+    "#EA580C",
+    "#D97706",
+    "#059669",
+    "#0EA5E9",
+    "#14B8A6",
+    "#16A34A",
+    "#9333EA",
+    "#E11D48",
+    "#F97316",
+    "#84CC16",
+    "#06B6D4",
+  ];
+
+  // ✅ CORES FIXAS por atividade (modo "Por Atividade")
+  const ATIVIDADE_COLOR_BY_ID = {
+    devUra: "#2563EB", // azul
+    rdm: "#7C3AED", // roxo
+    gmud: "#F59E0B", // amarelo/amber
+    hml: "#4F46E5", // indigo
+    deploy: "#16A34A", // verde
+  };
+
+  const ATIVIDADE_LABEL_BY_ID = {
+    devUra: "Desenvolvimento de URA",
+    rdm: "Preenchimento RDM",
+    gmud: "Aprovação GMUD",
+    hml: "Homologação",
+    deploy: "Implantação",
+  };
+
+  function normalizeStr(v) {
+    return String(v || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  }
+
+  function groupAtividadeName(rawName) {
+    const original = String(rawName || "").trim();
+    if (!original) return "sem atividade";
+
+    // 1) remove conteúdo entre parênteses "(...)"
+    let s = original.replace(/\([^)]*\)/g, " ");
+
+    // 2) corta sufixos após "-" ou ":"  (ex: "AAA - BBB" -> "AAA")
+    s = s.replace(/\s*[-:]\s*.*$/g, " ");
+
+    // 3) normaliza espaços
+    s = s.replace(/\s+/g, " ").trim();
+
+    // 4) normalização final: sem acento + lowercase + trim
+    const key = normalizeStr(s || original)
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return key || "sem atividade";
+  }
+
+  function hashStringToIndex(str, mod) {
+    const s = String(str || "");
+    let h = 0;
+    for (let i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0; // unsigned
+    }
+    return mod ? h % mod : 0;
+  }
+
+  function pickColor(key) {
+    const k = String(key || "—");
+    const idx = hashStringToIndex(k, CALENDAR_PALETTE.length);
+    return CALENDAR_PALETTE[idx];
+  }
+
+  // contraste simples: branco em cores escuras, preto em claras
+  function pickTextColor(hex) {
+    const c = String(hex || "").replace("#", "");
+    if (c.length !== 6) return "#fff";
+    const r = parseInt(c.slice(0, 2), 16);
+    const g = parseInt(c.slice(2, 4), 16);
+    const b = parseInt(c.slice(4, 6), 16);
+    // luminância
+    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    return lum > 0.62 ? "#111827" : "#ffffff"; // zinc-900 / branco
+  }
 
   async function reload() {
     setLoading(true);
@@ -288,31 +389,149 @@ export default function AMPanelTab() {
     reload();
   }, []);
 
-  const filteredAlertas = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    if (!qq) return viewData.alertas;
-    return viewData.alertas.filter((t) => {
-      return (
-        t.key.toLowerCase().includes(qq) ||
-        (t.summary || "").toLowerCase().includes(qq) ||
-        (t.assignee || "").toLowerCase().includes(qq)
-      );
-    });
-  }, [viewData.alertas, q]);
+  const filteredAlertas = useMemo(() => viewData.alertas || [], [viewData]);
+  const filteredCriarCronograma = useMemo(
+    () => viewData.criarCronograma || [],
+    [viewData]
+  );
 
-  const filteredCriarCronograma = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    if (!qq) return viewData.criarCronograma;
-    return viewData.criarCronograma.filter((t) => {
-      return (
-        t.key.toLowerCase().includes(qq) ||
-        (t.summary || "").toLowerCase().includes(qq) ||
-        (t.assignee || "").toLowerCase().includes(qq)
-      );
-    });
-  }, [viewData.criarCronograma, q]);
+  const calendarEvents = useMemo(() => {
+    const evs = Array.isArray(viewData?.events) ? viewData.events : [];
+    const issues = Array.isArray(viewData?.calendarioIssues)
+      ? viewData.calendarioIssues
+      : [];
 
-  const calendarEvents = useMemo(() => viewData.events, [viewData.events]);
+    // Index rápido: issueKey::activityId -> recurso
+    const recursoIndex = new Map();
+
+    for (const iss of issues) {
+      const issueKey = iss?.key;
+      const atividades = Array.isArray(iss?.atividades) ? iss.atividades : [];
+
+      for (const atv of atividades) {
+        const activityId = atv?.id;
+        if (!issueKey || !activityId) continue;
+
+        // ✅ fonte correta do recurso: atividade.recurso (cronograma)
+        recursoIndex.set(`${issueKey}::${activityId}`, atv?.recurso);
+      }
+    }
+
+    // Garante que todo evento terá extendedProps.recurso (cor + filtro)
+    return evs.map((ev) => {
+      const p = ev?.extendedProps || {};
+      const issueKey = p.issueKey || ev?.issueKey; // não altera issueKey existente
+      const activityId = p.activityId; // não altera activityId existente
+
+      const recursoFromAtividade = recursoIndex.get(
+        `${issueKey}::${activityId}`
+      );
+      const recurso =
+        String(recursoFromAtividade || "").trim() || "Sem recurso";
+
+      return {
+        ...ev,
+        extendedProps: {
+          ...p,
+          recurso, // ✅ AJUSTE 1 aplicado aqui
+          // NÃO remove/alterar:
+          // issueKey: p.issueKey
+          // activityId: p.activityId
+        },
+      };
+    });
+  }, [viewData.events, viewData.calendarioIssues]);
+
+  // ===== PRINCIPAL ALTERAÇÃO (CALENDÁRIO):
+  // chave da cor por modo
+  function getColorKeyByMode(ev, mode) {
+    const p = ev?.extendedProps || {};
+
+    if (mode === "ticket") {
+      return p.issueKey || ev?.issueKey || "—";
+    }
+
+    if (mode === "recurso") {
+      // ✅ AJUSTE 1: agora extendedProps.recurso sempre vem do cronograma
+      return p.recurso || "Sem recurso";
+    }
+
+    if (mode === "atividade") {
+      // ✅ Prioridade total: usar o ID real da atividade
+      if (p.activityId) return String(p.activityId);
+
+      // fallback (caso venha sem id)
+      const fullName = p.activityName || p.atividade || ev?.title || "";
+      return groupAtividadeName(fullName);
+    }
+
+    return "—";
+  }
+
+  // mapa estável (legend + consistência)
+  const colorMaps = useMemo(() => {
+    const maps = {
+      ticket: new Map(),
+      recurso: new Map(),
+      atividade: new Map(),
+    };
+
+    for (const ev of calendarEvents) {
+      for (const mode of ["ticket", "recurso", "atividade"]) {
+        const k = String(getColorKeyByMode(ev, mode) || "—");
+        if (!maps[mode].has(k)) {
+          const fixed = mode === "atividade" ? ATIVIDADE_COLOR_BY_ID[k] : null;
+
+          maps[mode].set(k, fixed || pickColor(k));
+        }
+      }
+    }
+    return maps;
+  }, [calendarEvents]);
+
+  // ===== NOVO: aplica cor nos eventos sem remover extendedProps importantes
+  const coloredEvents = useMemo(() => {
+    const map = colorMaps[colorMode] || new Map();
+
+    return calendarEvents.map((ev) => {
+      const colorKey = String(getColorKeyByMode(ev, colorMode) || "—");
+      const color = map.get(colorKey) || pickColor(colorKey);
+
+      return {
+        ...ev,
+        backgroundColor: color,
+        borderColor: color,
+        textColor: pickTextColor(color),
+      };
+    });
+  }, [calendarEvents, colorMode, colorMaps]);
+
+  // filtro: ticket / atividade / recurso
+  const filteredEvents = useMemo(() => {
+    const q = normalizeStr(calendarFilter);
+    if (!q) return coloredEvents;
+
+    return coloredEvents.filter((ev) => {
+      const p = ev?.extendedProps || {};
+      const hay = normalizeStr(
+        [p.issueKey, p.activityName, p.recurso, ev?.title]
+          .filter(Boolean)
+          .join(" ")
+      );
+      return hay.includes(q);
+    });
+  }, [coloredEvents, calendarFilter]);
+
+  // legenda
+  const calendarLegend = useMemo(() => {
+    const m = colorMaps[colorMode] || new Map();
+    const entries = Array.from(m.entries()).sort((a, b) =>
+      String(a[0]).localeCompare(String(b[0]))
+    );
+    const top = entries.slice(0, 8);
+    const rest = entries.length - top.length;
+    return { top, rest };
+  }, [colorMaps, colorMode]);
 
   function openEditor(issue) {
     setEditorIssue(issue);
@@ -343,7 +562,7 @@ export default function AMPanelTab() {
     }
   }
 
-  // ===== NOVO: abrir modal e carregar issue completo
+  // abrir "Iniciar ticket" (carrega issue completo)
   async function openStartModal(row) {
     const key = String(row?.key || "")
       .trim()
@@ -387,7 +606,6 @@ export default function AMPanelTab() {
     setStartErr("");
     try {
       await jiraTransitionToStatus(startIssueKey, selectedStatus);
-      // recarrega detalhes para refletir status
       const issue = await getIssue(startIssueKey, START_FIELDS);
       setStartIssue(issue);
       await reload();
@@ -399,18 +617,14 @@ export default function AMPanelTab() {
     }
   }
 
+  // Iniciar = comentar + transicionar status
   async function startTicket() {
     if (!startIssueKey) return;
     setStartLoading(true);
     setStartErr("");
     try {
-      // 1) cria comentário [INICIADO]
       await createComment(startIssueKey, adfFromPlainText("[INICIADO]"));
-
-      // 2) altera status
       await jiraTransitionToStatus(startIssueKey, selectedStatus);
-
-      // 3) atualiza lista (deve sair de "Alertas")
       await reload();
       closeStartModal();
     } catch (e) {
@@ -421,19 +635,17 @@ export default function AMPanelTab() {
     }
   }
 
-  // ---- drag/resize do calendário → atualiza ADF e persiste no Jira
+  // drag/resize do calendário → atualiza cronograma no Jira (customfield_14017)
   async function persistEventChange(info) {
     const issueKey = info.event.extendedProps?.issueKey;
     const activityId = info.event.extendedProps?.activityId;
     if (!issueKey || !activityId) return;
 
-    // snapshot para rollback manual
     const prev = viewData.calendarioIssues.map((x) => ({
       key: x.key,
       atividades: x.atividades?.map((a) => ({ ...a })) || [],
     }));
 
-    // otimista: ajusta no state
     const nextCalendarioIssues = viewData.calendarioIssues.map((iss) => {
       if (iss.key !== issueKey) return iss;
       const nextAtividades = applyEventChangeToAtividades(
@@ -445,20 +657,7 @@ export default function AMPanelTab() {
       return { ...iss, atividades: nextAtividades };
     });
 
-    const nextEvents = nextCalendarioIssues.flatMap((i) => {
-      // reusa buildPoView? aqui é direto: recomputa pelo cronograma atual
-      // para manter simples, mantemos o events pela função buildPoView recarregando depois.
-      // mas precisamos refletir imediatamente: montamos ADF e parse → eventos não é necessário,
-      // FullCalendar já moveu o evento visualmente.
-      return [];
-    });
-
-    setViewData((v) => ({
-      ...v,
-      calendarioIssues: nextCalendarioIssues,
-      // não precisa mexer em events; FullCalendar já moveu visualmente o evento
-      // e a próxima recarga alinhará tudo
-    }));
+    setViewData((v) => ({ ...v, calendarioIssues: nextCalendarioIssues }));
 
     try {
       const issue = nextCalendarioIssues.find((x) => x.key === issueKey);
@@ -470,16 +669,13 @@ export default function AMPanelTab() {
         },
       });
 
-      // opcional: recarregar para garantir consistência
       await reload();
     } catch (e) {
       console.error(e);
       setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
 
-      // reverte UI do calendário
       info.revert();
 
-      // reverte state local
       setViewData((v) => {
         const restored = v.calendarioIssues.map((iss) => {
           const snap = prev.find((p) => p.key === iss.key);
@@ -494,7 +690,7 @@ export default function AMPanelTab() {
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-zinc-50">
-        {/* Header fixo SaaS */}
+        {/* Header fixo */}
         <header className="sticky top-0 z-40 border-b bg-white/75 backdrop-blur supports-[backdrop-filter]:bg-white/60">
           <div className="mx-auto max-w-7xl px-4 py-3">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -514,7 +710,7 @@ export default function AMPanelTab() {
                 </div>
               </div>
 
-              {/* Ações globais (mantém sua navegação Alertas/Calendário) */}
+              {/* Navegação Tickets / Calendário + Reload */}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
@@ -554,7 +750,6 @@ export default function AMPanelTab() {
         </header>
 
         <main className="mx-auto max-w-7xl px-4 py-4">
-          {/* Erro */}
           {err && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {err}
@@ -562,18 +757,13 @@ export default function AMPanelTab() {
           )}
 
           {/* =========================
-            TICKETS (cards)
+            TICKETS (Dashboard)
         ========================= */}
           {subView === "alertas" && (
             <div className="grid gap-4">
               <TicketDashboardPage
-                // IMPORTANTE:
-                // - "rows": lista base (todos os tickets carregados).
-                //   Ajuste para o nome real do seu array principal.
                 rows={rawIssues || []}
-                // - alertas: você já tem
                 alertas={filteredAlertas || []}
-                // - cronograma pendente: você já tem
                 missingSchedule={filteredCriarCronograma || []}
                 loading={loading}
                 dashTab={dashTab}
@@ -588,28 +778,128 @@ export default function AMPanelTab() {
                 setSelectedTypes={setSelectedTypes}
                 sortBy={sortBy}
                 setSortBy={setSortBy}
-                onStart={(t) => openStartModal(t)} // reaproveita seu fluxo atual
+                onStart={(t) => openStartModal(t)}
                 onOpenDetails={(key) => {
                   setDetailsKey(key);
                   setDetailsOpen(true);
                 }}
-                onOpenSchedule={(t) => openEditor(t)} // botão "Criar cronograma"
+                onOpenSchedule={(t) => openEditor(t)}
               />
             </div>
           )}
 
           {/* =========================
-            CALENDÁRIO 
+            CALENDÁRIO (3 modos + filtro)
         ========================= */}
           {subView === "calendario" && (
             <section className="grid gap-3">
               <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-                <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="text-base font-semibold text-zinc-900">
                       Calendário
                     </h2>
+                    <p className="text-xs text-zinc-500">
+                      Arraste para mudar data e redimensione para alterar
+                      intervalo.
+                    </p>
                   </div>
+
+                  <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
+                    {/* ===== PRINCIPAL ALTERAÇÃO: filtro de eventos */}
+                    <div className="relative w-full md:w-[360px]">
+                      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+                      <Input
+                        value={calendarFilter}
+                        onChange={(e) => setCalendarFilter(e.target.value)}
+                        placeholder="Buscar por ticket, atividade ou recurso..."
+                        className="h-10 rounded-xl border-zinc-200 bg-white pl-9 focus-visible:ring-red-500"
+                      />
+                    </div>
+
+                    {/* ===== PRINCIPAL ALTERAÇÃO: 3 visões de cor */}
+                    <div className="inline-flex w-full md:w-auto items-center rounded-xl border border-zinc-200 bg-zinc-50 p-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setColorMode("ticket")}
+                        className={cn(
+                          "h-9 rounded-lg px-3 text-xs font-semibold",
+                          colorMode === "ticket"
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "text-zinc-700 hover:bg-white/70"
+                        )}
+                      >
+                        Por Ticket
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setColorMode("recurso")}
+                        className={cn(
+                          "h-9 rounded-lg px-3 text-xs font-semibold",
+                          colorMode === "recurso"
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "text-zinc-700 hover:bg-white/70"
+                        )}
+                      >
+                        Por Recurso
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setColorMode("atividade")}
+                        className={cn(
+                          "h-9 rounded-lg px-3 text-xs font-semibold",
+                          colorMode === "atividade"
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "text-zinc-700 hover:bg-white/70"
+                        )}
+                      >
+                        Por Atividade
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Legenda curta */}
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  {calendarLegend.top.map(([label, color]) => {
+                    const pretty =
+                      colorMode === "atividade"
+                        ? ATIVIDADE_LABEL_BY_ID[label] || label
+                        : label;
+
+                    return (
+                      <Tooltip key={label}>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            className="cursor-default rounded-full border border-zinc-200 bg-white text-zinc-700"
+                            title={pretty}
+                          >
+                            <span
+                              className="mr-2 inline-block h-2.5 w-2.5 rounded-full"
+                              style={{ backgroundColor: color }}
+                            />
+                            <span className="max-w-[160px] truncate">
+                              {pretty}
+                            </span>
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[380px]">
+                          {pretty}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+
+                  {calendarLegend.rest > 0 && (
+                    <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
+                      +{calendarLegend.rest}
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -621,15 +911,14 @@ export default function AMPanelTab() {
                     selectable={false}
                     eventStartEditable
                     eventDurationEditable
-                    events={calendarEvents}
+                    events={filteredEvents}
                     eventDrop={persistEventChange}
                     eventResize={persistEventChange}
                   />
                 </div>
 
                 <div className="mt-3 text-xs text-zinc-600">
-                  Arraste eventos para mudar data; redimensione para alterar
-                  intervalo. As alterações atualizam o{" "}
+                  Alterações atualizam o{" "}
                   <code className="rounded bg-zinc-100 px-1">
                     customfield_14017
                   </code>{" "}
@@ -639,7 +928,7 @@ export default function AMPanelTab() {
             </section>
           )}
 
-          {/* Seus modais existentes */}
+          {/* Modais */}
           {editorOpen && (
             <CronogramaEditorModal
               issue={editorIssue}
@@ -675,7 +964,7 @@ export default function AMPanelTab() {
               // cria comentário [INICIADO] sem mudar status
               if (!detailsKey) return;
               await createComment(detailsKey, adfFromPlainText("[INICIADO]"));
-              await reload?.();
+              await reload();
             }}
           />
         </main>
@@ -683,6 +972,10 @@ export default function AMPanelTab() {
     </TooltipProvider>
   );
 }
+
+/* =========================
+   TICKETS DASHBOARD
+========================= */
 function TicketDashboardPage({
   rows,
   alertas,
@@ -712,7 +1005,6 @@ function TicketDashboardPage({
   }, [missingSchedule]);
 
   const allRows = useMemo(() => {
-    // tenta ser robusto mesmo que "rows" não esteja completo
     const merged = [...(rows || [])];
     const byKey = new Map();
     merged.forEach((t) => byKey.set(t.key, t));
@@ -773,7 +1065,6 @@ function TicketDashboardPage({
     const passType = (t) => {
       if (!selectedTypes.length) return true;
       const typ = String(t?.issueType || t?.type || "").toLowerCase();
-      // se você já tiver issueTypeName no objeto, ajuste aqui
       const isSub = /(sub|subtarefa)/i.test(typ);
       const isStory = /(story|história|historia)/i.test(typ);
       return selectedTypes.some((x) =>
@@ -804,13 +1095,11 @@ function TicketDashboardPage({
   const alertasRows = useMemo(() => alertas || [], [alertas]);
 
   const andamentoRows = useMemo(() => {
-    // “Em andamento”: remove PRE SAVE (alertas) e tenta remover Done (se existir)
     const alertSet = new Set((alertas || []).map((t) => t.key));
     return filtered.filter((t) => {
       const s = String(t?.statusName || "").toUpperCase();
       if (alertSet.has(t.key)) return false;
       if (/(DONE|CONCLU|RESOLV|CLOSED)/i.test(s)) return false;
-      // inclui fluxo "Para Dev / Desenvolvimento / Para Homolog / Homolog Negócio / Para Deploy"
       return true;
     });
   }, [filtered, alertas]);
@@ -884,11 +1173,8 @@ function TicketDashboardPage({
             <TabsTrigger
               value="alertas"
               className="
-        rounded-lg
-        text-zinc-700 hover:bg-white/60
-        data-[state=active]:bg-green-600
-        data-[state=active]:text-white
-        data-[state=active]:shadow-sm
+                rounded-lg text-zinc-700 hover:bg-white/60
+                data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
             >
               <AlertTriangle className="mr-2 h-4 w-4 text-red-600 data-[state=active]:text-white" />
@@ -901,11 +1187,8 @@ function TicketDashboardPage({
             <TabsTrigger
               value="andamento"
               className="
-        rounded-lg
-        text-zinc-700 hover:bg-white/60
-        data-[state=active]:bg-green-600
-        data-[state=active]:text-white
-        data-[state=active]:shadow-sm
+                rounded-lg text-zinc-700 hover:bg-white/60
+                data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
             >
               Em andamento
@@ -917,11 +1200,8 @@ function TicketDashboardPage({
             <TabsTrigger
               value="todos"
               className="
-        rounded-lg
-        text-zinc-700 hover:bg-white/60
-        data-[state=active]:bg-green-600
-        data-[state=active]:text-white
-        data-[state=active]:shadow-sm
+                rounded-lg text-zinc-700 hover:bg-white/60
+                data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
             >
               Todos
@@ -998,6 +1278,7 @@ function TicketFiltersBar({
             ) : null}
           </Button>
         </DropdownMenuTrigger>
+
         <DropdownMenuContent className="w-64">
           <DropdownMenuLabel>Status</DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -1039,6 +1320,7 @@ function TicketFiltersBar({
             ) : null}
           </Button>
         </DropdownMenuTrigger>
+
         <DropdownMenuContent className="w-72">
           <DropdownMenuLabel>Responsável</DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -1080,6 +1362,7 @@ function TicketFiltersBar({
             ) : null}
           </Button>
         </DropdownMenuTrigger>
+
         <DropdownMenuContent className="w-56">
           <DropdownMenuLabel>Tipo</DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -1114,6 +1397,7 @@ function TicketFiltersBar({
             Ordenar
           </Button>
         </DropdownMenuTrigger>
+
         <DropdownMenuContent className="w-56">
           <DropdownMenuLabel>Ordenação</DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -1197,15 +1481,10 @@ function TicketSection({
   );
 }
 
-const TicketCard = memoTicketCard();
-
-function memoTicketCard() {
-  // memo sem importar React.memo explicitamente (mantém simples)
-  const Memo = (props) => <TicketCardImpl {...props} />;
-  return Memo;
-}
-
-function TicketCardImpl({
+/* =========================
+   TICKET CARD
+========================= */
+const TicketCard = memo(function TicketCard({
   ticket,
   isNew,
   missingSchedule,
@@ -1316,12 +1595,11 @@ function TicketCardImpl({
       </Card>
     </motion.div>
   );
-}
+});
 
 function StatusBadge({ status }) {
   const s = String(status || "").toUpperCase();
 
-  // Claro-inspired: red primary; semantic chips
   let cls = "border border-zinc-200 bg-zinc-50 text-zinc-700";
 
   if (s === "PRE SAVE") cls = "bg-red-50 text-red-700 border-red-200";
@@ -1341,7 +1619,7 @@ function StatusBadge({ status }) {
       title={status || "—"}
       className={cn(
         "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-        "max-w-[180px] truncate", // impede status muito grande de estourar
+        "max-w-[180px] truncate",
         cls
       )}
     >
@@ -1379,6 +1657,9 @@ function TicketCardSkeleton() {
   );
 }
 
+/* =========================
+   DETAILS DIALOG
+========================= */
 function TicketDetailsDialog({
   open,
   onOpenChange,
@@ -1427,6 +1708,7 @@ function TicketDetailsDialog({
   }, [open, issueKey]);
 
   const f = issue?.fields || {};
+
   function getFirstDescriptionText(descriptionAdf) {
     try {
       const t = descriptionAdf?.content?.[0]?.content?.[0]?.text;
@@ -1475,6 +1757,9 @@ function TicketDetailsDialog({
               </TooltipContent>
             </Tooltip>
           </DialogTitle>
+          <DialogDescription className="text-sm text-zinc-600">
+            Visualização rápida (descrição, cronograma e comentários).
+          </DialogDescription>
         </DialogHeader>
 
         {err ? (
@@ -1484,7 +1769,7 @@ function TicketDetailsDialog({
         ) : null}
 
         <div className="grid gap-3">
-          {/* BLOCO ANTIGO (volta aqui) */}
+          {/* resumo */}
           <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
             {loading ? (
               <div className="grid gap-2">
@@ -1516,7 +1801,7 @@ function TicketDetailsDialog({
             )}
           </div>
 
-          {/* Descrição */}
+          {/* descrição */}
           <div className="rounded-xl border border-zinc-200 bg-white p-3">
             <div className="mb-2 text-sm font-semibold text-zinc-900">
               Descrição
@@ -1534,7 +1819,7 @@ function TicketDetailsDialog({
             )}
           </div>
 
-          {/* Informações Adicionais (Cronograma) */}
+          {/* cronograma */}
           <div className="rounded-xl border border-zinc-200 bg-white p-3">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm font-semibold text-zinc-900">
@@ -1561,6 +1846,7 @@ function TicketDetailsDialog({
             )}
           </div>
 
+          {/* comentários */}
           <div className="rounded-xl border border-zinc-200 bg-white p-3">
             <div className="mb-2 text-sm font-semibold text-zinc-900">
               Comentários (últimos {Math.min(12, comments.length)})
@@ -1587,7 +1873,7 @@ function TicketDetailsDialog({
                     const created = fmtUpdatedBR(c?.created || c?.updated);
                     return (
                       <div
-                        key={c?.id || `${author}-${created}-${Math.random()}`}
+                        key={c?.id || `${author}-${created}`}
                         className={cn(
                           "rounded-xl border p-3 text-sm",
                           started
@@ -1675,45 +1961,9 @@ function TicketDetailsDialog({
   );
 }
 
-function TicketsTable({ rows, emptyText, extraActions }) {
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <Th>Ticket</Th>
-            <Th>Resumo</Th>
-            <Th>Status</Th>
-            <Th>Responsável</Th>
-            <Th>Atualizado</Th>
-            {extraActions ? <Th>Ações</Th> : null}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((t) => (
-            <tr key={t.key}>
-              <Td style={{ fontWeight: 700 }}>{t.key}</Td>
-              <Td>{t.summary}</Td>
-              <Td>{t.statusName}</Td>
-              <Td>{t.assignee}</Td>
-              <Td>{t.updated}</Td>
-              {extraActions ? <Td>{extraActions(t)}</Td> : null}
-            </tr>
-          ))}
-
-          {rows.length === 0 && (
-            <tr>
-              <Td colSpan={extraActions ? 6 : 5} style={{ opacity: 0.7 }}>
-                {emptyText}
-              </Td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
+/* =========================
+   START MODAL (Iniciar Ticket)
+========================= */
 function StartTicketModal({
   issueKey,
   issue,
@@ -1759,140 +2009,81 @@ function StartTicketModal({
   const criterios = safeText(f?.customfield_10903);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-        zIndex: 9999,
-      }}
-    >
-      <div
-        style={{
-          width: "min(980px, 98vw)",
-          background: "rgba(20,20,20,0.96)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 14,
-          padding: 14,
-          display: "grid",
-          gap: 12,
-          color: "#fff",
-        }}
-      >
-        <div
-          style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontWeight: 900 }}>Iniciar ticket — {issueKey}</div>
-            <div style={{ opacity: 0.9, fontSize: 13 }}>
-              {loading ? "Carregando detalhes..." : f?.summary || "—"}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, alignItems: "start" }}>
-            <button type="button" onClick={onClose} disabled={loading}>
-              Fechar
-            </button>
-            <button
-              type="button"
-              className="primary"
-              onClick={onStart}
-              disabled={loading || !issue}
-              title="Cria comentário [INICIADO] e altera o status"
-            >
-              {loading ? "Processando..." : "Iniciar"}
-            </button>
-          </div>
-        </div>
+    <Dialog open={true} onOpenChange={(o) => !o && onClose?.()}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-start gap-2 min-w-0">
+            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+              {issueKey}
+            </code>
+            <span className="min-w-0 text-base leading-snug text-zinc-900">
+              Iniciar ticket
+            </span>
+          </DialogTitle>
+          <DialogDescription className="text-sm text-zinc-600">
+            {loading ? "Carregando detalhes..." : f?.summary || "—"}
+          </DialogDescription>
+        </DialogHeader>
 
         {err && (
-          <div
-            style={{
-              padding: 10,
-              border: "1px solid rgba(255,80,80,0.35)",
-              background: "rgba(255,80,80,0.10)",
-              borderRadius: 10,
-              color: "#ffb3b3",
-              fontSize: 13,
-            }}
-          >
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {err}
           </div>
         )}
 
         {/* Status */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto auto",
-            gap: 10,
-            alignItems: "end",
-            border: "1px solid rgba(255,255,255,0.10)",
-            borderRadius: 12,
-            padding: 12,
-          }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 800 }}>
-              Alterar status do ticket
-            </div>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              disabled={loading || !issue}
-              style={{
-                padding: "10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.18)",
-                background: "rgba(255,255,255,0.06)",
-                color: "#fff",
-                outline: "none",
-              }}
-            >
-              {statusOptions.map((s) => (
-                <option key={s} value={s} style={{ color: "#000" }}>
-                  {s}
-                </option>
-              ))}
-            </select>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>
-              Status atual: <b>{f?.status?.name || "—"}</b>
-            </div>
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="mb-2 text-sm font-semibold text-zinc-900">
+            Alterar status do ticket
           </div>
 
-          <button
-            type="button"
-            onClick={onApplyStatus}
-            disabled={loading || !issue}
-            className="secondary"
-          >
-            Aplicar status
-          </button>
+          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto] md:items-end">
+            <div className="grid gap-2">
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                disabled={loading || !issue}
+                className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+              >
+                {statusOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
 
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={loading || !issue}
-            className="primary"
-            title="Cria comentário [INICIADO] e altera o status"
-          >
-            Iniciar
-          </button>
+              <div className="text-xs text-zinc-600">
+                Status atual:{" "}
+                <span className="font-semibold text-zinc-900">
+                  {f?.status?.name || "—"}
+                </span>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onApplyStatus}
+              disabled={loading || !issue}
+              className="rounded-xl border-zinc-200 bg-white"
+            >
+              Aplicar status
+            </Button>
+
+            <Button
+              type="button"
+              onClick={onStart}
+              disabled={loading || !issue}
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              title="Cria comentário [INICIADO] e altera o status"
+            >
+              {loading ? "Processando..." : "Iniciar"}
+            </Button>
+          </div>
         </div>
 
         {/* Campos */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 12,
-          }}
-        >
+        <div className="grid gap-3 md:grid-cols-2">
           <InfoCard title="Básico">
             <InfoRow label="Projeto" value={f?.project?.name || "—"} />
             <InfoRow label="Prioridade" value={f?.priority?.name || "—"} />
@@ -1913,37 +2104,27 @@ function StartTicketModal({
               label="Componentes"
               value={components.length ? components.join(", ") : "—"}
             />
-            <div
-              style={{
-                marginTop: 10,
-                opacity: 0.9,
-                fontSize: 12,
-                fontWeight: 800,
-              }}
-            >
+
+            <div className="mt-3 text-xs font-semibold text-zinc-900">
               Subtasks
             </div>
-            <div
-              style={{ fontSize: 12, opacity: 0.9, display: "grid", gap: 6 }}
-            >
+
+            <div className="grid gap-2">
               {!subtasks.length ? (
-                <div style={{ opacity: 0.75 }}>—</div>
+                <div className="text-sm text-zinc-600">—</div>
               ) : (
                 subtasks.slice(0, 20).map((st) => (
                   <div
-                    key={st?.key || crypto.randomUUID?.() || Math.random()}
-                    style={{
-                      padding: "8px 10px",
-                      border: "1px solid rgba(255,255,255,0.10)",
-                      borderRadius: 10,
-                      background: "rgba(255,255,255,0.05)",
-                    }}
+                    key={st?.key || `${st?.id || ""}`}
+                    className="rounded-xl border border-zinc-200 bg-zinc-50 p-3"
                   >
-                    <div style={{ fontWeight: 800 }}>{st?.key || "—"}</div>
-                    <div style={{ opacity: 0.85 }}>
+                    <div className="text-xs font-semibold text-zinc-900">
+                      {st?.key || "—"}
+                    </div>
+                    <div className="text-sm text-zinc-800">
                       {st?.fields?.summary || "—"}
                     </div>
-                    <div style={{ opacity: 0.7, fontSize: 11 }}>
+                    <div className="text-xs text-zinc-500">
                       {st?.fields?.status?.name || ""}
                     </div>
                   </div>
@@ -1954,55 +2135,36 @@ function StartTicketModal({
         </div>
 
         <InfoCard title="Descrição do Projeto">
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              margin: 0,
-              fontSize: 13,
-              lineHeight: 1.5,
-            }}
-          >
+          <pre className="whitespace-pre-wrap text-sm text-zinc-800 m-0">
             {desc || "—"}
           </pre>
         </InfoCard>
 
         <InfoCard title="customfield_10903 (Critérios / Campo)">
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              margin: 0,
-              fontSize: 13,
-              lineHeight: 1.5,
-            }}
-          >
+          <pre className="whitespace-pre-wrap text-sm text-zinc-800 m-0">
             {criterios || "—"}
           </pre>
         </InfoCard>
-      </div>
-    </div>
+
+        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button
+            variant="outline"
+            className="rounded-xl border-zinc-200 bg-white"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Fechar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function InfoCard({ title, children }) {
   return (
-    <div
-      style={{
-        border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 12,
-        padding: 12,
-        background: "rgba(255,255,255,0.04)",
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 900,
-          fontSize: 13,
-          marginBottom: 10,
-          opacity: 0.95,
-        }}
-      >
-        {title}
-      </div>
+    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+      <div className="mb-3 text-sm font-semibold text-zinc-900">{title}</div>
       {children}
     </div>
   );
@@ -2010,20 +2172,16 @@ function InfoCard({ title, children }) {
 
 function InfoRow({ label, value }) {
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "180px 1fr",
-        gap: 10,
-        padding: "6px 0",
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.75 }}>{label}</div>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>{value || "—"}</div>
+    <div className="grid grid-cols-[160px_1fr] gap-3 py-1">
+      <div className="text-xs text-zinc-500">{label}</div>
+      <div className="text-xs font-semibold text-zinc-900">{value || "—"}</div>
     </div>
   );
 }
 
+/* =========================
+   CRONOGRAMA EDITOR
+========================= */
 function CronogramaEditorModal({
   issue,
   draft,
@@ -2097,8 +2255,7 @@ function CronogramaEditorModal({
           </DialogTitle>
 
           <DialogDescription className="text-sm text-zinc-600">
-            Selecione datas no calendário. O valor é salvo em{" "}
-            <code className="rounded bg-zinc-100 px-1">DD/MM</code> ou{" "}
+            Salva em <code className="rounded bg-zinc-100 px-1">DD/MM</code> ou{" "}
             <code className="rounded bg-zinc-100 px-1">DD/MM a DD/MM</code>.
           </DialogDescription>
         </DialogHeader>
@@ -2111,15 +2268,13 @@ function CronogramaEditorModal({
                 Atividades do cronograma
               </CardTitle>
               <CardDescription className="text-xs">
-                Preencha Data, Recurso e Área. Campos padronizados e
-                responsivos.
+                Preencha Data, Recurso e Área.
               </CardDescription>
             </CardHeader>
 
             <CardContent className="grid gap-3">
               <div className="overflow-x-auto overflow-y-hidden md:overflow-visible rounded-2xl border border-zinc-200">
                 <div className="min-w-0">
-                  {/* Header sticky (md+) */}
                   <div
                     className="sticky top-0 z-10 hidden md:grid
   md:grid-cols-[minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)]

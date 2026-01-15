@@ -225,6 +225,7 @@ export function toCalendarEvents(issueKey, atividades, now = new Date()) {
       extendedProps: {
         issueKey,
         activityId: a.id,
+        activityName: a.name, // ✅ novo (necessário p/ filtro + legenda)
       },
     });
   }
