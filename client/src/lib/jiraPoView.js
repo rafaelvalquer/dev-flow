@@ -31,7 +31,7 @@ export const PO_JQL_BODY = {
 
 // campos necessários no detalhe
 const ISSUE_FIELDS =
-  "summary,status,issuetype,updated,assignee,parent,customfield_14017";
+  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017";
 
 export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
   const baseIssues = await jiraSearchJqlAll(PO_JQL_BODY);
@@ -50,6 +50,7 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       key,
       summary: issue?.fields?.summary || "",
       statusName,
+      createdRaw: issue?.fields?.created || "",
       updated: issue?.fields?.updated || "",
       assignee: issue?.fields?.assignee?.displayName || "",
       issueType: issue?.fields?.issuetype?.name || "",

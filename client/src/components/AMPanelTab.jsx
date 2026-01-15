@@ -1,7 +1,7 @@
 // src/components/AMPanelTab.jsx
-import { useMemo, useState, useCallback, useEffect, memo } from "react";
+import { useMemo, useState, useEffect, memo } from "react";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Card,
   CardHeader,
@@ -144,6 +144,7 @@ const START_FIELDS = [
   "subtasks",
   "status",
   "project",
+  "created",
   "description",
   "customfield_10903",
   "duedate",
@@ -188,6 +189,12 @@ function adfFromPlainText(text) {
   };
 }
 
+function truncateText(text, max = 20) {
+  const s = String(text || "").trim();
+  if (!s) return "";
+  return s.length > max ? `${s.slice(0, max)}...` : s;
+}
+
 function fmtDateBr(yyyyMmDd) {
   if (!yyyyMmDd) return "";
   const ymd = String(yyyyMmDd).slice(0, 10);
@@ -227,7 +234,9 @@ function safeText(v) {
 }
 
 function userName(u) {
-  return u?.displayName || u?.name || u?.emailAddress || "—";
+  if (!u) return "";
+  if (typeof u === "string") return u;
+  return u?.displayName || u?.name || u?.emailAddress || "";
 }
 
 /* =========================
@@ -410,10 +419,18 @@ export default function AMPanelTab() {
 
       for (const atv of atividades) {
         const activityId = atv?.id;
-        if (!issueKey || !activityId) continue;
+        const activityNameKey = groupAtividadeName(atv?.name);
 
-        // ✅ fonte correta do recurso: atividade.recurso (cronograma)
-        recursoIndex.set(`${issueKey}::${activityId}`, atv?.recurso);
+        if (issueKey && activityId) {
+          recursoIndex.set(`${issueKey}::${activityId}`, atv?.recurso);
+        }
+
+        if (issueKey && activityNameKey) {
+          recursoIndex.set(
+            `${issueKey}::name::${activityNameKey}`,
+            atv?.recurso
+          );
+        }
       }
     }
 
@@ -433,10 +450,9 @@ export default function AMPanelTab() {
         ...ev,
         extendedProps: {
           ...p,
-          recurso, // ✅ AJUSTE 1 aplicado aqui
-          // NÃO remove/alterar:
-          // issueKey: p.issueKey
-          // activityId: p.activityId
+          issueKey, // ✅ garante aqui
+          activityId, // ✅ garante aqui
+          recurso, // ✅ recurso vindo do cronograma
         },
       };
     });
@@ -457,10 +473,8 @@ export default function AMPanelTab() {
     }
 
     if (mode === "atividade") {
-      // ✅ Prioridade total: usar o ID real da atividade
       if (p.activityId) return String(p.activityId);
 
-      // fallback (caso venha sem id)
       const fullName = p.activityName || p.atividade || ev?.title || "";
       return groupAtividadeName(fullName);
     }
@@ -1495,11 +1509,44 @@ const TicketCard = memo(function TicketCard({
   const key = ticket?.key || "—";
   const summary = ticket?.summary || "—";
   const status = ticket?.statusName || "—";
-  const assignee =
+  const assignee = truncateText(
     ticket?.assignee && ticket.assignee !== "—"
       ? ticket.assignee
-      : "Sem responsável";
-  const updated = fmtUpdatedBR(ticket?.updatedRaw || ticket?.updated);
+      : "Sem responsável"
+  );
+
+  // ✅ created vem do retorno da API: fields.created
+  const createdRaw =
+    ticket?.createdRaw ||
+    ticket?.created ||
+    ticket?.fields?.created ||
+    ticket?.fields?.Created;
+
+  const updatedRaw = ticket?.updatedRaw || ticket?.updated;
+
+  const created = fmtUpdatedBR(createdRaw);
+  const updated = fmtUpdatedBR(updatedRaw);
+
+  // ✅ idade do ticket em dias (ex: 1d)
+  function calcAgeDays(isoDate) {
+    if (!isoDate) return null;
+
+    const d = isoDate instanceof Date ? isoDate : new Date(isoDate);
+    if (Number.isNaN(d.getTime())) return null;
+
+    const now = new Date();
+
+    // zera horas para comparar "por dia"
+    const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startCreated = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+    const diffMs = startNow.getTime() - startCreated.getTime();
+    const days = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+
+    return `${days}d`;
+  }
+
+  const age = calcAgeDays(createdRaw);
 
   return (
     <motion.div
@@ -1529,7 +1576,8 @@ const TicketCard = memo(function TicketCard({
               ) : null}
             </div>
 
-            <div className="shrink-0">
+            {/* status */}
+            <div className="shrink-0 flex items-center gap-2">
               <StatusBadge status={status} />
             </div>
           </div>
@@ -1542,9 +1590,10 @@ const TicketCard = memo(function TicketCard({
             {summary}
           </CardTitle>
 
+          {/* ✅ agora aqui fica "Criado em:" */}
           <CardDescription className="text-xs text-zinc-600">
-            Atualizado em{" "}
-            <span className="font-medium text-zinc-800">{updated}</span>
+            Criado em:{" "}
+            <span className="font-medium text-zinc-800">{created}</span>
           </CardDescription>
         </CardHeader>
 
@@ -1589,6 +1638,20 @@ const TicketCard = memo(function TicketCard({
               >
                 Criar cronograma
               </Button>
+            ) : null}
+          </div>
+
+          {/* ✅ rodapé do card: Atualizado em */}
+          <div className="mt-1 border-t border-zinc-100 pt-2 text-[11px] text-zinc-500">
+            Atualizado em{" "}
+            <span className="font-medium text-zinc-700">{updated}</span>
+          </div>
+          {/* ✅ canto direito: idade + status */}
+          <div className="shrink-0 flex items-center gap-2">
+            {age ? (
+              <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700 px-2 py-1 text-[11px] font-semibold">
+                {age}
+              </Badge>
             ) : null}
           </div>
         </CardContent>
@@ -1683,17 +1746,21 @@ function TicketDetailsDialog({
     Promise.allSettled([
       getIssue(
         issueKey,
-        "summary,status,assignee,updated,project,description,customfield_14017"
+        "summary,status,assignee,created,updated,project,description,customfield_14017"
       ),
-
       getComments(issueKey),
     ])
       .then((res) => {
         if (!alive) return;
         const [a, b] = res;
 
-        if (a.status === "fulfilled") setIssue(a.value);
-        else setErr(a.reason?.message || String(a.reason));
+        if (a.status === "fulfilled") {
+          const data = a.value;
+          const normalized = data?.fields ? data : { fields: data }; // ✅ FIX
+          setIssue(normalized);
+        } else {
+          setErr(a.reason?.message || String(a.reason));
+        }
 
         if (b.status === "fulfilled") {
           const list = b.value?.comments || b.value?.values || b.value || [];
@@ -1733,6 +1800,8 @@ function TicketDetailsDialog({
     () => getJiraBrowseUrl(issueKey, issue),
     [issueKey, issue]
   );
+
+  const assigneeFull = userName(f?.assignee) || "Sem responsável";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2404,36 +2473,5 @@ function CronogramaEditorModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Th({ children }) {
-  return (
-    <th
-      style={{
-        textAlign: "left",
-        padding: "10px 8px",
-        borderBottom: "1px solid rgba(255,255,255,0.12)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({ children, style, colSpan }) {
-  return (
-    <td
-      colSpan={colSpan}
-      style={{
-        padding: "10px 8px",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
-        verticalAlign: "top",
-        ...style,
-      }}
-    >
-      {children}
-    </td>
   );
 }
