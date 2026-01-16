@@ -98,6 +98,7 @@ import {
 // NOVO: buscar detalhes do ticket + comentar
 import { createComment, getComments, getIssue } from "../lib/jira";
 import { adfSafeToText } from "../utils/gmudUtils";
+import GanttTab from "./GanttTab";
 
 /* =========================
    HELPERS
@@ -273,7 +274,7 @@ function userName(u) {
    COMPONENT
 ========================= */
 export default function AMPanelTab() {
-  const [subView, setSubView] = useState("alertas"); // alertas | calendario
+  const [subView, setSubView] = useState("alertas"); // alertas | calendario | gant
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -762,6 +763,90 @@ export default function AMPanelTab() {
     }
   }
 
+  // =========================
+  // GANTT: drag/resize → atualiza cronograma no Jira (customfield_14017)
+  // Regras iguais ao calendário:
+  // - otimista
+  // - persist no Jira
+  // - rollback e "return false" em erro (o Gantt desfaz automaticamente)
+  // =========================
+  async function persistGanttDateChange(task) {
+    try {
+      const id = String(task?.id || "");
+      if (!id) return false;
+      if (id.startsWith("P::")) return true; // project task (não editável)
+
+      const parts = id.split("::");
+      const issueKey = String(parts?.[0] || "")
+        .trim()
+        .toUpperCase();
+      const activityId = String(parts?.[1] || "").trim();
+
+      if (!issueKey || !activityId) return false;
+
+      const start = task?.start ? new Date(task.start) : null;
+      let end = task?.end ? new Date(task.end) : null;
+
+      if (!start || Number.isNaN(start.getTime())) return false;
+      if (!end || Number.isNaN(end.getTime()) || end <= start) {
+        end = new Date(start);
+        end.setDate(end.getDate() + 1);
+      }
+
+      // snapshot para rollback
+      const prev = (viewData.calendarioIssues || []).map((x) => ({
+        key: x.key,
+        atividades: (x.atividades || []).map((a) => ({ ...a })),
+      }));
+
+      // otimista: atualiza calendarioIssues
+      const nextCalendarioIssues = (viewData.calendarioIssues || []).map(
+        (iss) => {
+          if (iss.key !== issueKey) return iss;
+          const nextAtividades = applyEventChangeToAtividades(
+            iss.atividades,
+            activityId,
+            start,
+            end
+          );
+          return { ...iss, atividades: nextAtividades };
+        }
+      );
+
+      setViewData((v) => ({ ...v, calendarioIssues: nextCalendarioIssues }));
+
+      // persist no Jira
+      const issue = nextCalendarioIssues.find((x) => x.key === issueKey);
+      if (!issue) throw new Error("Ticket não encontrado no calendário.");
+
+      const adf = buildCronogramaADF(issue.atividades);
+
+      await jiraEditIssue(issueKey, {
+        fields: {
+          customfield_14017: adf,
+        },
+      });
+
+      await reload();
+      return true;
+    } catch (e) {
+      console.error(e);
+      setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+
+      // rollback
+      setViewData((v) => {
+        const restored = (v.calendarioIssues || []).map((iss) => {
+          const snap = prev.find((p) => p.key === iss.key);
+          if (!snap) return iss;
+          return { ...iss, atividades: snap.atividades };
+        });
+        return { ...v, calendarioIssues: restored };
+      });
+
+      return false; // ✅ Gantt desfaz automaticamente
+    }
+  }
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-zinc-50">
@@ -807,6 +892,17 @@ export default function AMPanelTab() {
                 >
                   <CalendarDays className="mr-2 h-4 w-4" />
                   Calendário
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={topNavButtonClasses(subView === "gantt")}
+                  onClick={() => setSubView("gantt")}
+                  aria-pressed={subView === "gantt"}
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  Gantt
                 </Button>
 
                 <Button
@@ -989,6 +1085,17 @@ export default function AMPanelTab() {
                     events={filteredEvents}
                     eventDrop={persistEventChange}
                     eventResize={persistEventChange}
+                    firstDay={1} // semana começando na segunda (opcional)
+                    headerToolbar={{
+                      left: "prev,next today",
+                      center: "title",
+                      right: "dayGridMonth,dayGridWeek", // ✅ Mês e Semana
+                    }}
+                    buttonText={{
+                      today: "Hoje",
+                      month: "Mês",
+                      week: "Semana",
+                    }}
                   />
                 </div>
 
@@ -1000,6 +1107,27 @@ export default function AMPanelTab() {
                   no Jira (otimista + revert em erro).
                 </div>
               </div>
+            </section>
+          )}
+
+          {/* =========================
+             GANTT (gantt-task-react)
+         ========================= */}
+          {subView === "gantt" && (
+            <section className="grid gap-3">
+              <GanttTab
+                loading={loading}
+                viewData={viewData}
+                colorMode={colorMode}
+                setColorMode={setColorMode}
+                filterText={calendarFilter}
+                setFilterText={setCalendarFilter}
+                onPersistDateChange={persistGanttDateChange}
+                onOpenDetails={(key) => {
+                  setDetailsKey(key);
+                  setDetailsOpen(true);
+                }}
+              />
             </section>
           )}
 
