@@ -1,5 +1,5 @@
 // src/components/GanttTab.jsx
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from "react";
 import { Gantt, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
 
@@ -499,6 +499,7 @@ const DEFAULT_COL_WIDTHS = {
   area: 120,
   start: 76,
   end: 76,
+  chain: 56,
 };
 
 const MIN_COL_WIDTHS = {
@@ -508,11 +509,12 @@ const MIN_COL_WIDTHS = {
   area: 90,
   start: 64,
   end: 64,
+  chain: 56,
 };
 
 function makeGridTemplate(w) {
   const x = w || DEFAULT_COL_WIDTHS;
-  return `${x.ticket}px ${x.atividade}px ${x.recurso}px ${x.area}px ${x.start}px ${x.end}px`;
+  return `${x.ticket}px ${x.atividade}px ${x.recurso}px ${x.area}px ${x.start}px ${x.end}px ${x.chain}px`;
 }
 
 /* =========================
@@ -545,6 +547,7 @@ function TaskListHeaderFactory({ colWidthsRef, beginResize }) {
         <HeaderCell label="Área" colKey="area" />
         <HeaderCell label="Start" colKey="start" />
         <HeaderCell label="End" colKey="end" />
+        <HeaderCell label="Encadear" colKey="chain" />
       </div>
     );
   };
@@ -558,6 +561,9 @@ function TaskListTableFactory({
   conflictSet,
   onToggleProject,
   colWidthsRef,
+  chainSet,
+  lockedSet,
+  onToggleChain,
 }) {
   return function TaskListTable({
     rowHeight,
@@ -663,6 +669,24 @@ function TaskListTableFactory({
               {/* Start / End */}
               <div className="text-zinc-700">{fmtDateBR(t.start)}</div>
               <div className="text-zinc-700">{fmtDateBR(t.end)}</div>
+
+              {/* Encadear */}
+              <div className="flex items-center justify-center">
+                {isProject ? (
+                  <span className="text-zinc-300">—</span>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={chainSet?.has(t.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleChain?.(t.id);
+                    }}
+                    title="Encadear com a próxima atividade"
+                    className="h-4 w-4 accent-red-600"
+                  />
+                )}
+              </div>
             </div>
           );
         })}
@@ -699,7 +723,41 @@ export function GanttTab({
   // trava durante persistência de mudança de datas (drag/resize)
   const [persisting, setPersisting] = useState(false);
 
-  // colunas redimensionáveis
+  /* =========================
+     ✅ Encadear (chain locks)
+     (NÃO pode ficar dentro de useEffect)
+  ========================= */
+  const [chainSet, setChainSet] = useState(() => {
+    try {
+      const raw = localStorage.getItem("gantt_chainLocks_v1");
+      const arr = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "gantt_chainLocks_v1",
+        JSON.stringify(Array.from(chainSet))
+      );
+    } catch {}
+  }, [chainSet]);
+
+  const toggleChain = useCallback((taskId) => {
+    setChainSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }, []);
+
+  /* =========================
+     colunas redimensionáveis
+  ========================= */
   const [colWidths, setColWidths] = useState(() => {
     try {
       const raw = localStorage.getItem("gantt_colWidths_v1");
@@ -708,7 +766,6 @@ export function GanttTab({
     return DEFAULT_COL_WIDTHS;
   });
 
-  // ref sempre atual (evita travar resize por remount)
   const colWidthsRef = useRef(colWidths);
   useEffect(() => {
     colWidthsRef.current = colWidths;
@@ -720,15 +777,15 @@ export function GanttTab({
     } catch {}
   }, [colWidths]);
 
-  // calcula o listCellWidth (somatório + gaps/padding)
+  // ✅ calcula o listCellWidth (7 colunas => 6 gaps)
   const listCellWidth = useMemo(() => {
     const sum = Object.values(colWidths || {}).reduce(
       (acc, v) => acc + Number(v || 0),
       0
     );
-    // 6 colunas -> 5 gaps (gap-2 = 8px) = 40px
+    // 7 colunas -> 6 gaps (gap-2 = 8px) = 48px
     // px-3 (12px) em cada lado = 24px
-    return `${sum + 40 + 24}px`;
+    return `${sum + 48 + 24}px`;
   }, [colWidths]);
 
   /* =========================
@@ -772,7 +829,6 @@ export function GanttTab({
     function onUp() {
       if (!resizeRef.current) return;
       resizeRef.current = null;
-
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     }
@@ -782,6 +838,8 @@ export function GanttTab({
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
     };
   }, []);
 
@@ -826,6 +884,84 @@ export function GanttTab({
     });
   }, [tasks]);
 
+  const { taskById, nextById, prevById } = useMemo(() => {
+    const tasksOnly = (safeTasks || []).filter((t) => t?.type === "task");
+
+    // id -> task
+    const taskById = new Map(tasksOnly.map((t) => [t.id, t]));
+
+    // ticket -> array de tasks ordenadas
+    const byIssue = new Map();
+    for (const t of tasksOnly) {
+      if (!byIssue.has(t.issueKey)) byIssue.set(t.issueKey, []);
+      byIssue.get(t.issueKey).push(t);
+    }
+
+    // ordena cada ticket no "mesmo critério" que você usa no cascade
+    for (const [issueKey, list] of byIssue.entries()) {
+      const arr = [...list];
+
+      if (quickView === "po") {
+        arr.sort((a, b) => {
+          const ai = PO_CHAIN.indexOf(a.activityId);
+          const bi = PO_CHAIN.indexOf(b.activityId);
+
+          const aIn = ai !== -1;
+          const bIn = bi !== -1;
+
+          if (aIn && bIn) return ai - bi;
+          if (aIn) return -1;
+          if (bIn) return 1;
+
+          return a.start.getTime() - b.start.getTime();
+        });
+      } else {
+        arr.sort((a, b) => a.start.getTime() - b.start.getTime());
+      }
+
+      byIssue.set(issueKey, arr);
+    }
+
+    // gera next/prev
+    const nextById = new Map();
+    const prevById = new Map();
+
+    for (const [, arr] of byIssue.entries()) {
+      for (let i = 0; i < arr.length; i++) {
+        const cur = arr[i];
+        const next = arr[i + 1];
+        const prev = arr[i - 1];
+
+        if (next) nextById.set(cur.id, next.id);
+        if (prev) prevById.set(cur.id, prev.id);
+      }
+    }
+
+    return { taskById, nextById, prevById };
+  }, [safeTasks, quickView]);
+
+  /* =========================
+     ✅ lockedSet e ganttTasks
+     (AGORA dentro do componente)
+  ========================= */
+  const lockedSet = useMemo(() => {
+    const locked = new Set();
+
+    for (const [id, prevId] of prevById.entries()) {
+      if (prevId && chainSet.has(prevId)) locked.add(id);
+    }
+
+    return locked;
+  }, [prevById, chainSet]);
+
+  const ganttTasks = useMemo(() => {
+    return (safeTasks || []).map((t) => {
+      if (t.type !== "task") return t;
+      if (!lockedSet.has(t.id)) return t;
+      return { ...t, isDisabled: true };
+    });
+  }, [safeTasks, lockedSet]);
+
   const legendItems = useMemo(
     () => buildLegendItems(safeTasks, colorMode),
     [safeTasks, colorMode]
@@ -847,54 +983,175 @@ export function GanttTab({
         : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
     );
 
-  async function handleDateChange(task) {
-    if (persisting) return false;
-    if (task?.type === "project" || task?.isDisabled) return false;
+  const findNextTaskSameIssue = useCallback(
+    (taskId) => {
+      const cur = (ganttTasks || []).find((t) => t?.id === taskId);
+      if (!cur || cur.type !== "task") return null;
 
-    setPersisting(true);
-    try {
-      const ok = await onPersistDateChange?.(task);
-      return ok !== false;
-    } catch (err) {
-      console.error(err);
-      return false;
-    } finally {
-      setPersisting(false);
-    }
-  }
+      const issueTasks = (ganttTasks || []).filter(
+        (t) => t.type === "task" && t.issueKey === cur.issueKey
+      );
 
-  function handleClick(task) {
-    if (persisting) return;
-    const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
-    if (issueKey) setSelectedIssueKey(issueKey);
-  }
+      // ordem baseada no modo atual
+      if (quickView === "po") {
+        issueTasks.sort((a, b) => {
+          const ai = PO_CHAIN.indexOf(a.activityId);
+          const bi = PO_CHAIN.indexOf(b.activityId);
 
-  function handleDoubleClick(task) {
-    if (persisting) return;
-    const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
-    if (!issueKey) return;
+          const aIn = ai !== -1;
+          const bIn = bi !== -1;
 
-    const envBase = String(
-      import.meta?.env?.VITE_JIRA_BROWSE_BASE || ""
-    ).trim();
-    const base = (
-      envBase || "https://clarobr-jsw-tecnologia.atlassian.net"
-    ).replace(/\/$/, "");
-    window.open(`${base}/browse/${issueKey}`, "_blank", "noopener,noreferrer");
-  }
+          if (aIn && bIn) return ai - bi;
+          if (aIn) return -1;
+          if (bIn) return 1;
 
-  function handleToggleProject(task) {
-    if (persisting) return;
-    const id = String(task?.id || "");
-    if (!id.startsWith("P::")) return;
+          return a.start.getTime() - b.start.getTime();
+        });
+      } else {
+        issueTasks.sort((a, b) => a.start.getTime() - b.start.getTime());
+      }
 
-    setCollapsedProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+      const idx = issueTasks.findIndex((t) => t.id === taskId);
+      return idx >= 0 ? issueTasks[idx + 1] || null : null;
+    },
+    [ganttTasks, quickView]
+  );
+
+  /* =========================
+     ✅ handleDateChange (APENAS 1)
+     com cascata quando encadeado
+  ========================= */
+  const handleDateChange = useCallback(
+    async (task) => {
+      if (persisting) return false;
+      if (!task || task.type === "project" || task.isDisabled) return false;
+
+      const baseId = String(task.id || "");
+      const baseOriginal = taskById.get(baseId) || task;
+
+      const base = {
+        ...baseOriginal,
+        ...task,
+        type: "task",
+        issueKey: String(
+          (task.issueKey ||
+            baseOriginal.issueKey ||
+            getIssueKeyFromTaskId(task.id)) ??
+            ""
+        )
+          .trim()
+          .toUpperCase(),
+        activityId: String(
+          (task.activityId ||
+            baseOriginal.activityId ||
+            getActivityIdFromTaskId(task.id)) ??
+            ""
+        ).trim(),
+        start: task.start instanceof Date ? task.start : new Date(task.start),
+        end: task.end instanceof Date ? task.end : new Date(task.end),
+      };
+
+      if (!base.issueKey || !base.activityId) return false;
+      if (
+        Number.isNaN(base.start.getTime()) ||
+        Number.isNaN(base.end.getTime())
+      )
+        return false;
+
+      const updates = [base];
+
+      // evita loop caso algum bug gere ciclo
+      const visited = new Set([base.id]);
+
+      let cur = base;
+
+      while (chainSet.has(cur.id)) {
+        const nextId = nextById.get(cur.id);
+        if (!nextId || visited.has(nextId)) break;
+
+        const next = taskById.get(nextId);
+        if (!next) break;
+
+        const nextStart = new Date(cur.end);
+
+        const nextDur = Math.max(
+          next.end.getTime() - next.start.getTime(),
+          24 * 60 * 60 * 1000
+        );
+
+        const nextEnd = new Date(nextStart.getTime() + nextDur);
+
+        const nextUpdate = {
+          ...next,
+          start: nextStart,
+          end: nextEnd,
+        };
+
+        updates.push(nextUpdate);
+        visited.add(nextId);
+        cur = nextUpdate;
+      }
+
+      setPersisting(true);
+      try {
+        const ok = await onPersistDateChange?.(updates);
+        return ok !== false;
+      } catch (err) {
+        console.error(err);
+        return false;
+      } finally {
+        setPersisting(false);
+      }
+    },
+    [persisting, chainSet, nextById, taskById, onPersistDateChange]
+  );
+
+  const handleClick = useCallback(
+    (task) => {
+      if (persisting) return;
+      const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
+      if (issueKey) setSelectedIssueKey(issueKey);
+    },
+    [persisting]
+  );
+
+  const handleDoubleClick = useCallback(
+    (task) => {
+      if (persisting) return;
+      const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
+      if (!issueKey) return;
+
+      const envBase = String(
+        import.meta?.env?.VITE_JIRA_BROWSE_BASE || ""
+      ).trim();
+      const base = (
+        envBase || "https://clarobr-jsw-tecnologia.atlassian.net"
+      ).replace(/\/$/, "");
+
+      window.open(
+        `${base}/browse/${issueKey}`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    },
+    [persisting]
+  );
+
+  const handleToggleProject = useCallback(
+    (task) => {
+      if (persisting) return;
+      const id = String(task?.id || "");
+      if (!id.startsWith("P::")) return;
+
+      setCollapsedProjects((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [persisting]
+  );
 
   // ✅ Header custom remove Name/From/To
   const TaskListHeader = useMemo(() => {
@@ -904,15 +1161,25 @@ export function GanttTab({
     });
   }, [beginResize]);
 
-  // ✅ Table custom (somente linhas)
+  // ✅ Table custom (agora recebe chain/toggle)
   const TaskListTable = useMemo(() => {
     return TaskListTableFactory({
       onOpenDetails,
       conflictSet,
       onToggleProject: handleToggleProject,
       colWidthsRef,
+      chainSet,
+      lockedSet,
+      onToggleChain: toggleChain,
     });
-  }, [onOpenDetails, conflictSet]);
+  }, [
+    onOpenDetails,
+    conflictSet,
+    handleToggleProject,
+    chainSet,
+    lockedSet,
+    toggleChain,
+  ]);
 
   const busy = Boolean(loading || persisting);
 
@@ -1141,7 +1408,7 @@ export function GanttTab({
               <div className="w-full overflow-auto">
                 {safeTasks.length > 0 ? (
                   <Gantt
-                    tasks={safeTasks}
+                    tasks={ganttTasks}
                     viewMode={viewMode}
                     locale="pt-BR"
                     onDateChange={handleDateChange}
@@ -1149,9 +1416,9 @@ export function GanttTab({
                     onDoubleClick={handleDoubleClick}
                     onExpanderClick={(task) => handleToggleProject(task)}
                     TooltipContent={GanttTooltipContent}
-                    TaskListHeader={TaskListHeader} // ✅ remove Name/From/To
+                    TaskListHeader={TaskListHeader}
                     TaskListTable={TaskListTable}
-                    listCellWidth={listCellWidth} // ✅ acompanha as colunas
+                    listCellWidth={listCellWidth}
                     columnWidth={
                       viewMode === ViewMode.Day
                         ? 48

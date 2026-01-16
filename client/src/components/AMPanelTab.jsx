@@ -1,5 +1,5 @@
 // src/components/AMPanelTab.jsx
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -770,82 +770,158 @@ export default function AMPanelTab() {
   // - persist no Jira
   // - rollback e "return false" em erro (o Gantt desfaz automaticamente)
   // =========================
-  async function persistGanttDateChange(task) {
-    try {
-      const id = String(task?.id || "");
-      if (!id) return false;
-      if (id.startsWith("P::")) return true; // project task (não editável)
+  const persistGanttDateChange = useCallback(
+    async (payload) => {
+      const updates = Array.isArray(payload) ? payload : [payload];
 
-      const parts = id.split("::");
-      const issueKey = String(parts?.[0] || "")
-        .trim()
-        .toUpperCase();
-      const activityId = String(parts?.[1] || "").trim();
+      const valid = updates
+        .filter((t) => t && t.type === "task")
+        .map((t) => {
+          const id = String(t?.id || "");
+          const parts = id.split("::");
+          const fallbackIssueKey = String(parts?.[0] || "")
+            .trim()
+            .toUpperCase();
+          const fallbackActivityId = String(parts?.[1] || "").trim();
 
-      if (!issueKey || !activityId) return false;
+          return {
+            issueKey: String(t.issueKey || fallbackIssueKey || "")
+              .trim()
+              .toUpperCase(),
+            activityId: String(t.activityId || fallbackActivityId || "").trim(),
+            start: t.start instanceof Date ? t.start : new Date(t.start),
+            end: t.end instanceof Date ? t.end : new Date(t.end),
+            type: "task",
+          };
+        })
 
-      const start = task?.start ? new Date(task.start) : null;
-      let end = task?.end ? new Date(task.end) : null;
+        .filter(
+          (t) =>
+            t.issueKey &&
+            t.activityId &&
+            t.start instanceof Date &&
+            !Number.isNaN(t.start.getTime()) &&
+            t.end instanceof Date &&
+            !Number.isNaN(t.end.getTime())
+        );
 
-      if (!start || Number.isNaN(start.getTime())) return false;
-      if (!end || Number.isNaN(end.getTime()) || end <= start) {
-        end = new Date(start);
-        end.setDate(end.getDate() + 1);
-      }
+      if (!valid.length) return false;
 
-      // snapshot para rollback
-      const prev = (viewData.calendarioIssues || []).map((x) => ({
+      // snapshot p/ rollback
+      const prevSnapshot = (viewData.calendarioIssues || []).map((x) => ({
         key: x.key,
         atividades: (x.atividades || []).map((a) => ({ ...a })),
+        ...x,
       }));
 
-      // otimista: atualiza calendarioIssues
-      const nextCalendarioIssues = (viewData.calendarioIssues || []).map(
-        (iss) => {
-          if (iss.key !== issueKey) return iss;
-          const nextAtividades = applyEventChangeToAtividades(
-            iss.atividades,
-            activityId,
-            start,
-            end
+      // monta nextCalendarioIssues (em memória)
+      const currentIssues = Array.isArray(viewData?.calendarioIssues)
+        ? viewData.calendarioIssues
+        : [];
+
+      const nextCalendarioIssues = currentIssues.map((iss) => {
+        const key = String(iss?.key || "")
+          .trim()
+          .toUpperCase();
+        if (!key) return iss;
+
+        const changes = valid.filter((u) => u.issueKey === key);
+        if (!changes.length) return iss;
+
+        let nextAtividades = Array.isArray(iss?.atividades)
+          ? iss.atividades
+          : [];
+
+        for (const ch of changes) {
+          nextAtividades = applyEventChangeToAtividades(
+            nextAtividades,
+            ch.activityId,
+            ch.start,
+            ch.end
           );
-          return { ...iss, atividades: nextAtividades };
         }
-      );
 
-      setViewData((v) => ({ ...v, calendarioIssues: nextCalendarioIssues }));
-
-      // persist no Jira
-      const issue = nextCalendarioIssues.find((x) => x.key === issueKey);
-      if (!issue) throw new Error("Ticket não encontrado no calendário.");
-
-      const adf = buildCronogramaADF(issue.atividades);
-
-      await jiraEditIssue(issueKey, {
-        fields: {
-          customfield_14017: adf,
-        },
+        return { ...iss, atividades: nextAtividades };
       });
 
-      await reload();
-      return true;
-    } catch (e) {
-      console.error(e);
-      setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+      // otimista: atualiza calendárioIssues + events (mantém calendário/Gantt coerentes)
+      setViewData((prev) => {
+        const nextEvents = (prev?.events || []).map((ev) => {
+          const p = ev?.extendedProps || {};
+          const issueKey = String(p.issueKey || ev.issueKey || "")
+            .trim()
+            .toUpperCase();
+          const activityId = String(p.activityId || "").trim();
 
-      // rollback
-      setViewData((v) => {
-        const restored = (v.calendarioIssues || []).map((iss) => {
-          const snap = prev.find((p) => p.key === iss.key);
-          if (!snap) return iss;
-          return { ...iss, atividades: snap.atividades };
+          const found = valid.find(
+            (u) => u.issueKey === issueKey && u.activityId === activityId
+          );
+
+          if (!found) return ev;
+
+          return {
+            ...ev,
+            start: found.start,
+            end: found.end,
+            extendedProps: { ...p },
+          };
         });
-        return { ...v, calendarioIssues: restored };
+
+        return {
+          ...prev,
+          calendarioIssues: nextCalendarioIssues,
+          events: nextEvents,
+        };
       });
 
-      return false; // ✅ Gantt desfaz automaticamente
-    }
-  }
+      try {
+        // agrupa por issueKey -> 1 update Jira por ticket
+        const byIssue = new Map();
+        for (const u of valid) {
+          if (!byIssue.has(u.issueKey)) byIssue.set(u.issueKey, []);
+          byIssue.get(u.issueKey).push(u);
+        }
+
+        for (const issueKey of byIssue.keys()) {
+          const issue = nextCalendarioIssues.find(
+            (x) =>
+              String(x?.key || "")
+                .trim()
+                .toUpperCase() === issueKey
+          );
+          if (!issue) continue;
+
+          const adf = buildCronogramaADF(issue.atividades || []);
+
+          await jiraEditIssue(issueKey, {
+            fields: {
+              customfield_14017: adf,
+            },
+          });
+        }
+
+        await reload();
+        return true;
+      } catch (e) {
+        console.error(e);
+        setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+
+        // rollback local
+        setViewData((v) => ({
+          ...v,
+          calendarioIssues: prevSnapshot,
+        }));
+
+        // garante estado correto
+        try {
+          await reload();
+        } catch {}
+
+        return false;
+      }
+    },
+    [viewData.calendarioIssues, viewData.events] // dependencies
+  );
 
   return (
     <TooltipProvider>
