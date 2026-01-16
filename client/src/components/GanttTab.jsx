@@ -14,7 +14,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { AlertTriangle, Loader2, Search } from "lucide-react";
+import {
+  AlertTriangle,
+  Loader2,
+  Search,
+  Lock,
+  Unlock,
+  Link2,
+  Link2Off,
+} from "lucide-react";
 
 /* =========================
    Helpers
@@ -675,16 +683,30 @@ function TaskListTableFactory({
                 {isProject ? (
                   <span className="text-zinc-300">—</span>
                 ) : (
-                  <input
-                    type="checkbox"
-                    checked={chainSet?.has(t.id)}
-                    onChange={(e) => {
+                  <button
+                    type="button"
+                    onClick={(e) => {
                       e.stopPropagation();
                       onToggleChain?.(t.id);
                     }}
-                    title="Encadear com a próxima atividade"
-                    className="h-4 w-4 accent-red-600"
-                  />
+                    title={
+                      chainSet?.has(t.id)
+                        ? "Encadeamento ATIVO"
+                        : "Encadeamento INATIVO"
+                    }
+                    className={cn(
+                      "inline-flex h-8 w-8 items-center justify-center rounded-lg border transition",
+                      chainSet?.has(t.id)
+                        ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                        : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50"
+                    )}
+                  >
+                    {chainSet?.has(t.id) ? (
+                      <Lock className="h-4 w-4" />
+                    ) : (
+                      <Unlock className="h-4 w-4" />
+                    )}
+                  </button>
                 )}
               </div>
             </div>
