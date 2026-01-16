@@ -13,6 +13,9 @@ import {
   uploadAttachments,
   listAttachments,
   buildDownloadLinks,
+  getTransitions,
+  transitionIssue,
+  transitionToStatusName,
 } from "../lib/jira";
 import {
   SCRIPTS_TAG,
@@ -586,6 +589,81 @@ function ChecklistGMUDTab({
     });
   }
 
+  // ===============================
+  // Helpers: transição do ticket pai
+  // ===============================
+  function normStr(v) {
+    return String(v || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function resolveTargetStatusByUnlock(toIdx) {
+    const wf = getWorkflow();
+    const isFinal = toIdx >= wf.length;
+
+    if (isFinal) return "Concluído";
+
+    const step = wf[toIdx];
+    const stepKey = normStr(step?.key);
+    const stepTitle = normStr(step?.title);
+
+    const isPosDeploy =
+      /(pos)/.test(stepKey) ||
+      /(pos)/.test(stepTitle) ||
+      /(p[oó]s)/.test(stepTitle);
+
+    // Step "homologação" -> Homologação
+    if (/(homolog)/.test(stepKey) || /(homolog)/.test(stepTitle)) {
+      return "Homologação";
+    }
+
+    // Step "deploy" -> Para Deploy (mas NÃO pos-deploy)
+    if (
+      !isPosDeploy &&
+      (/(deploy)/.test(stepKey) || /(deploy)/.test(stepTitle))
+    ) {
+      return "Para Deploy";
+    }
+
+    // Pós-Deploy mantém Para Deploy
+    if (isPosDeploy) return null;
+
+    return null;
+  }
+
+  function findDeployStepKey() {
+    const wf = getWorkflow();
+
+    // preferir key exata "deploy"
+    const byExact = wf.find((s) => normStr(s?.key) === "deploy");
+    if (byExact?.key) return byExact.key;
+
+    // fallback: título contém deploy, mas não contém pós
+    const byTitle = wf.find((s) => {
+      const t = normStr(s?.title);
+      return /deploy/.test(t) && !/(pos|p[oó]s)/.test(t);
+    });
+
+    return byTitle?.key || null;
+  }
+
+  async function transitionParentIssueTo(ticketKey, targetStatusName) {
+    const tk = String(ticketKey || "")
+      .trim()
+      .toUpperCase();
+    const target = String(targetStatusName || "").trim();
+
+    if (!tk) throw new Error("Ticket pai inválido.");
+    if (!target) throw new Error("Status alvo inválido.");
+
+    // ✅ agora quem resolve transição por nome + fallback é o lib/jira.js
+    await transitionToStatusName(tk, target);
+    return true;
+  }
+
   function addChave() {
     setChaves((prev) => {
       const rows = [
@@ -656,11 +734,17 @@ function ChecklistGMUDTab({
   }
 
   function statusTone(status) {
-    const s = String(status || "").toLowerCase();
-    if (/(concluído)/.test(s)) return "success";
+    const s = String(status || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    if (/(concluido|done|fechado|closed|resol)/.test(s)) return "success";
+    if (/(para\s*deploy|paradeploy)/.test(s)) return "danger";
+    if (/(homolog|qa|teste|review|valid)/.test(s)) return "warning";
+    if (/(desenvolv)/.test(s)) return "warning";
     if (/(backlog)/.test(s)) return "info";
-    if (/(para deploy)/.test(s)) return "danger";
-    if (/(desenvolvimento)/.test(s)) return "warning";
+
     return "neutral";
   }
 
@@ -688,7 +772,37 @@ function ChecklistGMUDTab({
       return;
     }
 
+    const wf = getWorkflow();
+    const isFinalizing = toIdx >= wf.length;
+
+    // ✅ Regra: só pode ir para "Concluído" no FINAL se DEPLOY estiver 100%
+    if (isFinalizing) {
+      const deployKey = findDeployStepKey();
+      if (deployKey) {
+        const deployStat = computeStepPct(
+          kanbanCfg,
+          deployKey,
+          jiraCtx?.subtasksBySummary || {}
+        );
+
+        if (!deployStat?.complete) {
+          alert(
+            'Não é possível concluir o fluxo. O step "Deploy" precisa estar 100% concluído.'
+          );
+          setAdvancingStep(false);
+          return;
+        }
+      }
+    }
+
     setAdvancingStep(true);
+
+    // ✅ status alvo do ticket pai baseado no step liberado
+    // Homologação -> Homologação
+    // Deploy -> Para Deploy
+    // Pós-Deploy -> null (não transiciona)
+    // Final -> Concluído (se deploy 100%)
+    const parentTargetStatus = resolveTargetStatusByUnlock(toIdx);
 
     try {
       // libera step no config (persistido no comentário)
@@ -728,20 +842,66 @@ function ChecklistGMUDTab({
         subtasksBySummary: ensured.nextMap,
       }));
 
+      // ✅ Transição do ticket pai (conforme regras)
+      let parentTransitionOk = false;
+      let parentTransitionErr = "";
+
+      if (parentTargetStatus) {
+        const current = String(ticketSideInfo?.status || "").trim();
+        const same = normStr(current) === normStr(parentTargetStatus);
+
+        if (!same) {
+          showSyncOverlay({
+            title: "Atualizando status do ticket",
+            message: `Transicionando ticket pai para "${parentTargetStatus}"...`,
+            current: 0,
+            total: 0,
+            created: [],
+          });
+
+          try {
+            await transitionParentIssueTo(
+              jiraCtx.ticketKey,
+              parentTargetStatus
+            );
+            parentTransitionOk = true;
+
+            // Atualiza sidebar sem resync
+            setTicketSideInfo((prev) =>
+              prev ? { ...prev, status: parentTargetStatus } : prev
+            );
+          } catch (e) {
+            console.error(e);
+            parentTransitionErr = e?.message ? String(e.message) : String(e);
+          }
+        }
+      }
+
       closeStepGate();
 
+      // Overlay final
+      const baseMsg =
+        ensured.created?.length > 0
+          ? `Step "${getStepTitle(toIdx)}" liberado. Subtarefas criadas: ${
+              ensured.created.length
+            }.`
+          : `Step "${getStepTitle(
+              toIdx
+            )}" liberado. Nenhuma subtarefa nova precisou ser criada.`;
+
+      const statusMsg =
+        parentTargetStatus && parentTransitionOk
+          ? ` Status do ticket atualizado para "${parentTargetStatus}".`
+          : parentTargetStatus && parentTransitionErr
+          ? ` Atenção: falha ao atualizar status do ticket para "${parentTargetStatus}": ${parentTransitionErr}`
+          : "";
+
       showSyncOverlay({
-        title: "Próximo step liberado",
-        message:
-          ensured.created?.length > 0
-            ? `Step "${getStepTitle(toIdx)}" liberado. Subtarefas criadas: ${
-                ensured.created.length
-              }.`
-            : `Step "${getStepTitle(
-                toIdx
-              )}" liberado. Nenhuma subtarefa nova precisou ser criada.`,
+        title: isFinalizing ? "Fluxo finalizado" : "Próximo step liberado",
+        message: baseMsg + statusMsg,
         done: true,
         created: ensured.created || [],
+        error: parentTransitionErr || "",
       });
     } catch (e) {
       console.error(e);
@@ -1560,26 +1720,44 @@ function ChecklistGMUDTab({
                 gap: 8,
               }}
             >
-              <button
-                type="button"
-                onClick={closeStepGate}
-                disabled={advancingStep}
+              <div
+                style={{
+                  marginTop: 14,
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 8,
+                }}
               >
-                Agora não
-              </button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={closeStepGate}
+                  disabled={advancingStep}
+                  className="!rounded-xl border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  Agora não
+                </Button>
 
-              <button
-                type="button"
-                className="primary"
-                onClick={unlockNextStep}
-                disabled={advancingStep}
-              >
-                {advancingStep
-                  ? "Liberando..."
-                  : stepGate.toIdx >= getWorkflow().length
-                  ? "Ok"
-                  : `Liberar: ${getStepTitle(stepGate.toIdx)}`}
-              </button>
+                <Button
+                  type="button"
+                  onClick={unlockNextStep}
+                  disabled={advancingStep}
+                  aria-busy={advancingStep}
+                  className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-2.5"
+                >
+                  <RotateCw
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      advancingStep && "animate-spin"
+                    )}
+                  />
+                  {advancingStep
+                    ? "Liberando..."
+                    : stepGate.toIdx >= getWorkflow().length
+                    ? "Ok"
+                    : `Liberar: ${getStepTitle(stepGate.toIdx)}`}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

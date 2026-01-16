@@ -9,11 +9,22 @@ const ENV =
 
 const DONE_FALLBACK_ID = String(ENV.VITE_JIRA_TRANSITION_DONE_ID || "41");
 const BACKLOG_FALLBACK_ID = String(ENV.VITE_JIRA_TRANSITION_BACKLOG_ID || "11");
+const HOMOLOG_FALLBACK_ID = String(
+  ENV.VITE_JIRA_TRANSITION_HOMOLOGACAO_ID || ""
+);
+const PARA_DEPLOY_FALLBACK_ID = String(
+  ENV.VITE_JIRA_TRANSITION_PARA_DEPLOY_ID || ""
+);
+const CONCLUIDO_FALLBACK_ID = String(
+  ENV.VITE_JIRA_TRANSITION_CONCLUIDO_ID || ""
+);
 
 function norm(s) {
   return String(s || "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // remove acentos
 }
 
 function includesAny(hay, needles) {
@@ -26,6 +37,96 @@ function summarizeTransitions(payload) {
   return list
     .map((t) => `${t?.name || "?"} -> ${t?.to?.name || "?"}`)
     .join(" | ");
+}
+
+function fallbackIdForParentTargetStatus(targetStatusName) {
+  const s = norm(targetStatusName);
+
+  if (/(homolog)/.test(s)) return HOMOLOG_FALLBACK_ID || null;
+  if (/(para\s*deploy|paradeploy|deploy)/.test(s))
+    return PARA_DEPLOY_FALLBACK_ID || null;
+  if (/(conclu|done|closed|resolv|finaliz|complete)/.test(s))
+    return CONCLUIDO_FALLBACK_ID || null;
+
+  return null;
+}
+
+/**
+ * Transiciona issue para um status pelo NOME (to.name === targetStatusName)
+ * - Tenta GET /transitions (se existir no proxy)
+ * - Se não existir, usa fallbackId do .env (ex.: VITE_JIRA_TRANSITION_HOMOLOGACAO_ID)
+ */
+export async function transitionToStatusName(
+  issueKey,
+  targetStatusName,
+  fallbackId
+) {
+  const key = String(issueKey || "")
+    .trim()
+    .toUpperCase();
+  const target = String(targetStatusName || "").trim();
+
+  if (!key) throw new Error("Issue key inválida.");
+  if (!target) throw new Error("Status alvo inválido.");
+
+  let payload = null;
+
+  // 1) tenta descobrir a transição pelo GET /transitions
+  payload = await getTransitions(key).catch(() => null);
+
+  if (payload?.transitions?.length) {
+    const wanted = norm(target);
+
+    const chosen = payload.transitions.find(
+      (t) => norm(t?.to?.name) === wanted
+    );
+
+    if (chosen?.id) {
+      await transitionIssue(key, chosen.id);
+      return {
+        transitionId: chosen.id,
+        status: chosen?.to?.name || "",
+        statusCategory: chosen?.to?.statusCategory?.key || "",
+      };
+    }
+
+    // Se não achou, mas temos payload: tenta fallback se tiver
+    const fb = String(
+      fallbackId || fallbackIdForParentTargetStatus(target) || ""
+    ).trim();
+    if (fb) {
+      await transitionIssue(key, fb);
+      return {
+        transitionId: fb,
+        status: target,
+        statusCategory: "",
+      };
+    }
+
+    throw new Error(
+      `Não encontrei transição para "${target}". Disponíveis: ${
+        summarizeTransitions(payload) || "—"
+      }`
+    );
+  }
+
+  // 2) proxy não tem GET /transitions => precisa fallbackId
+  const fb = String(
+    fallbackId || fallbackIdForParentTargetStatus(target) || ""
+  ).trim();
+  if (!fb) {
+    throw new Error(
+      `Seu proxy não suporta GET /transitions e não há fallbackId configurado para "${target}". ` +
+        `Configure no .env: VITE_JIRA_TRANSITION_HOMOLOGACAO_ID / VITE_JIRA_TRANSITION_PARA_DEPLOY_ID / VITE_JIRA_TRANSITION_CONCLUIDO_ID`
+    );
+  }
+
+  await transitionIssue(key, fb);
+  return {
+    transitionId: fb,
+    status: target,
+    statusCategory: "",
+  };
 }
 
 /* ===================== Issues ===================== */

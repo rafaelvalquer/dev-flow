@@ -3,15 +3,15 @@
   "version": 1,
   "columns": [
     {
-      "key": "planejamento",
-      "title": "Planejamento",
+      "key": "desenvolvimento",
+      "title": "Desenvolvimento",
       "icon": "fa-solid fa-pen-ruler",
       "order": 10,
       "defaultTemplateIds": ["card_planejar", "card_rollback"]
     },
     {
-      "key": "preDeploy",
-      "title": "Pré-Deploy",
+      "key": "homologação",
+      "title": "Homologação",
       "icon": "fa-solid fa-list-check",
       "order": 20,
       "defaultTemplateIds": ["card_scripts", "card_vars", "card_evid_pre"]
@@ -33,94 +33,381 @@
   ],
   "templates": [
     {
-      "id": "card_planejar",
-      "title": "Planejar execução",
-      "columnKey": "planejamento",
+      "id": "card_ura_planejamento",
+      "title": "Planejamento e entendimento do escopo (URA Nice)",
+      "columnKey": "desenvolvimento",
       "order": 10,
       "subtasks": [
-        { "id": "st_escopo", "title": "Validar escopo e impacto" },
-        { "id": "st_janela", "title": "Confirmar janela e responsáveis" },
-        { "id": "st_coms", "title": "Definir comunicação (stakeholders)" }
+        {
+          "id": "st_ura_escopo",
+          "title": "Validar escopo, impacto e objetivo da URA"
+        },
+        {
+          "id": "st_ura_insumos",
+          "title": "Coletar insumos (documentos, exemplos, roteiros, URA atual)"
+        },
+        {
+          "id": "st_ura_mapa_fluxo",
+          "title": "Mapear fluxo atual e fluxo desejado (estados/decisões)"
+        },
+        {
+          "id": "st_ura_pontos_integracao",
+          "title": "Identificar integrações necessárias (APIs, RTDM, integradores)"
+        },
+        {
+          "id": "st_ura_riscos",
+          "title": "Levantar riscos, dependências e plano de ação"
+        }
       ]
     },
     {
-      "id": "card_rollback",
-      "title": "Plano de rollback",
-      "columnKey": "planejamento",
+      "id": "card_ura_acessos_credenciais",
+      "title": "Acessos e credenciais (quando aplicável)",
+      "columnKey": "desenvolvimento",
       "order": 20,
       "subtasks": [
-        { "id": "st_passo", "title": "Descrever passos de rollback" },
-        { "id": "st_validar", "title": "Validar critérios de rollback" }
+        {
+          "id": "st_ura_acesso_nice",
+          "title": "Validar acesso à plataforma Nice (ambiente DEV/HML)"
+        },
+        {
+          "id": "st_ura_acesso_git",
+          "title": "Validar acesso a repositórios/artefatos (GIT/integrações)"
+        },
+        {
+          "id": "st_ura_solic_cred",
+          "title": "Solicitar credenciais (se necessário) e registrar evidências"
+        },
+        {
+          "id": "st_ura_validar_perfis",
+          "title": "Confirmar perfis/permissões necessárias para execução"
+        }
       ]
     },
     {
-      "id": "card_scripts",
-      "title": "Scripts e artefatos",
-      "columnKey": "preDeploy",
-      "order": 10,
-      "subtasks": [
-        { "id": "st_scripts", "title": "Listar scripts alterados" },
-        { "id": "st_version", "title": "Confirmar versão/branch/tag" }
-      ]
-    },
-    {
-      "id": "card_vars",
-      "title": "Chaves / Variáveis",
-      "columnKey": "preDeploy",
-      "order": 20,
-      "subtasks": [
-        { "id": "st_vars", "title": "Listar variáveis e valores" },
-        { "id": "st_aprov", "title": "Aprovar alterações de variáveis" }
-      ]
-    },
-    {
-      "id": "card_evid_pre",
-      "title": "Evidências (pré)",
-      "columnKey": "preDeploy",
+      "id": "card_ura_novos_estados",
+      "title": "Novos estados na URA",
+      "columnKey": "desenvolvimento",
       "order": 30,
       "subtasks": [
-        { "id": "st_backup", "title": "Backup / evidência de segurança" },
-        { "id": "st_health", "title": "Healthcheck pré-deploy" }
+        {
+          "id": "st_ura_definir_estados",
+          "title": "Definir estados novos e transições do fluxo"
+        },
+        { "id": "st_ura_dev_estados", "title": "Desenvolver novos estados" },
+        {
+          "id": "st_ura_parametrizar_estados",
+          "title": "Parametrizar regras (REJ, SIL, condições, rotas)"
+        },
+        {
+          "id": "st_ura_validar_navegacao",
+          "title": "Validar navegação entre estados (caminho feliz e exceções)"
+        }
       ]
     },
     {
-      "id": "card_exec",
-      "title": "Execução",
+      "id": "card_ura_alteracao_estados",
+      "title": "Alteração de estados na URA",
+      "columnKey": "desenvolvimento",
+      "order": 40,
+      "subtasks": [
+        {
+          "id": "st_ura_mapear_alteracao",
+          "title": "Mapear alteração necessária e impacto em transições"
+        },
+        {
+          "id": "st_ura_dev_alteracao_estado",
+          "title": "Desenvolver a alteração do estado"
+        },
+        {
+          "id": "st_ura_regressao_fluxo",
+          "title": "Executar revisão de regressão (evitar quebra de caminhos existentes)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_audios",
+      "title": "Novos áudios na URA",
+      "columnKey": "desenvolvimento",
+      "order": 50,
+      "subtasks": [
+        {
+          "id": "st_ura_padrao_audio",
+          "title": "Validar padrão do áudio (formato, U-law, 800hz, 64kbps, mono, nomeação)"
+        },
+        { "id": "st_ura_converter_audio", "title": "Converter áudio" },
+        {
+          "id": "st_ura_upload_dev",
+          "title": "Upload dos áudios na pasta/estrutura de DEV"
+        },
+        {
+          "id": "st_ura_upload_prd",
+          "title": "Upload dos áudios na pasta/estrutura de PRD"
+        },
+        {
+          "id": "st_ura_vincular_audio_estado",
+          "title": "Vincular áudios aos estados/pontos corretos do fluxo"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_api_criacao",
+      "title": "Criação de uma nova API",
+      "columnKey": "desenvolvimento",
+      "order": 60,
+      "subtasks": [
+        {
+          "id": "st_ura_api_responsavel",
+          "title": "Solicitar responsável pela criação (time dono / aprovador)"
+        },
+        {
+          "id": "st_ura_api_contrato",
+          "title": "Definir contrato da API (endpoint, método, payload, erros)"
+        },
+        {
+          "id": "st_ura_api_documentacao",
+          "title": "Documentação da API (ex.: Swagger/Confluence)"
+        },
+        { "id": "st_ura_api_implementacao", "title": "Implementação da API" },
+        {
+          "id": "st_ura_api_logs",
+          "title": "Adicionar logs/observabilidade (mínimo necessário)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_api_implementacao",
+      "title": "Implementação/consumo de API na URA",
+      "columnKey": "desenvolvimento",
+      "order": 70,
+      "subtasks": [
+        { "id": "st_ura_impl_api", "title": "Implementação API" },
+        {
+          "id": "st_ura_tratativa_erro",
+          "title": "Tratativa de erros e fallback (timeout, indisponibilidade)"
+        },
+        {
+          "id": "st_ura_retries",
+          "title": "Configurar retentativas/regras de reprocesso (se aplicável)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_testes_unitarios",
+      "title": "Testes unitários e validações técnicas",
+      "columnKey": "desenvolvimento",
+      "order": 90,
+      "subtasks": [
+        {
+          "id": "st_ura_testes_unitarios",
+          "title": "Testes unitários (quando aplicável)"
+        },
+        {
+          "id": "st_ura_testes_integracao",
+          "title": "Testes de integração (ambiente DEV)"
+        },
+        {
+          "id": "st_ura_validar_regras",
+          "title": "Validar regras de roteamento/negócio no fluxo"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_chaves_env",
+      "title": "Criação de Chaves (Variáveis de ambiente)",
+      "columnKey": "desenvolvimento",
+      "order": 100,
+      "subtasks": [
+        { "id": "st_ura_chaves_validar_ambiente", "title": "Validar ambiente" },
+        { "id": "st_ura_chaves_criar", "title": "Criar chave" },
+        {
+          "id": "st_ura_chaves_implementar_fluxo",
+          "title": "Implementar dentro do fluxo"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_testes_novos_estados",
+      "title": "Testes de novos estados",
+      "columnKey": "homologação",
+      "order": 10,
+      "subtasks": [
+        { "id": "st_ura_calltest_novos", "title": "Testes de chamadas" },
+        { "id": "st_ura_cdr_novos", "title": "Validação CDR" },
+        {
+          "id": "st_ura_evidencias_novos",
+          "title": "Gerar evidências (prints/logs/traces)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_testes_alteracao_estados",
+      "title": "Testes de alteração de estados",
+      "columnKey": "homologação",
+      "order": 20,
+      "subtasks": [
+        { "id": "st_ura_calltest_alteracao", "title": "Testes de chamadas" },
+        { "id": "st_ura_cdr_alteracao", "title": "Validação CDR" },
+        {
+          "id": "st_ura_regressao_alteracao",
+          "title": "Testes de regressão do fluxo (caminhos existentes)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_testes_audios",
+      "title": "Testes de novos áudios",
+      "columnKey": "homologação",
+      "order": 30,
+      "subtasks": [
+        { "id": "st_ura_calltest_audio", "title": "Testes de chamadas" },
+        {
+          "id": "st_ura_validar_audio",
+          "title": "Validar reprodução/qualidade do áudio e timing"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_testes_api",
+      "title": "Teste de nova API / Integração",
+      "columnKey": "homologação",
+      "order": 40,
+      "subtasks": [
+        { "id": "st_ura_api_testes", "title": "Testes da API" },
+        {
+          "id": "st_ura_api_calltest",
+          "title": "Testes de chamada (fluxo URA consumindo API)"
+        },
+        {
+          "id": "st_ura_api_erros",
+          "title": "Validar erros e retornos (timeout, 4xx/5xx)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_homologacao_solicitante",
+      "title": "Homologação do solicitante",
+      "columnKey": "homologação",
+      "order": 50,
+      "subtasks": [
+        { "id": "st_ura_acompanhar_testes", "title": "Acompanhar testes" },
+        {
+          "id": "st_ura_ok_solicitante",
+          "title": "Testes validados pelo solicitante"
+        },
+        {
+          "id": "st_ura_ajustes_finais",
+          "title": "Ajustes finais pós-homologação (se necessário)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_testes_chaves_env",
+      "title": "Testes de chaves (variáveis de ambiente)",
+      "columnKey": "homologação",
+      "order": 60,
+      "subtasks": [
+        {
+          "id": "st_ura_chaves_testar_true",
+          "title": "Testar com valores true"
+        },
+        {
+          "id": "st_ura_chaves_testar_false",
+          "title": "Testar com valores false"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_rdm",
+      "title": "Preencher RDM",
       "columnKey": "deploy",
       "order": 10,
       "subtasks": [
-        { "id": "st_exec", "title": "Executar deploy conforme plano" },
-        { "id": "st_monitor", "title": "Monitorar após deploy" }
+        {
+          "id": "st_ura_rdm_detalhes",
+          "title": "Preencher detalhes (descrição, impacto, janela, responsáveis)"
+        },
+        {
+          "id": "st_ura_rdm_plano_implant",
+          "title": "Descrever plano de implantação"
+        },
+        {
+          "id": "st_ura_rdm_plano_rollback",
+          "title": "Descrever plano de rollback"
+        },
+        {
+          "id": "st_ura_rdm_evid_hml",
+          "title": "Anexar evidências de homologação"
+        }
       ]
     },
     {
-      "id": "card_valid",
-      "title": "Validação",
+      "id": "card_ura_gmud",
+      "title": "Aprovação da GMUD",
       "columnKey": "deploy",
       "order": 20,
       "subtasks": [
-        { "id": "st_smoke", "title": "Smoke test" },
-        { "id": "st_ok", "title": "Validação com áreas" }
+        { "id": "st_ura_envio_rdm", "title": "Envio RDM" },
+        { "id": "st_ura_gmud_aprovada", "title": "GMUD aprovada" },
+        {
+          "id": "st_ura_comunicacao_janela",
+          "title": "Comunicar janela e stakeholders (antes do deploy)"
+        }
       ]
     },
     {
-      "id": "card_evid_pos",
-      "title": "Evidências (pós)",
+      "id": "card_ura_deploy_prd",
+      "title": "Apontamento para ambiente de produção",
+      "columnKey": "deploy",
+      "order": 30,
+      "subtasks": [
+        {
+          "id": "st_ura_check_pre_deploy",
+          "title": "Checklist pré-deploy (acessos, artefatos, versão, dependências)"
+        },
+        { "id": "st_ura_deploy_em_prd", "title": "Deploy em PRD" },
+        {
+          "id": "st_ura_smoke_prd",
+          "title": "Smoke test pós-deploy (chamada simples e caminho principal)"
+        },
+        {
+          "id": "st_ura_validacao_operacao",
+          "title": "Validar operação (CDR, logs e comportamento do fluxo)"
+        }
+      ]
+    },
+    {
+      "id": "card_ura_pos_monitoramento",
+      "title": "Acompanhamento em Produção",
       "columnKey": "posDeploy",
       "order": 10,
       "subtasks": [
-        { "id": "st_prints", "title": "Anexar prints/logs" },
-        { "id": "st_relato", "title": "Relato final da execução" }
+        { "id": "st_ura_captura_trace", "title": "Captura de trace" },
+        { "id": "st_ura_enviar_evidencias", "title": "Enviar evidências" },
+        {
+          "id": "st_ura_monitorar_indicadores",
+          "title": "Monitorar indicadores (erros, quedas, tempo de atendimento)"
+        }
       ]
     },
     {
-      "id": "card_encerrar",
-      "title": "Encerramento",
+      "id": "card_ura_comunicados",
+      "title": "Comunicados e encerramento",
       "columnKey": "posDeploy",
       "order": 20,
       "subtasks": [
-        { "id": "st_status", "title": "Atualizar status do ticket" },
-        { "id": "st_com_final", "title": "Comunicação final" }
+        {
+          "id": "st_ura_comunicado_implantacao",
+          "title": "Comunicado de implantação"
+        },
+        {
+          "id": "st_ura_comunicado_encerramento",
+          "title": "Comunicado de encerramento"
+        },
+        {
+          "id": "st_ura_update_ticket",
+          "title": "Atualizar ticket com resumo e evidências"
+        }
       ]
     }
   ]

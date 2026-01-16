@@ -21,8 +21,12 @@ function uid() {
  * - icon: classe do FontAwesome (igual você já usa)
  */
 export const DEFAULT_KANBAN_WORKFLOW = [
-  { key: "planejamento", title: "Planejamento", icon: "fa-solid fa-pen-ruler" },
-  { key: "preDeploy", title: "Pré-Deploy", icon: "fa-solid fa-list-check" },
+  {
+    key: "desenvolvimento",
+    title: "Desenvolvimento",
+    icon: "fa-solid fa-pen-ruler",
+  },
+  { key: "homologação", title: "Homologação", icon: "fa-solid fa-list-check" },
   { key: "deploy", title: "Deploy", icon: "fa-solid fa-rocket" },
   {
     key: "posDeploy",
