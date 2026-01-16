@@ -88,6 +88,55 @@ app.get("/api/jira/issue/:key", async (req, res) => {
   }
 });
 
+// Opção A: busca geral de usuários
+app.get("/api/jira/users/search", async (req, res) => {
+  try {
+    const query = String(req.query.query || "").trim();
+    const maxResults = Number(req.query.maxResults || 20);
+
+    const url = `${JIRA_BASE}/rest/api/3/user/search?query=${encodeURIComponent(
+      query
+    )}&maxResults=${encodeURIComponent(maxResults)}`;
+
+    const r = await fetch(url, { headers: jiraHeaders() });
+    return sendUpstream(res, r);
+  } catch (err) {
+    console.error("GET users/search error:", err);
+    return res.status(500).json({
+      error: "Proxy error on GET users/search",
+      details: String(err),
+    });
+  }
+});
+
+// Opção B: retorna somente usuários atribuíveis no issue
+app.get("/api/jira/users/assignable", async (req, res) => {
+  try {
+    const issueKey = String(req.query.issueKey || "").trim();
+    const query = String(req.query.query || "").trim();
+    const maxResults = Number(req.query.maxResults || 20);
+
+    if (!issueKey) {
+      return res.status(400).json({ error: "issueKey é obrigatório" });
+    }
+
+    const url =
+      `${JIRA_BASE}/rest/api/3/user/assignable/search?` +
+      `issueKey=${encodeURIComponent(issueKey)}` +
+      `&query=${encodeURIComponent(query)}` +
+      `&maxResults=${encodeURIComponent(maxResults)}`;
+
+    const r = await fetch(url, { headers: jiraHeaders() });
+    return sendUpstream(res, r);
+  } catch (err) {
+    console.error("GET users/assignable error:", err);
+    return res.status(500).json({
+      error: "Proxy error on GET users/assignable",
+      details: String(err),
+    });
+  }
+});
+
 // POST criar issue/subtarefa
 app.post("/api/jira/issue", async (req, res) => {
   try {

@@ -173,3 +173,56 @@ export async function mapLimit(items, limit, fn) {
   await Promise.all(workers);
   return out;
 }
+
+async function readErrorMessage(resp) {
+  try {
+    const data = await resp.json();
+    const msg =
+      (Array.isArray(data?.errorMessages) && data.errorMessages.join(" | ")) ||
+      data?.message ||
+      data?.error ||
+      JSON.stringify(data);
+    return msg;
+  } catch {
+    try {
+      return await resp.text();
+    } catch {
+      return "Erro desconhecido";
+    }
+  }
+}
+
+// Busca geral (Opção A)
+export async function jiraSearchUsers(query) {
+  const qs = new URLSearchParams({
+    query: String(query || "").trim(),
+    maxResults: "20",
+  });
+
+  const r = await fetch(`/api/jira/users/search?${qs.toString()}`);
+  if (!r.ok) {
+    const msg = await readErrorMessage(r);
+    throw new Error(`Falha ao buscar usuários (${r.status}): ${msg}`);
+  }
+
+  const data = await r.json();
+  return Array.isArray(data) ? data : [];
+}
+
+// Busca atribuíveis por issue (Opção B)
+export async function jiraSearchAssignableUsers(issueKey, query) {
+  const qs = new URLSearchParams({
+    issueKey: String(issueKey || "").trim(),
+    query: String(query || "").trim(),
+    maxResults: "20",
+  });
+
+  const r = await fetch(`/api/jira/users/assignable?${qs.toString()}`);
+  if (!r.ok) {
+    const msg = await readErrorMessage(r);
+    throw new Error(`Falha ao buscar atribuíveis (${r.status}): ${msg}`);
+  }
+
+  const data = await r.json();
+  return Array.isArray(data) ? data : [];
+}

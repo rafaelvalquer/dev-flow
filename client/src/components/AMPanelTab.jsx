@@ -1,77 +1,102 @@
 // src/components/AMPanelTab.jsx
-import { useMemo, useState, useEffect, memo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 
-import { motion } from "framer-motion";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-  CardFooter,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   DropdownMenu,
-  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { motion } from "framer-motion";
+
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import {
-  Search,
   AlertCircle,
-  RefreshCcw,
-  Filter,
-  ArrowUpDown,
-  ExternalLink,
-  Play,
-  CalendarDays,
   AlertTriangle,
-  ListChecks,
+  ArrowUpDown,
+  CalendarDays,
+  Check,
+  ChevronsUpDown,
   Clock,
+  ExternalLink,
+  Filter,
   History,
+  ListChecks,
+  Loader2,
+  Play,
+  RefreshCcw,
+  Search,
+  UserX,
 } from "lucide-react";
 
-import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
+import FullCalendar from "@fullcalendar/react";
 
-import { buildCronogramaADF } from "../utils/cronograma";
 import { DateValuePicker } from "@/components/ui/date-range-picker";
-import { jiraEditIssue, jiraTransitionToStatus } from "../lib/jiraClient";
+import {
+  jiraEditIssue,
+  jiraSearchAssignableUsers,
+  jiraSearchUsers,
+  jiraTransitionToStatus,
+} from "../lib/jiraClient";
+import { buildCronogramaADF } from "../utils/cronograma";
 
 import {
-  fetchPoIssuesDetailed,
+  applyEventChangeToAtividades,
   buildPoView,
+  fetchPoIssuesDetailed,
   makeDefaultCronogramaDraft,
   saveCronogramaToJira,
-  applyEventChangeToAtividades,
 } from "../lib/jiraPoView";
 
 // NOVO: buscar detalhes do ticket + comentar
-import { getIssue, getComments, createComment } from "../lib/jira";
+import { createComment, getComments, getIssue } from "../lib/jira";
 import { adfSafeToText } from "../utils/gmudUtils";
 
 /* =========================
@@ -159,6 +184,7 @@ const START_FIELDS = [
   "customfield_11520",
   "customfield_13604",
   "customfield_10015",
+  "customfield_11993",
   "priority",
 ].join(",");
 
@@ -618,14 +644,28 @@ export default function AMPanelTab() {
     setSelectedStatus(STATUS_OPTIONS[0]);
   }
 
-  async function applyStatusOnly() {
+  async function applyStatusOnly(ctx = {}) {
     if (!startIssueKey) return;
     setStartLoading(true);
     setStartErr("");
+
     try {
+      // (Opcional) aplicar owner também no "Aplicar status"
+      if (ctx?.ownerChanged) {
+        await jiraEditIssue(startIssueKey, {
+          fields: {
+            assignee: ctx.ownerAccountId
+              ? { accountId: ctx.ownerAccountId }
+              : null,
+          },
+        });
+      }
+
       await jiraTransitionToStatus(startIssueKey, selectedStatus);
+
       const issue = await getIssue(startIssueKey, START_FIELDS);
       setStartIssue(issue);
+
       await reload();
     } catch (e) {
       console.error(e);
@@ -636,13 +676,30 @@ export default function AMPanelTab() {
   }
 
   // Iniciar = comentar + transicionar status
-  async function startTicket() {
+  async function startTicket(ctx = {}) {
     if (!startIssueKey) return;
     setStartLoading(true);
     setStartErr("");
+
     try {
+      // 1) se mudou, atualiza assignee
+      if (ctx?.ownerChanged) {
+        await jiraEditIssue(startIssueKey, {
+          fields: {
+            assignee: ctx.ownerAccountId
+              ? { accountId: ctx.ownerAccountId }
+              : null,
+          },
+        });
+      }
+
+      // 2) comenta [INICIADO]
       await createComment(startIssueKey, adfFromPlainText("[INICIADO]"));
+
+      // 3) transiciona status
       await jiraTransitionToStatus(startIssueKey, selectedStatus);
+
+      // 4) recarrega e fecha
       await reload();
       closeStartModal();
     } catch (e) {
@@ -1575,13 +1632,28 @@ const TicketCard = memo(function TicketCard({
               )}
 
               {missingSchedule && (
-                <div
-                  className="flex items-center gap-1 text-amber-600"
-                  title="Sem cronograma"
-                >
-                  {/* Ícone corrigido aqui */}
-                  <AlertCircle className="h-4 w-4" />
-                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-amber-600 hover:text-amber-700 cursor-help"
+                      aria-label="Sem cronograma"
+                    >
+                      <AlertCircle className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+
+                  <TooltipContent
+                    side="top"
+                    align="center"
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 shadow-sm"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-amber-500" />
+                      Sem cronograma
+                    </span>
+                  </TooltipContent>
+                </Tooltip>
               )}
             </div>
 
@@ -2057,6 +2129,7 @@ function StartTicketModal({
   onStart,
 }) {
   const f = issue?.fields || {};
+  console.log(issue);
 
   const subtasks = Array.isArray(f?.subtasks) ? f.subtasks : [];
   const components = (f?.components || []).map((c) => c?.name).filter(Boolean);
@@ -2087,6 +2160,138 @@ function StartTicketModal({
 
   const desc = safeText(f?.description);
   const criterios = safeText(f?.customfield_10903);
+
+  // =========================
+  // OWNER (ASSIGNEE) - NOVO
+  // =========================
+  const [ownerOpen, setOwnerOpen] = useState(false);
+  const [ownerQuery, setOwnerQuery] = useState("");
+  const [ownerOptions, setOwnerOptions] = useState([]);
+  const [ownerSelected, setOwnerSelected] = useState(null); // {accountId, displayName, emailAddress, avatarUrl}
+  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [ownerErr, setOwnerErr] = useState("");
+
+  // normaliza usuário do Jira
+  function mapJiraUser(u) {
+    if (!u) return null;
+    const avatarUrl =
+      u?.avatarUrls?.["48x48"] ||
+      u?.avatarUrls?.["32x32"] ||
+      u?.avatarUrls?.["24x24"] ||
+      "";
+    return {
+      accountId: u?.accountId || "",
+      displayName: u?.displayName || u?.name || u?.emailAddress || "—",
+      emailAddress: u?.emailAddress || "",
+      avatarUrl,
+      active: u?.active !== false,
+    };
+  }
+
+  // debounce simples
+  function useDebouncedValue(value, delayMs = 250) {
+    const [deb, setDeb] = useState(value);
+    useEffect(() => {
+      const t = setTimeout(() => setDeb(value), delayMs);
+      return () => clearTimeout(t);
+    }, [value, delayMs]);
+    return deb;
+  }
+
+  const debouncedOwnerQuery = useDebouncedValue(ownerQuery, 250);
+
+  // inicializa com assignee atual ao abrir ticket
+  useEffect(() => {
+    const a = f?.assignee ? mapJiraUser(f.assignee) : null;
+    setOwnerSelected(a?.accountId ? a : null);
+    setOwnerQuery("");
+    setOwnerOptions([]);
+    setOwnerErr("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issueKey]);
+
+  // busca usuários (somente quando popover está aberto)
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!ownerOpen) return;
+
+      const q = String(debouncedOwnerQuery || "").trim();
+      setOwnerErr("");
+
+      // evita spam e lista gigante
+      if (q.length < 2) {
+        setOwnerOptions([]);
+        setOwnerLoading(false);
+        return;
+      }
+
+      setOwnerLoading(true);
+
+      try {
+        // tenta primeiro atribuíveiss por issueKey (melhor)
+        let list = [];
+        try {
+          list = await jiraSearchAssignableUsers(issueKey, q);
+        } catch {
+          // fallback (busca geral)
+          list = await jiraSearchUsers(q);
+        }
+
+        if (!alive) return;
+
+        const normalized = Array.isArray(list)
+          ? list.map(mapJiraUser).filter((x) => x?.accountId)
+          : [];
+
+        setOwnerOptions(normalized);
+      } catch (e) {
+        if (!alive) return;
+        setOwnerOptions([]);
+        setOwnerErr(
+          e?.message ||
+            "Falha ao buscar usuários. Verifique permissões do Jira (Browse users and groups / Assign issues)."
+        );
+      } finally {
+        if (alive) setOwnerLoading(false);
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [debouncedOwnerQuery, ownerOpen, issueKey]);
+
+  const currentAssigneeAccountId = f?.assignee?.accountId || null;
+  const selectedOwnerAccountId = ownerSelected?.accountId || null;
+  const ownerChanged = currentAssigneeAccountId !== selectedOwnerAccountId;
+
+  function OwnerTriggerLabel() {
+    if (!ownerSelected) {
+      return (
+        <span className="inline-flex items-center gap-2 text-zinc-700">
+          <UserX className="h-4 w-4 text-zinc-500" />
+          <span className="truncate">Sem proprietário</span>
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-2 min-w-0">
+        <Avatar className="h-6 w-6 border border-zinc-200">
+          {ownerSelected.avatarUrl ? (
+            <AvatarImage src={ownerSelected.avatarUrl} alt="avatar" />
+          ) : null}
+          <AvatarFallback className="bg-zinc-100 text-[10px] text-zinc-700">
+            {initials(ownerSelected.displayName)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate">{ownerSelected.displayName}</span>
+      </span>
+    );
+  }
 
   return (
     <Dialog open={true} onOpenChange={(o) => !o && onClose?.()}>
@@ -2143,23 +2348,45 @@ function StartTicketModal({
             <Button
               type="button"
               variant="outline"
-              onClick={onApplyStatus}
+              onClick={() =>
+                onApplyStatus?.({
+                  ownerAccountId: selectedOwnerAccountId,
+                  ownerChanged,
+                })
+              }
               disabled={loading || !issue}
               className="rounded-xl border-zinc-200 bg-white"
+              title={
+                ownerChanged
+                  ? "Aplicar status (e atualizar proprietário)"
+                  : "Aplicar status"
+              }
             >
               Aplicar status
             </Button>
 
             <Button
               type="button"
-              onClick={onStart}
+              onClick={() =>
+                onStart?.({
+                  ownerAccountId: selectedOwnerAccountId,
+                  ownerChanged,
+                })
+              }
               disabled={loading || !issue}
               className="rounded-xl bg-red-600 text-white hover:bg-red-700"
-              title="Cria comentário [INICIADO] e altera o status"
+              title="Atualiza proprietário (se mudou), cria comentário [INICIADO] e altera o status"
             >
               {loading ? "Processando..." : "Iniciar"}
             </Button>
           </div>
+
+          {/* Microcopy do owner changed */}
+          {issue && ownerChanged && (
+            <div className="mt-2 text-xs text-amber-700">
+              Proprietário será atualizado ao salvar.
+            </div>
+          )}
         </div>
 
         {/* Campos */}
@@ -2167,8 +2394,152 @@ function StartTicketModal({
           <InfoCard title="Básico">
             <InfoRow label="Projeto" value={f?.project?.name || "—"} />
             <InfoRow label="Prioridade" value={f?.priority?.name || "—"} />
-            <InfoRow label="Responsável" value={userName(f?.assignee)} />
+
+            {/* Responsável atual (Jira) */}
+            <InfoRow
+              label="Responsável (atual)"
+              value={userName(f?.assignee)}
+            />
+
+            {/* NOVO: Proprietário (Assignee) */}
+            <div className="grid grid-cols-[160px_1fr] gap-3 py-1">
+              <div className="text-xs text-zinc-500">Proprietário</div>
+
+              <div className="grid gap-1">
+                <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={ownerOpen}
+                      disabled={loading || !issue}
+                      className="h-10 w-full justify-between rounded-xl border-zinc-200 bg-white text-sm text-zinc-900 hover:bg-zinc-50"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-left">
+                        <OwnerTriggerLabel />
+                      </span>
+
+                      {ownerLoading ? (
+                        <Loader2 className="ml-2 h-4 w-4 shrink-0 animate-spin text-zinc-500" />
+                      ) : (
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-zinc-500" />
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+
+                  <PopoverContent
+                    align="start"
+                    className="w-[420px] max-w-[calc(100vw-3rem)] rounded-2xl border-zinc-200 p-2"
+                  >
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        value={ownerQuery}
+                        onValueChange={setOwnerQuery}
+                        placeholder="Buscar usuário no Jira... (mín. 2 letras)"
+                      />
+
+                      <CommandList className="max-h-[260px]">
+                        <CommandEmpty>
+                          {ownerLoading
+                            ? "Buscando..."
+                            : String(ownerQuery || "").trim().length < 2
+                            ? "Digite 2 ou mais caracteres para buscar."
+                            : "Nenhum usuário encontrado."}
+                        </CommandEmpty>
+
+                        <CommandGroup heading="Opções">
+                          {/* Sem proprietário */}
+                          <CommandItem
+                            value="__none__"
+                            onSelect={() => {
+                              setOwnerSelected(null);
+                              setOwnerOpen(false);
+                            }}
+                            className="rounded-xl"
+                          >
+                            <span className="flex items-center gap-2">
+                              <UserX className="h-4 w-4 text-zinc-500" />
+                              <span className="text-sm font-medium text-zinc-800">
+                                Sem proprietário
+                              </span>
+                            </span>
+
+                            {!ownerSelected ? (
+                              <Check className="ml-auto h-4 w-4 text-emerald-600" />
+                            ) : null}
+                          </CommandItem>
+
+                          {/* Resultados */}
+                          {ownerOptions.map((u) => {
+                            const selected =
+                              ownerSelected?.accountId === u.accountId;
+
+                            return (
+                              <CommandItem
+                                key={u.accountId}
+                                value={u.displayName}
+                                onSelect={() => {
+                                  setOwnerSelected(u);
+                                  setOwnerOpen(false);
+                                }}
+                                className="rounded-xl"
+                              >
+                                <div className="flex min-w-0 flex-1 items-center gap-2">
+                                  <Avatar className="h-7 w-7 border border-zinc-200">
+                                    {u.avatarUrl ? (
+                                      <AvatarImage
+                                        src={u.avatarUrl}
+                                        alt="avatar"
+                                      />
+                                    ) : null}
+                                    <AvatarFallback className="bg-zinc-100 text-[10px] text-zinc-700">
+                                      {initials(u.displayName)}
+                                    </AvatarFallback>
+                                  </Avatar>
+
+                                  <div className="min-w-0">
+                                    <div className="truncate text-sm font-medium text-zinc-900">
+                                      {u.displayName}
+                                    </div>
+                                    {u.emailAddress ? (
+                                      <div className="truncate text-[11px] text-zinc-500">
+                                        {u.emailAddress}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                {selected ? (
+                                  <Check className="ml-2 h-4 w-4 text-emerald-600" />
+                                ) : null}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+
+                    {ownerErr ? (
+                      <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                        {ownerErr}
+                      </div>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
+
+                <div className="text-[11px] text-zinc-500">
+                  Atualiza o <span className="font-medium">Assignee</span> no
+                  Jira usando <span className="font-medium">accountId</span>.
+                </div>
+              </div>
+            </div>
+
             <InfoRow label="Relator" value={userName(f?.creator)} />
+            <InfoRow
+              label="Nome do Solicitante"
+              value={userName(f?.customfield_11993)}
+            />
             <InfoRow label="Data limite" value={dueDate} />
             <InfoRow label="Data limite Alterada" value={dueAlt || "—"} />
             <InfoRow label="Start date" value={startDate || "—"} />
