@@ -50,7 +50,18 @@ function fmtDateBR(d) {
 }
 
 function safeDate(v) {
-  const d = v instanceof Date ? v : new Date(v);
+  if (v instanceof Date) {
+    return Number.isNaN(v.getTime()) ? null : v;
+  }
+
+  // ✅ evita timezone shift do "YYYY-MM-DD" (que o JS interpreta como UTC)
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    const [y, m, d] = v.split("-").map(Number);
+    const local = new Date(y, m - 1, d); // local midnight
+    return Number.isNaN(local.getTime()) ? null : local;
+  }
+
+  const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -505,6 +516,7 @@ const DEFAULT_COL_WIDTHS = {
   atividade: 360,
   recurso: 160,
   area: 120,
+  dur: 72,
   start: 76,
   end: 76,
   chain: 56,
@@ -512,17 +524,18 @@ const DEFAULT_COL_WIDTHS = {
 
 const MIN_COL_WIDTHS = {
   ticket: 90,
-  atividade: 220,
-  recurso: 120,
-  area: 90,
-  start: 64,
-  end: 64,
+  atividade: 100,
+  recurso: 80,
+  area: 60,
+  dur: 40,
+  start: 50,
+  end: 50,
   chain: 56,
 };
 
 function makeGridTemplate(w) {
   const x = w || DEFAULT_COL_WIDTHS;
-  return `${x.ticket}px ${x.atividade}px ${x.recurso}px ${x.area}px ${x.start}px ${x.end}px ${x.chain}px`;
+  return `${x.ticket}px ${x.atividade}px ${x.recurso}px ${x.area}px ${x.dur}px ${x.start}px ${x.end}px ${x.chain}px`;
 }
 
 /* =========================
@@ -553,6 +566,7 @@ function TaskListHeaderFactory({ colWidthsRef, beginResize }) {
         <HeaderCell label="Atividade" colKey="atividade" />
         <HeaderCell label="Recurso" colKey="recurso" />
         <HeaderCell label="Área" colKey="area" />
+        <HeaderCell label="Dias" colKey="dur" />
         <HeaderCell label="Start" colKey="start" />
         <HeaderCell label="End" colKey="end" />
         <HeaderCell label="Encadear" colKey="chain" />
@@ -572,6 +586,8 @@ function TaskListTableFactory({
   chainSet,
   lockedSet,
   onToggleChain,
+  onChangeDuration,
+  busy,
 }) {
   return function TaskListTable({
     rowHeight,
@@ -585,6 +601,24 @@ function TaskListTableFactory({
     );
 
     const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
+
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+    function calcDurationDays(t) {
+      const s = safeDate(t?.start);
+      const e = safeDate(t?.end);
+
+      if (!s || !e) return 1;
+
+      if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
+
+      const diff = e.getTime() - s.getTime();
+      const days = Math.ceil(diff / MS_PER_DAY);
+      return Math.max(1, days || 1);
+    }
+
+    const [editingDurId, setEditingDurId] = useState(null);
+    const [editingDurValue, setEditingDurValue] = useState("");
 
     return (
       <div
@@ -674,6 +708,61 @@ function TaskListTableFactory({
                 {isProject ? "—" : t.area || "—"}
               </div>
 
+              {/* ✅ Dias (editável) */}
+              <div className="flex items-center">
+                {isProject ? (
+                  <span className="text-zinc-300">—</span>
+                ) : (
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    disabled={busy || t.isDisabled}
+                    className="h-8 w-full rounded-lg border-zinc-200 bg-white px-2 text-center text-[12px] focus-visible:ring-red-500"
+                    value={
+                      editingDurId === t.id
+                        ? editingDurValue
+                        : String(calcDurationDays(t))
+                    }
+                    onFocus={() => {
+                      setEditingDurId(t.id);
+                      setEditingDurValue(String(calcDurationDays(t)));
+                    }}
+                    onChange={(e) => {
+                      setEditingDurId(t.id);
+                      setEditingDurValue(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        // reverte visualmente
+                        setEditingDurId(null);
+                        setEditingDurValue("");
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => {
+                      const current = calcDurationDays(t);
+
+                      const parsed = Math.max(
+                        1,
+                        parseInt(String(editingDurValue || ""), 10) || current
+                      );
+
+                      setEditingDurId(null);
+                      setEditingDurValue("");
+
+                      if (parsed !== current) {
+                        onChangeDuration?.(t, parsed);
+                      }
+                    }}
+                    title="Duração (dias). Ao alterar, ajusta o End. Se encadeado, empurra as próximas."
+                  />
+                )}
+              </div>
+
               {/* Start / End */}
               <div className="text-zinc-700">{fmtDateBR(t.start)}</div>
               <div className="text-zinc-700">{fmtDateBR(t.end)}</div>
@@ -702,9 +791,9 @@ function TaskListTableFactory({
                     )}
                   >
                     {chainSet?.has(t.id) ? (
-                      <Lock className="h-4 w-4" />
+                      <Link2 className="h-4 w-4" />
                     ) : (
-                      <Unlock className="h-4 w-4" />
+                      <Link2Off className="h-4 w-4" />
                     )}
                   </button>
                 )}
@@ -744,6 +833,7 @@ export function GanttTab({
 
   // trava durante persistência de mudança de datas (drag/resize)
   const [persisting, setPersisting] = useState(false);
+  const busy = Boolean(loading || persisting);
 
   /* =========================
      ✅ Encadear (chain locks)
@@ -805,9 +895,10 @@ export function GanttTab({
       (acc, v) => acc + Number(v || 0),
       0
     );
-    // 7 colunas -> 6 gaps (gap-2 = 8px) = 48px
+
+    // 8 colunas -> 7 gaps (gap-2 = 8px) = 56px
     // px-3 (12px) em cada lado = 24px
-    return `${sum + 48 + 24}px`;
+    return `${sum + 56 + 24}px`;
   }, [colWidths]);
 
   /* =========================
@@ -1128,6 +1219,30 @@ export function GanttTab({
     [persisting, chainSet, nextById, taskById, onPersistDateChange]
   );
 
+  const handleDurationChange = useCallback(
+    async (task, days) => {
+      if (!task || task.type !== "task" || task.isDisabled) return false;
+
+      const d = Math.max(1, parseInt(String(days || 1), 10) || 1);
+
+      // ✅ usa o start "original" (fonte confiável)
+      const baseOriginal = taskById.get(String(task.id || "")) || task;
+
+      const start = safeDate(baseOriginal.start) || safeDate(task.start);
+      if (!start) return false;
+
+      const nextEnd = addDays(start, d);
+
+      return await handleDateChange({
+        ...baseOriginal,
+        ...task,
+        start,
+        end: nextEnd, // ✅ só muda o end
+      });
+    },
+    [handleDateChange, taskById]
+  );
+
   const handleClick = useCallback(
     (task) => {
       if (persisting) return;
@@ -1193,6 +1308,8 @@ export function GanttTab({
       chainSet,
       lockedSet,
       onToggleChain: toggleChain,
+      onChangeDuration: handleDurationChange,
+      busy,
     });
   }, [
     onOpenDetails,
@@ -1201,9 +1318,9 @@ export function GanttTab({
     chainSet,
     lockedSet,
     toggleChain,
+    handleDurationChange,
+    busy,
   ]);
-
-  const busy = Boolean(loading || persisting);
 
   return (
     <div className="grid gap-3">

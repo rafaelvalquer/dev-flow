@@ -270,6 +270,10 @@ function userName(u) {
   return u?.displayName || u?.name || u?.emailAddress || "";
 }
 
+function getTicketStatusName(t) {
+  return t?.statusName || t?.fields?.status?.name || t?.status?.name || "";
+}
+
 /* =========================
    COMPONENT
 ========================= */
@@ -1287,26 +1291,47 @@ function TicketDashboardPage({
     const merged = [...(rows || [])];
     const byKey = new Map();
     merged.forEach((t) => byKey.set(t.key, t));
+
     (alertas || []).forEach((t) =>
       byKey.set(t.key, { ...byKey.get(t.key), ...t })
     );
+
     (missingSchedule || []).forEach((t) =>
       byKey.set(t.key, { ...byKey.get(t.key), ...t })
     );
-    return Array.from(byKey.values());
+
+    return Array.from(byKey.values()).map((t) => ({
+      ...t,
+      statusName: getTicketStatusName(t) || t?.statusName || "—",
+    }));
   }, [rows, alertas, missingSchedule]);
 
   const statusCounts = useMemo(() => {
     const m = new Map();
+
     for (const t of allRows) {
-      const s = t?.statusName || "—";
+      const s = getTicketStatusName(t) || "—";
       m.set(s, (m.get(s) || 0) + 1);
     }
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+
+    // ✅ garante que "EM PLANEJAMENTO" apareça no topo (se existir)
+    const pinned = ["EM PLANEJAMENTO"];
+    const pinnedEntries = pinned
+      .map((k) => [k, m.get(k) || 0])
+      .filter(([, n]) => n > 0);
+
+    const rest = Array.from(m.entries())
+      .filter(([k]) => !pinned.includes(k))
+      .sort((a, b) => b[1] - a[1]);
+
+    return [...pinnedEntries, ...rest];
   }, [allRows]);
 
   const allStatuses = useMemo(() => {
-    const set = new Set(allRows.map((t) => t?.statusName).filter(Boolean));
+    const set = new Set(
+      allRows.map((t) => getTicketStatusName(t)).filter(Boolean)
+    );
+
     return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
   }, [allRows]);
 
@@ -1332,8 +1357,11 @@ function TicketDashboardPage({
       return hay.includes(q);
     };
 
-    const passStatus = (t) =>
-      !selectedStatuses.length || selectedStatuses.includes(t.statusName);
+    const passStatus = (t) => {
+      if (!selectedStatuses.length) return true;
+      const st = getTicketStatusName(t) || "—";
+      return selectedStatuses.includes(st);
+    };
 
     const assigneeNorm = (t) =>
       t?.assignee && t.assignee !== "—" ? t.assignee : "Sem responsável";
@@ -1375,11 +1403,22 @@ function TicketDashboardPage({
 
   const andamentoRows = useMemo(() => {
     const alertSet = new Set((alertas || []).map((t) => t.key));
+
+    // ✅ Lista/regex de status que entram em "Em andamento"
+    const andamentoRe =
+      /(EM PLANEJAMENTO|PLANEJAMENTO|PARA DEV|DESENV|PARA HOMOLOG|HOMOLOG|PARA DEPLOY)/i;
+
     return filtered.filter((t) => {
-      const s = String(t?.statusName || "").toUpperCase();
       if (alertSet.has(t.key)) return false;
-      if (/(DONE|CONCLU|RESOLV|CLOSED)/i.test(s)) return false;
-      return true;
+
+      const status = getTicketStatusName(t);
+      const s = String(status || "").toUpperCase();
+
+      // tira concluídos
+      if (/(DONE|CONCLU|RESOLV|CLOSED|FECHAD)/i.test(s)) return false;
+
+      // ✅ aqui entra EM PLANEJAMENTO
+      return andamentoRe.test(s);
     });
   }, [filtered, alertas]);
 
@@ -1503,7 +1542,7 @@ function TicketDashboardPage({
                 dashTab === "alertas"
                   ? "Atenção: itens em PRE SAVE ainda não iniciados."
                   : dashTab === "andamento"
-                  ? "Fluxo do PO: Para Dev → Desenvolvimento → Homolog → Deploy."
+                  ? "Fluxo do PO: Em Planejamento → Para Dev → Desenvolvimento → Homolog → Deploy."
                   : "Visão completa com busca, filtros e ordenação."
               }
               rows={sectionRows}
@@ -1773,7 +1812,7 @@ const TicketCard = memo(function TicketCard({
 }) {
   const key = ticket?.key || "—";
   const summary = ticket?.summary || "—";
-  const status = ticket?.statusName || "—";
+  const status = getTicketStatusName(ticket) || "—";
   const assignee = truncateText(
     ticket?.assignee && ticket.assignee !== "—"
       ? ticket.assignee

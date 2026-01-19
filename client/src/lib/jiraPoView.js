@@ -16,7 +16,7 @@ import {
 } from "../utils/cronograma";
 
 export const PO_JQL_BODY = {
-  jql: 'project = ICON AND status IN ("PRE SAVE", "Para Dev", "Desenvolvimento", "Para Homolog.", "Homolog. Negócio", "Para Deploy") AND updated >= -365d ORDER BY updated DESC',
+  jql: 'project = ICON AND status IN ("PRE SAVE", "EM PLANEJAMENTO", "Para Dev", "Desenvolvimento", "Para Homolog.", "Homolog. Negócio", "Para Deploy") AND updated >= -365d ORDER BY updated DESC',
   maxResults: 100,
   fields: [
     "key",
@@ -68,21 +68,31 @@ export function buildPoView(detailedIssues) {
   const criarCronograma = [];
   const calendarioIssues = [];
 
+  const inProgressStatuses = new Set([
+    "EM PLANEJAMENTO",
+    "Para Dev",
+    "Desenvolvimento",
+    "Para Homolog.",
+    "Homolog. Negócio",
+    "Para Deploy",
+  ]);
+
   for (const it of detailedIssues) {
-    if (it.statusName === "PRE SAVE") {
-      if (!it.hasIniciado) alertas.push(it);
+    const status = String(it.statusName || "").trim();
+
+    // PRE SAVE: se não iniciou, vira alerta e para aqui.
+    // Se iniciou, continua fluxo (não some)
+    if (status === "PRE SAVE" && !it.hasIniciado) {
+      alertas.push(it);
       continue;
     }
 
-    const inProgressStatuses = new Set([
-      "Para Dev",
-      "Desenvolvimento",
-      "Para Homolog.",
-      "Homolog. Negócio",
-      "Para Deploy",
-    ]);
+    // Se for PRE SAVE iniciado, deixa passar como "em andamento"
+    const isInProgress =
+      inProgressStatuses.has(status) ||
+      (status === "PRE SAVE" && it.hasIniciado);
 
-    if (!inProgressStatuses.has(it.statusName)) continue;
+    if (!isInProgress) continue;
 
     if (!it.cronogramaAdf) {
       criarCronograma.push(it);
@@ -91,7 +101,6 @@ export function buildPoView(detailedIssues) {
 
     const atividades = parseCronogramaADF(it.cronogramaAdf);
     if (!atividades || atividades.length === 0) {
-      // campo existe mas vazio/sem tabela válida
       criarCronograma.push(it);
       continue;
     }
@@ -99,7 +108,6 @@ export function buildPoView(detailedIssues) {
     calendarioIssues.push({ ...it, atividades });
   }
 
-  // eventos do calendário
   const now = new Date();
   const events = calendarioIssues.flatMap((i) =>
     toCalendarEvents(i.key, i.atividades, now)
