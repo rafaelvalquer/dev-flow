@@ -323,6 +323,10 @@ export default function AMPanelTab() {
   const [colorMode, setColorMode] = useState("ticket");
   const [calendarFilter, setCalendarFilter] = useState("");
 
+  // trava durante persistência de mudança de datas (drag/resize)
+  const [persisting, setPersisting] = useState(false);
+  const busy = Boolean(loading || persisting);
+
   // ===== NOVO: Cores estáveis para FullCalendar
   const CALENDAR_PALETTE = [
     "#2563EB",
@@ -415,7 +419,7 @@ export default function AMPanelTab() {
     return lum > 0.62 ? "#111827" : "#ffffff"; // zinc-900 / branco
   }
 
-  async function reload() {
+  const reload = useCallback(async () => {
     setLoading(true);
     setErr("");
     try {
@@ -428,11 +432,11 @@ export default function AMPanelTab() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     reload();
-  }, []);
+  }, [reload]);
 
   const filteredAlertas = useMemo(() => viewData.alertas || [], [viewData]);
   const filteredCriarCronograma = useMemo(
@@ -724,9 +728,20 @@ export default function AMPanelTab() {
 
   // drag/resize do calendário → atualiza cronograma no Jira (customfield_14017)
   async function persistEventChange(info) {
+    // evita reentrância (se já estiver atualizando Jira)
+    if (busy) {
+      info.revert();
+      return;
+    }
+
     const issueKey = info.event.extendedProps?.issueKey;
     const activityId = info.event.extendedProps?.activityId;
-    if (!issueKey || !activityId) return;
+    if (!issueKey || !activityId) {
+      info.revert();
+      return;
+    }
+
+    setPersisting(true);
 
     const prev = viewData.calendarioIssues.map((x) => ({
       key: x.key,
@@ -744,6 +759,7 @@ export default function AMPanelTab() {
       return { ...iss, atividades: nextAtividades };
     });
 
+    // otimista
     setViewData((v) => ({ ...v, calendarioIssues: nextCalendarioIssues }));
 
     try {
@@ -751,11 +767,10 @@ export default function AMPanelTab() {
       const adf = buildCronogramaADF(issue.atividades);
 
       await jiraEditIssue(issueKey, {
-        fields: {
-          customfield_14017: adf,
-        },
+        fields: { customfield_14017: adf },
       });
 
+      // mantém travado até terminar reload (porque o reload ainda vai bater no Jira)
       await reload();
     } catch (e) {
       console.error(e);
@@ -771,6 +786,8 @@ export default function AMPanelTab() {
         });
         return { ...v, calendarioIssues: restored };
       });
+    } finally {
+      setPersisting(false);
     }
   }
 
@@ -820,9 +837,8 @@ export default function AMPanelTab() {
 
       // snapshot p/ rollback
       const prevSnapshot = (viewData.calendarioIssues || []).map((x) => ({
-        key: x.key,
-        atividades: (x.atividades || []).map((a) => ({ ...a })),
         ...x,
+        atividades: (x.atividades || []).map((a) => ({ ...a })),
       }));
 
       // monta nextCalendarioIssues (em memória)
@@ -859,9 +875,10 @@ export default function AMPanelTab() {
       setViewData((prev) => {
         const nextEvents = (prev?.events || []).map((ev) => {
           const p = ev?.extendedProps || {};
-          const issueKey = String(p.issueKey || ev.issueKey || "")
+          const issueKey = String(p.issueKey || ev?.issueKey || "")
             .trim()
             .toUpperCase();
+
           const activityId = String(p.activityId || "").trim();
 
           const found = valid.find(
@@ -1161,29 +1178,43 @@ export default function AMPanelTab() {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <FullCalendar
-                    plugins={[dayGridPlugin, interactionPlugin]}
-                    initialView="dayGridMonth"
-                    height="auto"
-                    editable
-                    selectable={false}
-                    eventStartEditable
-                    eventDurationEditable
-                    events={filteredEvents}
-                    eventDrop={persistEventChange}
-                    eventResize={persistEventChange}
-                    firstDay={1} // semana começando na segunda (opcional)
-                    headerToolbar={{
-                      left: "prev,next today",
-                      center: "title",
-                      right: "dayGridMonth,dayGridWeek", // ✅ Mês e Semana
-                    }}
-                    buttonText={{
-                      today: "Hoje",
-                      month: "Mês",
-                      week: "Semana",
-                    }}
-                  />
+                  <div className="relative">
+                    <FullCalendar
+                      plugins={[dayGridPlugin, interactionPlugin]}
+                      initialView="dayGridMonth"
+                      height="auto"
+                      // 🔒 trava edição enquanto busy
+                      editable={!busy}
+                      eventStartEditable={!busy}
+                      eventDurationEditable={!busy}
+                      eventAllow={() => !busy}
+                      selectable={false}
+                      events={filteredEvents}
+                      eventDrop={persistEventChange}
+                      eventResize={persistEventChange}
+                      firstDay={1}
+                      headerToolbar={{
+                        left: "prev,next today",
+                        center: "title",
+                        right: "dayGridMonth,dayGridWeek",
+                      }}
+                      buttonText={{
+                        today: "Hoje",
+                        month: "Mês",
+                        week: "Semana",
+                      }}
+                    />
+
+                    {/* ✅ Overlay que bloqueia clique/drag/resize e mostra loader */}
+                    {busy && (
+                      <div className="absolute inset-0 z-10 grid place-items-center bg-white/60 backdrop-blur-[1px]">
+                        <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 shadow-sm">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Atualizando Jira...
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-3 text-xs text-zinc-600">
@@ -2381,8 +2412,6 @@ function StartTicketModal({
   onStart,
 }) {
   const f = issue?.fields || {};
-  console.log(issue);
-
   const subtasks = Array.isArray(f?.subtasks) ? f.subtasks : [];
   const components = (f?.components || []).map((c) => c?.name).filter(Boolean);
   const diretorias = toNamesArray(f?.customfield_11520);
@@ -2895,9 +2924,9 @@ function CronogramaEditorModal({
   dueDateDraft,
   setDueDateDraft,
 }) {
-  if (!issue) return null;
-
   const [saveAttempted, setSaveAttempted] = useState(false);
+
+  if (!issue) return null;
 
   function fmtDateBrFull(d) {
     if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return "—";

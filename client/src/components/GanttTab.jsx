@@ -207,8 +207,7 @@ function buildLegendItems(tasks, colorMode) {
       key = t.recurso || "Sem recurso";
       label = key;
     } else if (colorMode === "atividade") {
-      key = t.activityId || getActivityIdFromTaskId(t.id) || t.name;
-      label = ATIVIDADE_LABEL_BY_ID[key] || t.name || key;
+      colorKey = t.activityId || groupAtividadeName(t.name);
     } else {
       key = t.issueKey || "—";
       label = key;
@@ -901,6 +900,8 @@ export function GanttTab({
     return `${sum + 56 + 24}px`;
   }, [colWidths]);
 
+  const ganttWrapRef = useRef(null);
+
   /* =========================
      RESIZE (controlado no PAI)
   ========================= */
@@ -1074,6 +1075,70 @@ export function GanttTab({
       return { ...t, isDisabled: true };
     });
   }, [safeTasks, lockedSet]);
+
+  // ✅ Day header: mostrar só "10 11 12" (remove "sex", "sab", "dom")
+  useEffect(() => {
+    if (viewMode !== ViewMode.Day && viewMode !== ViewMode.Week) return;
+
+    const root = ganttWrapRef.current;
+    if (!root) return;
+
+    let rafId = null;
+
+    // ⚠️ sem \b pra pegar "12Ter." e "12Ter.,"
+    const WEEKDAY_RE =
+      /(seg|ter|qua|qui|sex|sab|sáb|dom|mon|tue|wed|thu|fri|sat|sun)/i;
+
+    const fixLabels = () => {
+      rafId = null;
+
+      // tenta classes da lib; se não achar, varre todos os <text> do svg
+      const preferred = root.querySelectorAll(
+        ".calendarBottomText, .calendarBottomTextSmall, [class*='calendarBottomText']"
+      );
+
+      const nodes = preferred.length
+        ? preferred
+        : root.querySelectorAll("svg text");
+
+      nodes.forEach((el) => {
+        const txt = String(el.textContent || "").trim();
+        if (!txt) return;
+
+        // ignora ano "2026"
+        if (/\d{4}/.test(txt)) return;
+
+        // só mexe se tiver dia da semana junto
+        if (!WEEKDAY_RE.test(txt)) return;
+
+        // pega o PRIMEIRO número mesmo grudado: "12Ter." => "12"
+        const m = txt.match(/(\d{1,2})/);
+        if (!m) return;
+
+        el.textContent = m[1];
+      });
+    };
+
+    const schedule = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(fixLabels);
+    };
+
+    // roda algumas vezes no começo (a lib pinta em etapas)
+    schedule();
+    const t1 = setTimeout(fixLabels, 50);
+    const t2 = setTimeout(fixLabels, 150);
+
+    const obs = new MutationObserver(schedule);
+    obs.observe(root, { subtree: true, childList: true, characterData: true });
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      obs.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, [viewMode]);
 
   const legendItems = useMemo(
     () => buildLegendItems(safeTasks, colorMode),
@@ -1544,7 +1609,7 @@ export function GanttTab({
             </div>
 
             <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
-              <div className="w-full overflow-auto">
+              <div ref={ganttWrapRef} className="w-full overflow-auto">
                 {safeTasks.length > 0 ? (
                   <Gantt
                     tasks={ganttTasks}
