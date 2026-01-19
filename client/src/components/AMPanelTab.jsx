@@ -294,6 +294,7 @@ export default function AMPanelTab() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorIssue, setEditorIssue] = useState(null);
   const [draft, setDraft] = useState([]);
+  const [dueDateDraft, setDueDateDraft] = useState(""); // yyyy-mm-dd
 
   // modal "Iniciar ticket"
   const [startOpen, setStartOpen] = useState(false);
@@ -585,6 +586,9 @@ export default function AMPanelTab() {
   function openEditor(issue) {
     setEditorIssue(issue);
     setDraft(makeDefaultCronogramaDraft());
+    setDueDateDraft(
+      String(issue?.dueDateRaw || issue?.fields?.duedate || "").slice(0, 10)
+    );
     setEditorOpen(true);
   }
 
@@ -592,6 +596,7 @@ export default function AMPanelTab() {
     setEditorOpen(false);
     setEditorIssue(null);
     setDraft([]);
+    setDueDateDraft("");
   }
 
   async function saveEditor() {
@@ -599,7 +604,9 @@ export default function AMPanelTab() {
     setLoading(true);
     setErr("");
     try {
-      await saveCronogramaToJira(editorIssue.key, draft);
+      await saveCronogramaToJira(editorIssue.key, draft, {
+        dueDate: dueDateDraft,
+      });
       closeEditor();
       await reload();
       setSubView("calendario");
@@ -1220,6 +1227,8 @@ export default function AMPanelTab() {
               onClose={closeEditor}
               onSave={saveEditor}
               loading={loading}
+              dueDateDraft={dueDateDraft}
+              setDueDateDraft={setDueDateDraft}
             />
           )}
 
@@ -2883,8 +2892,85 @@ function CronogramaEditorModal({
   onClose,
   onSave,
   loading,
+  dueDateDraft,
+  setDueDateDraft,
 }) {
   if (!issue) return null;
+
+  const [saveAttempted, setSaveAttempted] = useState(false);
+
+  function fmtDateBrFull(d) {
+    if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return "—";
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(d);
+  }
+
+  function parseIsoDateLocal(iso) {
+    const s = String(iso || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    const d = new Date(`${s}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function parseBrDayMonthToDate(ddmm, year) {
+    const m = String(ddmm || "").match(/^(\d{2})\/(\d{2})$/);
+    if (!m) return null;
+    const day = Number(m[1]);
+    const mon = Number(m[2]);
+    const d = new Date(year, mon - 1, day, 0, 0, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function getAtividadeImplantacaoEndDate(draftList, refYear) {
+    const list = Array.isArray(draftList) ? draftList : [];
+    const impl =
+      list.find((a) => String(a?.id || "").toLowerCase() === "deploy") ||
+      list.find((a) => /implant/i.test(String(a?.name || "")));
+
+    if (!impl) return null;
+
+    const raw = String(impl?.data || "").trim();
+    if (!raw) return null;
+
+    const m = raw.match(/(\d{2}\/\d{2})(?:\s*a\s*(\d{2}\/\d{2}))?/i);
+    if (!m) return null;
+
+    const startDDMM = m[1];
+    const endDDMM = m[2] || m[1];
+
+    const start = parseBrDayMonthToDate(startDDMM, refYear);
+    let end = parseBrDayMonthToDate(endDDMM, refYear);
+
+    if (!start || !end) return null;
+
+    // se o intervalo virou "ao contrário", assume virada de ano
+    if (end.getTime() < start.getTime()) {
+      end = new Date(end);
+      end.setFullYear(end.getFullYear() + 1);
+    }
+
+    return end; // inclusive
+  }
+
+  const dueDateObj = useMemo(
+    () => parseIsoDateLocal(dueDateDraft),
+    [dueDateDraft]
+  );
+
+  const implantEndDate = useMemo(() => {
+    const baseYear = dueDateObj?.getFullYear?.() || new Date().getFullYear();
+    return getAtividadeImplantacaoEndDate(draft, baseYear);
+  }, [draft, dueDateObj]);
+
+  const missingDueDate = !String(dueDateDraft || "").trim();
+
+  const dueBeforeImplant =
+    !!dueDateObj &&
+    !!implantEndDate &&
+    dueDateObj.getTime() < implantEndDate.getTime();
 
   function setCell(idx, key, value) {
     setDraft((prev) => {
@@ -2953,6 +3039,55 @@ function CronogramaEditorModal({
             <code className="rounded bg-zinc-100 px-1">DD/MM a DD/MM</code>.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Data limite */}
+        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Data limite</CardTitle>
+            <CardDescription className="text-xs">
+              Campo vem do Jira (
+              <code className="rounded bg-zinc-100 px-1">fields.duedate</code>)
+              e pode ser ajustado aqui.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="grid gap-2">
+            <div className="grid gap-1">
+              <div className="text-xs font-semibold text-zinc-700">
+                Data limite
+              </div>
+
+              <Input
+                type="date"
+                value={dueDateDraft || ""}
+                onChange={(e) => {
+                  setDueDateDraft(e.target.value);
+                  setSaveAttempted(false);
+                }}
+                disabled={loading}
+                className={cn(
+                  "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
+                  saveAttempted && missingDueDate && "border-red-300"
+                )}
+              />
+
+              {/* alerta: sem data limite */}
+              {saveAttempted && missingDueDate && (
+                <div className="mt-1 rounded-xl border border-red-200 bg-red-50 p-2 text-xs font-semibold text-red-700">
+                  ⚠️ A data limite não foi preenchida.
+                </div>
+              )}
+
+              {/* alerta: data limite menor que implantação */}
+              {!missingDueDate && dueBeforeImplant && (
+                <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
+                  ⚠️ A data limite ({fmtDateBr(dueDateDraft)}) é menor que a
+                  Implantação ({fmtDateBrFull(implantEndDate)}).
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4">
           {/* Seção: Atividades */}
@@ -3090,7 +3225,11 @@ function CronogramaEditorModal({
           <Button
             type="button"
             className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-            onClick={onSave}
+            onClick={() => {
+              setSaveAttempted(true);
+              if (!String(dueDateDraft || "").trim()) return; // bloqueia sem data limite
+              onSave?.();
+            }}
             disabled={loading}
           >
             {loading ? "Salvando..." : "Salvar no Jira"}

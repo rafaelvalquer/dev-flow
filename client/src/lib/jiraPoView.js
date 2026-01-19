@@ -31,7 +31,7 @@ export const PO_JQL_BODY = {
 
 // campos necessários no detalhe
 const ISSUE_FIELDS =
-  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017";
+  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate";
 
 export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
   const baseIssues = await jiraSearchJqlAll(PO_JQL_BODY);
@@ -57,6 +57,7 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       parentKey: issue?.fields?.parent?.key || "",
       hasIniciado,
       cronogramaAdf,
+      dueDateRaw: issue?.fields?.duedate || "",
     };
   });
 
@@ -126,11 +127,15 @@ export function makeDefaultCronogramaDraft() {
   }));
 }
 
-export async function saveCronogramaToJira(issueKey, atividades) {
+export async function saveCronogramaToJira(issueKey, atividades, opts = {}) {
   const adf = buildCronogramaADF(atividades);
+
+  const dueDate = String(opts?.dueDate || "").trim();
+
   await jiraEditIssue(issueKey, {
     fields: {
       customfield_14017: adf,
+      ...(opts?.dueDate !== undefined ? { duedate: dueDate || null } : {}),
     },
   });
   return adf;
