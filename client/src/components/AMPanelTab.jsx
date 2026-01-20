@@ -2125,6 +2125,8 @@ function StartTicketModal({
   const [ownerLoading, setOwnerLoading] = useState(false);
   const [ownerErr, setOwnerErr] = useState("");
 
+  const [ownerTouched, setOwnerTouched] = useState(false);
+
   // normaliza usuário do Jira
   function mapJiraUser(u) {
     if (!u) return null;
@@ -2156,13 +2158,24 @@ function StartTicketModal({
 
   // inicializa com assignee atual ao abrir ticket
   useEffect(() => {
-    const a = f?.assignee ? mapJiraUser(f.assignee) : null;
-    setOwnerSelected(a?.accountId ? a : null);
+    // reset ao abrir outro ticket
+    setOwnerOpen(false);
     setOwnerQuery("");
     setOwnerOptions([]);
     setOwnerErr("");
+    setOwnerSelected(null);
+    setOwnerTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [issueKey]);
+
+  useEffect(() => {
+    // só sincroniza automático se o usuário ainda não mexeu no campo
+    if (!issue || ownerTouched) return;
+
+    const a = f?.assignee ? mapJiraUser(f.assignee) : null;
+    setOwnerSelected(a?.accountId ? a : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [issue?.fields?.assignee?.accountId, issueKey, ownerTouched]);
 
   // busca usuários (somente quando popover está aberto)
   useEffect(() => {
@@ -2227,7 +2240,7 @@ function StartTicketModal({
       return (
         <span className="inline-flex items-center gap-2 text-zinc-700">
           <UserX className="h-4 w-4 text-zinc-500" />
-          <span className="truncate">Sem proprietário</span>
+          <span className="truncate">Sem responsável</span>
         </span>
       );
     }
@@ -2338,7 +2351,7 @@ function StartTicketModal({
           {/* Microcopy do owner changed */}
           {issue && ownerChanged && (
             <div className="mt-2 text-xs text-amber-700">
-              Proprietário será atualizado ao salvar.
+              Responsável será atualizado ao salvar.
             </div>
           )}
         </div>
@@ -2349,15 +2362,9 @@ function StartTicketModal({
             <InfoRow label="Projeto" value={f?.project?.name || "—"} />
             <InfoRow label="Prioridade" value={f?.priority?.name || "—"} />
 
-            {/* Responsável atual (Jira) */}
-            <InfoRow
-              label="Responsável (atual)"
-              value={userName(f?.assignee)}
-            />
-
-            {/* NOVO: Proprietário (Assignee) */}
+            {/* Responsável (Assignee) - editável */}
             <div className="grid grid-cols-[160px_1fr] gap-3 py-1">
-              <div className="text-xs text-zinc-500">Proprietário</div>
+              <div className="text-xs text-zinc-500">Responsável</div>
 
               <div className="grid gap-1">
                 <Popover open={ownerOpen} onOpenChange={setOwnerOpen}>
@@ -2390,7 +2397,7 @@ function StartTicketModal({
                       <CommandInput
                         value={ownerQuery}
                         onValueChange={setOwnerQuery}
-                        placeholder="Buscar usuário no Jira... (mín. 2 letras)"
+                        placeholder="Buscar responsável no Jira... (mín. 2 letras)"
                       />
 
                       <CommandList className="max-h-[260px]">
@@ -2403,11 +2410,12 @@ function StartTicketModal({
                         </CommandEmpty>
 
                         <CommandGroup heading="Opções">
-                          {/* Sem proprietário */}
+                          {/* Sem responsável */}
                           <CommandItem
                             value="__none__"
                             onSelect={() => {
                               setOwnerSelected(null);
+                              setOwnerTouched(true);
                               setOwnerOpen(false);
                             }}
                             className="rounded-xl"
@@ -2415,7 +2423,7 @@ function StartTicketModal({
                             <span className="flex items-center gap-2">
                               <UserX className="h-4 w-4 text-zinc-500" />
                               <span className="text-sm font-medium text-zinc-800">
-                                Sem proprietário
+                                Sem responsável
                               </span>
                             </span>
 
@@ -2435,6 +2443,7 @@ function StartTicketModal({
                                 value={u.displayName}
                                 onSelect={() => {
                                   setOwnerSelected(u);
+                                  setOwnerTouched(true);
                                   setOwnerOpen(false);
                                 }}
                                 className="rounded-xl"
@@ -2746,19 +2755,10 @@ function CronogramaEditorModal({
         <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Data limite</CardTitle>
-            <CardDescription className="text-xs">
-              Campo vem do Jira (
-              <code className="rounded bg-zinc-100 px-1">fields.duedate</code>)
-              e pode ser ajustado aqui.
-            </CardDescription>
           </CardHeader>
 
           <CardContent className="grid gap-2">
             <div className="grid gap-1">
-              <div className="text-xs font-semibold text-zinc-700">
-                Data limite
-              </div>
-
               <Input
                 type="date"
                 value={dueDateDraft || ""}
