@@ -274,6 +274,59 @@ function getTicketStatusName(t) {
   return t?.statusName || t?.fields?.status?.name || t?.status?.name || "";
 }
 
+function ticketHasIniciadoTag(ticket) {
+  if (!ticket) return false;
+
+  // 1) Flags diretas (caso você já tenha isso vindo do buildPoView/fetchPoIssuesDetailed)
+  if (
+    ticket?.started === true ||
+    ticket?.isStarted === true ||
+    ticket?.hasStarted === true ||
+    ticket?.hasIniciado === true ||
+    ticket?.hasIniciadoTag === true
+  ) {
+    return true;
+  }
+
+  // 2) Campos string mais comuns (caso você tenha "preview" de comentário)
+  const candidates = [
+    ticket?.commentsText,
+    ticket?.lastCommentText,
+    ticket?.commentText,
+    ticket?.startedText,
+    ticket?.iniciadoText,
+  ];
+
+  for (const s of candidates) {
+    if (typeof s === "string" && /\[INICIADO\]/i.test(s)) return true;
+  }
+
+  // 3) Jira "fields.comment" (quando vem na busca)
+  const commentField = ticket?.fields?.comment || ticket?.comment;
+
+  // Pode vir como string (já convertido)...
+  if (typeof commentField === "string") {
+    if (/\[INICIADO\]/i.test(commentField)) return true;
+  }
+
+  // ...ou como objeto { comments: [...] }
+  const jiraComments = commentField?.comments;
+  if (Array.isArray(jiraComments)) {
+    return jiraComments.some((c) =>
+      /\[INICIADO\]/i.test(safeText(c?.body ?? c))
+    );
+  }
+
+  // 4) Array direto "ticket.comments" (se você tiver isso no dataset)
+  if (Array.isArray(ticket?.comments)) {
+    return ticket.comments.some((c) =>
+      /\[INICIADO\]/i.test(safeText(c?.body ?? c))
+    );
+  }
+
+  return false;
+}
+
 /* =========================
    COMPONENT
 ========================= */
@@ -1868,6 +1921,8 @@ const TicketCard = memo(function TicketCard({
 
   const updatedRaw = ticket?.updatedRaw || ticket?.updated;
 
+  const started = ticketHasIniciadoTag(ticket);
+
   const created = fmtUpdatedBR(createdRaw);
   const updated = fmtUpdatedBR(updatedRaw);
 
@@ -1975,20 +2030,25 @@ const TicketCard = memo(function TicketCard({
 
           {/* Botões de Ação - Layout Estável */}
           <div className="grid grid-cols-2 gap-2 mt-auto">
-            <Button
-              size="sm"
-              onClick={onStart}
-              className="rounded-lg bg-red-600 font-medium text-white hover:bg-red-700 transition-colors"
-            >
-              <Play className="mr-1.5 h-3.5 w-3.5 fill-current" />
-              Iniciar
-            </Button>
+            {!started && (
+              <Button
+                size="sm"
+                onClick={onStart}
+                className="rounded-lg bg-red-600 font-medium text-white hover:bg-red-700 transition-colors"
+              >
+                <Play className="mr-1.5 h-3.5 w-3.5 fill-current" />
+                Iniciar
+              </Button>
+            )}
 
             <Button
               size="sm"
               variant="outline"
               onClick={onDetails}
-              className="rounded-lg border-zinc-200 text-zinc-700 hover:bg-zinc-50"
+              className={cn(
+                "rounded-lg border-zinc-200 text-zinc-700 hover:bg-zinc-50",
+                started && "col-span-2" // ✅ se já iniciou, Detalhes ocupa a linha toda
+              )}
             >
               Detalhes
             </Button>
