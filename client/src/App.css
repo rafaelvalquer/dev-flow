@@ -1499,3 +1499,17 @@ button {
     @apply bg-background text-foreground;
   }
 }
+.fc .fc-day-sat,
+.fc .fc-day-sun {
+  background: #fff7ed;
+}
+
+.fc .fc-col-header-cell.fc-day-sat,
+.fc .fc-col-header-cell.fc-day-sun {
+  background: #ffedd5;
+}
+
+.fc .fc-day-sat .fc-daygrid-day-number,
+.fc .fc-day-sun .fc-daygrid-day-number {
+  font-weight: 700;
+}

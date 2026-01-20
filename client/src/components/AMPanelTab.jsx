@@ -99,7 +99,7 @@ import { adfSafeToText } from "../utils/gmudUtils";
 import GanttTab from "./GanttTab";
 
 /* =========================
-   HELPERS
+   // #region HELPERS
 ========================= */
 function cn(...a) {
   return a.filter(Boolean).join(" ");
@@ -325,8 +325,64 @@ function ticketHasIniciadoTag(ticket) {
   return false;
 }
 
+function extractYmd(v) {
+  if (!v) return "";
+
+  // string (date ou datetime)
+  if (typeof v === "string") {
+    const ymd = v.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
+  }
+
+  // Date nativo
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    const y = v.getFullYear();
+    const m = String(v.getMonth() + 1).padStart(2, "0");
+    const d = String(v.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  // objetos (alguns plugins do Jira retornam formatos diferentes)
+  if (typeof v === "object") {
+    const candidate =
+      v?.value ||
+      v?.date ||
+      v?.start ||
+      v?.end ||
+      v?.startDate ||
+      v?.endDate ||
+      v?.from ||
+      v?.to ||
+      "";
+
+    const ymd = String(candidate).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
+  }
+
+  const ymd = String(v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
+}
+
+function parseIsoYmdLocal(ymd) {
+  const s = String(ymd || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(y, m - 1, d, 0, 0, 0, 0); // LOCAL (não UTC)
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function startOfTodayLocal() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+}
+
+function diffDays(a, b) {
+  // a - b em dias inteiros
+  return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 /* =========================
-   COMPONENT
+   //#region COMPONENT
 ========================= */
 export default function AMPanelTab() {
   const [subView, setSubView] = useState("alertas"); // alertas | calendario | gant
@@ -1454,6 +1510,33 @@ function TicketSection({
   onOpenSchedule,
   emptyText,
 }) {
+  const overdueCount = useMemo(() => {
+    const today0 = startOfTodayLocal();
+
+    return (rows || []).filter((t) => {
+      // (opcional) não contar concluídos
+      const status = String(getTicketStatusName(t) || "").toUpperCase();
+      if (/(DONE|CONCLU|RESOLV|CLOSED|FECHAD)/i.test(status)) return false;
+
+      // ✅ mesma regra do card: alt > base
+      const dueAltYmd = extractYmd(
+        t?.fields?.customfield_11519 || t?.customfield_11519
+      );
+
+      const dueBaseYmd = extractYmd(
+        t?.dueDateRaw || t?.fields?.duedate || t?.duedate
+      );
+
+      const dueAltDate = parseIsoYmdLocal(dueAltYmd);
+      const dueBaseDate = parseIsoYmdLocal(dueBaseYmd);
+
+      const effectiveDueDate = dueAltDate || dueBaseDate;
+
+      return (
+        !!effectiveDueDate && effectiveDueDate.getTime() < today0.getTime()
+      );
+    }).length;
+  }, [rows]);
   return (
     <div className="grid gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -1462,19 +1545,29 @@ function TicketSection({
           <p className="text-sm text-zinc-600">{subtitle}</p>
         </div>
 
-        {/* Ação contextual: mostrar “pendentes de cronograma” */}
-        {onOpenSchedule && missingScheduleSet?.size ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
-                {missingScheduleSet.size} sem cronograma
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              Tickets em andamento com customfield_14017 vazio
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* Badge: sem cronograma */}
+          {onOpenSchedule && missingScheduleSet?.size ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                  {missingScheduleSet.size} sem cronograma
+                </Badge>
+              </TooltipTrigger>
+            </Tooltip>
+          ) : null}
+
+          {/* Badge: data limite estourada (customfield_11519 > duedate) */}
+          {overdueCount ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
+                  {overdueCount} estourados
+                </Badge>
+              </TooltipTrigger>
+            </Tooltip>
+          ) : null}
+        </div>
       </div>
 
       {/* Grid de cards */}
@@ -1525,6 +1618,8 @@ const TicketCard = memo(function TicketCard({
       : "Sem responsável"
   );
 
+  console.log(ticket);
+
   // ✅ created vem do retorno da API: fields.created
   const createdRaw =
     ticket?.createdRaw ||
@@ -1559,6 +1654,36 @@ const TicketCard = memo(function TicketCard({
   }
 
   const age = calcAgeDays(createdRaw);
+
+  const f = ticket?.fields || {};
+
+  const dueBaseYmd = extractYmd(
+    ticket?.dueDateRaw || ticket?.fields?.duedate || ticket?.duedate
+  );
+
+  const dueAltYmd = extractYmd(
+    ticket?.fields?.customfield_11519 || ticket?.customfield_11519
+  );
+
+  // ✅ só considera alt se parsear mesmo
+  const dueAltDate = parseIsoYmdLocal(dueAltYmd);
+  const dueBaseDate = parseIsoYmdLocal(dueBaseYmd);
+
+  const hasDueAlt = Boolean(dueAltDate);
+
+  // ✅ efetiva = alterada se válida, senão original
+  const effectiveDueDate = dueAltDate || dueBaseDate;
+  const effectiveDueYmd = dueAltDate ? dueAltYmd : dueBaseYmd;
+
+  // comparação com "hoje" (início do dia)
+  const today0 = startOfTodayLocal();
+
+  const isDueOverdue =
+    !!effectiveDueDate && effectiveDueDate.getTime() < today0.getTime();
+
+  const daysLate = isDueOverdue
+    ? Math.max(1, diffDays(today0, effectiveDueDate))
+    : 0;
 
   return (
     <motion.div
@@ -1597,12 +1722,52 @@ const TicketCard = memo(function TicketCard({
                   <TooltipContent
                     side="top"
                     align="center"
-                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 shadow-sm"
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm"
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full bg-amber-500" />
-                      Sem cronograma
-                    </span>
+                    <div className="grid gap-1.5">
+                      {/* Linha principal */}
+                      <div className="inline-flex items-center gap-2 font-semibold">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        Sem cronograma
+                      </div>
+
+                      {/* Mostra data limite original/alterada */}
+                      {hasDueAlt ? (
+                        <div className="text-[11px] font-medium text-amber-900">
+                          Data limite alterada:{" "}
+                          <span className="font-semibold">
+                            {fmtDateBr(dueAltYmd) || "—"}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-medium text-amber-900">
+                          Data limite:{" "}
+                          <span className="font-semibold">
+                            {fmtDateBr(dueBaseYmd) || "—"}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Se tiver alterada, pode mostrar a original também (opcional) */}
+                      {hasDueAlt && dueBaseYmd ? (
+                        <div className="text-[10px] text-amber-800/80">
+                          Original: {fmtDateBr(dueBaseYmd)}
+                        </div>
+                      ) : null}
+
+                      {/* Alarme se estourou */}
+                      {isDueOverdue ? (
+                        <div className="mt-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700">
+                          <span className="inline-flex items-center gap-1">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            {hasDueAlt
+                              ? "Data limite alterada estourou"
+                              : "Data limite estourou"}
+                            {daysLate ? ` • ${daysLate}d` : ""}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
                   </TooltipContent>
                 </Tooltip>
               )}

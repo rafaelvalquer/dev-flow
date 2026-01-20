@@ -1,5 +1,5 @@
 // src/components/AMCalendarDashboard.jsx
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import resourceTimelinePlugin from "@fullcalendar/resource-timeline";
 
 /* =========================
-   HELPERS
+   //#region HELPERS
 ========================= */
 function cn(...a) {
   return a.filter(Boolean).join(" ");
@@ -219,7 +219,7 @@ function eventDayKeysInRange(ev, rangeDaySet) {
 }
 
 /* =========================
-   COMPONENT
+   //#region COMPONENT
 ========================= */
 export default memo(function AMCalendarDashboard({
   events,
@@ -792,6 +792,66 @@ export default memo(function AMCalendarDashboard({
     return m;
   }, [workloadDaily.devMeta]);
 
+  const onTimelineEventDidMount = useCallback(
+    (info) => {
+      const p = info?.event?.extendedProps || {};
+      const issueKey = String(p.issueKey || "")
+        .trim()
+        .toUpperCase();
+      if (!issueKey) return;
+
+      const due = dueIndex.get(issueKey);
+      if (!due) return;
+
+      const start = info.event.start;
+      const end = info.event.end;
+      if (!start || !end) return;
+
+      // Timeline/allDay: end é EXCLUSIVO
+      const startMs = startOfDay(start)?.getTime();
+      const endMs = startOfDay(end)?.getTime();
+      if (!startMs || !endMs || endMs <= startMs) return;
+
+      // ✅ O atraso começa NO DIA SEGUINTE ao dueDate (00:00)
+      const cutoff = startOfDay(
+        new Date(due.getFullYear(), due.getMonth(), due.getDate() + 1)
+      );
+      const cutoffMs = cutoff?.getTime();
+      if (!cutoffMs) return;
+
+      // Se o cutoff >= fim do evento, não tem parte atrasada
+      if (cutoffMs >= endMs) return;
+
+      // Cor base do evento
+      const baseColor =
+        info.event.backgroundColor ||
+        ATIVIDADE_COLOR_BY_ID[p.activityId] ||
+        "#64748B";
+
+      const overdueColor = "#DC2626";
+
+      // pct do bloco que fica "normal"
+      const pct = clampNumber(
+        ((cutoffMs - startMs) / (endMs - startMs)) * 100,
+        0,
+        100
+      );
+
+      // Aplica no elemento correto (Scheduler muda a estrutura, então tenta pegar o main)
+      const target =
+        info.el.querySelector(".fc-event-main") ||
+        info.el.querySelector(".fc-event-main-frame") ||
+        info.el;
+
+      target.style.backgroundImage = `linear-gradient(90deg, ${baseColor} 0%, ${baseColor} ${pct}%, ${overdueColor} ${pct}%, ${overdueColor} 100%)`;
+      target.style.backgroundColor = "transparent";
+
+      // borda destacada
+      info.el.style.borderColor = overdueColor;
+    },
+    [dueIndex]
+  );
+
   // =========================
   // UI
   // =========================
@@ -1054,6 +1114,7 @@ export default memo(function AMCalendarDashboard({
                       </div>
                     );
                   }}
+                  eventDidMount={onTimelineEventDidMount}
                 />
               </div>
             )}

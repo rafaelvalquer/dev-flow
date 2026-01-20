@@ -16,6 +16,8 @@ import { Loader2, Search } from "lucide-react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import FullCalendar from "@fullcalendar/react";
+import ptBrLocale from "@fullcalendar/core/locales/pt-br";
+import allLocales from "@fullcalendar/core/locales-all";
 
 import AMCalendarDashboard from "./AMCalendarDashboard";
 
@@ -95,10 +97,20 @@ export default memo(function AMCalendarTab({
   });
 
   const onDatesSet = useCallback((arg) => {
-    // FullCalendar fornece start/end do range visível
-    if (arg?.start && arg?.end) {
-      setVisibleRange({ start: arg.start, end: arg.end });
-    }
+    if (!arg?.start || !arg?.end) return;
+
+    setVisibleRange((prev) => {
+      const prevStart = prev?.start ? prev.start.getTime() : 0;
+      const prevEnd = prev?.end ? prev.end.getTime() : 0;
+
+      const nextStart = arg.start.getTime();
+      const nextEnd = arg.end.getTime();
+
+      // ✅ se não mudou, não atualiza estado (evita loop)
+      if (prevStart === nextStart && prevEnd === nextEnd) return prev;
+
+      return { start: arg.start, end: arg.end };
+    });
   }, []);
 
   // ===== Cores estáveis
@@ -281,6 +293,26 @@ export default memo(function AMCalendarTab({
     return { top, rest };
   }, [colorMaps, colorMode]);
 
+  const fcLocales = useMemo(() => [ptBrLocale], []);
+
+  const fcHeaderToolbar = useMemo(
+    () => ({
+      left: "prev,next today",
+      center: "title",
+      right: "dayGridMonth,dayGridWeek",
+    }),
+    []
+  );
+
+  const fcButtonText = useMemo(
+    () => ({
+      today: "Hoje",
+      month: "Mês",
+      week: "Semana",
+    }),
+    []
+  );
+
   return (
     <TooltipProvider>
       <section className="grid gap-3">
@@ -400,11 +432,14 @@ export default memo(function AMCalendarTab({
                 eventStartEditable={!busy}
                 eventDurationEditable={!busy}
                 eventAllow={() => !busy}
-                selectable={false}
                 events={filteredEvents}
                 eventDrop={onPersistEventChange}
                 eventResize={onPersistEventChange}
-                firstDay={1}
+                // ✅ Começa Domingo
+                firstDay={0}
+                // ✅ Dias/meses em Português
+                locales={allLocales}
+                locale="pt-br"
                 headerToolbar={{
                   left: "prev,next today",
                   center: "title",
@@ -415,8 +450,11 @@ export default memo(function AMCalendarTab({
                   month: "Mês",
                   week: "Semana",
                 }}
-                // ✅ NOVO: Captura range visível para os gráficos abaixo (sem impactar UI)
-                datesSet={onDatesSet}
+                // ✅ Marca fins de semana com uma classe
+                dayCellClassNames={(arg) => {
+                  const d = arg.date.getDay(); // 0 = domingo, 6 = sábado
+                  return d === 0 || d === 6 ? ["fc-weekend"] : [];
+                }}
               />
 
               {busy && (
