@@ -1,5 +1,5 @@
 // src/components/AMCalendarTab.jsx
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useCallback } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,8 @@ import { Loader2, Search } from "lucide-react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import FullCalendar from "@fullcalendar/react";
+
+import AMCalendarDashboard from "./AMCalendarDashboard";
 
 /* =========================
    HELPERS
@@ -84,6 +86,21 @@ export default memo(function AMCalendarTab({
   setCalendarFilter,
   onPersistEventChange,
 }) {
+  // ===== Range visível do FullCalendar (para o dashboard abaixo)
+  const [visibleRange, setVisibleRange] = useState(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return { start, end };
+  });
+
+  const onDatesSet = useCallback((arg) => {
+    // FullCalendar fornece start/end do range visível
+    if (arg?.start && arg?.end) {
+      setVisibleRange({ start: arg.start, end: arg.end });
+    }
+  }, []);
+
   // ===== Cores estáveis
   const CALENDAR_PALETTE = [
     "#2563EB",
@@ -210,7 +227,6 @@ export default memo(function AMCalendarTab({
         const k = String(getColorKeyByMode(ev, mode) || "—");
         if (!maps[mode].has(k)) {
           const fixed = mode === "atividade" ? ATIVIDADE_COLOR_BY_ID[k] : null;
-
           maps[mode].set(k, fixed || pickColor(k));
         }
       }
@@ -399,6 +415,8 @@ export default memo(function AMCalendarTab({
                   month: "Mês",
                   week: "Semana",
                 }}
+                // ✅ NOVO: Captura range visível para os gráficos abaixo (sem impactar UI)
+                datesSet={onDatesSet}
               />
 
               {busy && (
@@ -417,6 +435,20 @@ export default memo(function AMCalendarTab({
             <code className="rounded bg-zinc-100 px-1">customfield_14017</code>{" "}
             no Jira (otimista + revert em erro).
           </div>
+
+          {/* =========================
+              DASHBOARD (abaixo do calendário)
+              NÃO impacta nada acima
+          ========================= */}
+          <AMCalendarDashboard
+            events={filteredEvents}
+            calendarioIssues={
+              Array.isArray(viewData?.calendarioIssues)
+                ? viewData.calendarioIssues
+                : []
+            }
+            visibleRange={visibleRange}
+          />
         </div>
       </section>
     </TooltipProvider>
