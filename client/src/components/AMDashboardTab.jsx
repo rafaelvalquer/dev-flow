@@ -21,6 +21,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import "@fontsource-variable/inter";
+
 import {
   GripVertical,
   Plus,
@@ -1039,169 +1041,180 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
 
   return (
     <TooltipProvider>
-      <div className="grid gap-4">
-        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-sm">
-                  <LayoutDashboard className="h-5 w-5" />
-                </div>
+      <div className="grid gap-4 font-sans antialiased">
+        <div className="rounded-3xl bg-gradient-to-br from-zinc-50 via-white to-blue-50 p-0.5">
+          <Card className="relative overflow-hidden rounded-3xl border-zinc-200/70 bg-white/70 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
+            {/* glow sutil */}
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(59,130,246,0.10),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(168,85,247,0.08),transparent_40%)]" />
 
-                <div className="min-w-0">
-                  <CardTitle className="text-base">
-                    Dashboard de Tickets
-                  </CardTitle>
-                  <div className="mt-1 flex flex-wrap gap-2">
-                    <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
-                      Total: {dashData?.kpis?.total ?? 0}
-                    </Badge>
-                    <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
-                      Atrasados: {dashData?.kpis?.overdueCount ?? 0}
-                    </Badge>
-                    <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
-                      Sem responsável: {dashData?.kpis?.noAssigneeCount ?? 0}
-                    </Badge>
-                    <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
-                      Sem cronograma: {dashData?.kpis?.noScheduleCount ?? 0}
-                    </Badge>
+            <CardHeader className="pb-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/25 ring-1 ring-white/40">
+                    <LayoutDashboard className="h-5 w-5" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <CardTitle className="text-[15px] font-semibold tracking-tight text-zinc-900">
+                      Dashboard de Tickets
+                    </CardTitle>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                        Total: {dashData?.kpis?.total ?? 0}
+                      </Badge>
+                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                        Atrasados: {dashData?.kpis?.overdueCount ?? 0}
+                      </Badge>
+                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                        Sem responsável: {dashData?.kpis?.noAssigneeCount ?? 0}
+                      </Badge>
+                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                        Sem cronograma: {dashData?.kpis?.noScheduleCount ?? 0}
+                      </Badge>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="rounded-xl border-zinc-200 bg-white"
-                      onClick={() => setEditMode((v) => !v)}
-                    >
-                      {editMode ? (
-                        <Unlock className="mr-2 h-4 w-4" />
-                      ) : (
-                        <Lock className="mr-2 h-4 w-4" />
-                      )}
-                      {editMode ? "Edit mode ON" : "Edit mode OFF"}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="rounded-xl">
-                    {editMode
-                      ? "Arraste e redimensione widgets"
-                      : "Bloqueado (sem drag/resize)"}
-                  </TooltipContent>
-                </Tooltip>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                        onClick={() => setEditMode((v) => !v)}
+                      >
+                        {editMode ? (
+                          <Unlock className="mr-2 h-4 w-4" />
+                        ) : (
+                          <Lock className="mr-2 h-4 w-4" />
+                        )}
+                        {editMode ? "Edit mode ON" : "Edit mode OFF"}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="rounded-xl">
+                      {editMode
+                        ? "Arraste e redimensione widgets"
+                        : "Bloqueado (sem drag/resize)"}
+                    </TooltipContent>
+                  </Tooltip>
 
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      className="rounded-xl bg-blue-600 text-white hover:bg-blue-700"
-                      disabled={isBusy}
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Adicionar gráfico
-                    </Button>
-                  </DropdownMenuTrigger>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        className="rounded-xl bg-gradient-to-b from-blue-600 to-blue-700 text-white shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/25 transition-all"
+                        disabled={isBusy}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Adicionar gráfico
+                      </Button>
+                    </DropdownMenuTrigger>
 
-                  <DropdownMenuContent align="end" className="w-72">
-                    <DropdownMenuLabel>Widgets disponíveis</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {METRICS.map((m) => (
+                    <DropdownMenuContent align="end" className="w-72">
+                      <DropdownMenuLabel>Widgets disponíveis</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {METRICS.map((m) => (
+                        <DropdownMenuItem
+                          key={m.metric}
+                          onClick={() => addWidgetByMetric(m.metric)}
+                          className="cursor-pointer"
+                        >
+                          <span className="truncate">{m.title}</span>
+                          <span className="ml-auto text-xs text-zinc-500">
+                            {m.defaultViz ? VIZ_LABEL[m.defaultViz] : ""}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        key={m.metric}
-                        onClick={() => addWidgetByMetric(m.metric)}
+                        onClick={addWidget}
                         className="cursor-pointer"
                       >
-                        <span className="truncate">{m.title}</span>
-                        <span className="ml-auto text-xs text-zinc-500">
-                          {m.defaultViz ? VIZ_LABEL[m.defaultViz] : ""}
-                        </span>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Adicionar (automático)
                       </DropdownMenuItem>
-                    ))}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={addWidget}
-                      className="cursor-pointer"
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Adicionar (automático)
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
-                <Button
-                  variant="outline"
-                  className="rounded-xl border-zinc-200 bg-white"
-                  onClick={autoOrganize}
-                  disabled={isBusy}
-                  title="Reorganiza automaticamente os widgets"
-                >
-                  <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Auto organizar
-                </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                    onClick={autoOrganize}
+                    disabled={isBusy}
+                    title="Reorganiza automaticamente os widgets"
+                  >
+                    <LayoutDashboard className="mr-2 h-4 w-4" />
+                    Auto organizar
+                  </Button>
 
-                <Button
-                  variant="outline"
-                  className="rounded-xl border-zinc-200 bg-white"
-                  onClick={resetLayout}
-                  disabled={isBusy}
-                  title="Limpa localStorage e restaura layout padrão"
-                >
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Resetar layout
-                </Button>
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                    onClick={resetLayout}
+                    disabled={isBusy}
+                    title="Limpa localStorage e restaura layout padrão"
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Resetar layout
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardHeader>
+            </CardHeader>
 
-          <CardContent className="pt-0">
-            <Separator className="mb-4" />
+            <CardContent className="pt-0">
+              <Separator className="mb-4" />
 
-            <div ref={gridRef} className="w-full">
-              {gridWidth <= 0 ? (
-                <DashboardSkeleton />
-              ) : (
-                <ResponsiveGridLayout
-                  width={gridWidth}
-                  className="layout"
-                  layouts={gridLayouts}
-                  onLayoutChange={editMode ? onLayoutChange : undefined}
-                  breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-                  cols={colsMap}
-                  rowHeight={90}
-                  margin={[12, 12]}
-                  containerPadding={[0, 0]}
-                  isDraggable={editMode}
-                  isResizable={editMode}
-                  draggableHandle={
-                    editMode ? ".am-dash-drag" : ".__no_handle__"
-                  }
-                  draggableCancel=".am-dash-nodrag"
-                  resizeHandles={editMode ? ["se", "s", "e"] : []}
-                  compactType="vertical"
-                  preventCollision={false}
-                  useCSSTransforms={true}
-                  autoSize={true}
-                >
-                  {widgets.map((w) => (
-                    <div key={w.id} className="h-full">
-                      <DashboardWidget
-                        widget={w}
-                        editMode={editMode}
-                        dashData={dashData}
-                        onRemove={() => removeWidget(w.id)}
-                        onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
-                        onChangeMetric={(metricKey) =>
-                          changeWidgetMetric(w.id, metricKey)
-                        }
-                      />
-                    </div>
-                  ))}
-                </ResponsiveGridLayout>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+              <div ref={gridRef} className="w-full">
+                {gridWidth <= 0 ? (
+                  <DashboardSkeleton />
+                ) : (
+                  <ResponsiveGridLayout
+                    width={gridWidth}
+                    className="layout"
+                    layouts={gridLayouts}
+                    onLayoutChange={editMode ? onLayoutChange : undefined}
+                    breakpoints={{
+                      lg: 1200,
+                      md: 996,
+                      sm: 768,
+                      xs: 480,
+                      xxs: 0,
+                    }}
+                    cols={colsMap}
+                    rowHeight={90}
+                    margin={[12, 12]}
+                    containerPadding={[0, 0]}
+                    isDraggable={editMode}
+                    isResizable={editMode}
+                    draggableHandle={
+                      editMode ? ".am-dash-drag" : ".__no_handle__"
+                    }
+                    draggableCancel=".am-dash-nodrag"
+                    resizeHandles={editMode ? ["se", "s", "e"] : []}
+                    compactType="vertical"
+                    preventCollision={false}
+                    useCSSTransforms={true}
+                    autoSize={true}
+                  >
+                    {widgets.map((w) => (
+                      <div key={w.id} className="h-full">
+                        <DashboardWidget
+                          widget={w}
+                          editMode={editMode}
+                          dashData={dashData}
+                          onRemove={() => removeWidget(w.id)}
+                          onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
+                          onChangeMetric={(metricKey) =>
+                            changeWidgetMetric(w.id, metricKey)
+                          }
+                        />
+                      </div>
+                    ))}
+                  </ResponsiveGridLayout>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </TooltipProvider>
   );
@@ -1265,11 +1278,17 @@ const DashboardWidget = memo(function DashboardWidget({
   return (
     <Card
       className={cn(
-        "h-full flex flex-col rounded-2xl border-zinc-200 bg-white shadow-sm",
+        "group relative h-full flex flex-col rounded-3xl border-zinc-200/70 bg-white/70 shadow-[0_16px_40px_-28px_rgba(15,23,42,0.55)] backdrop-blur overflow-hidden",
         !editMode &&
-          "transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+          "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_55px_-35px_rgba(15,23,42,0.60)]"
       )}
     >
+      {/* linha de destaque no topo */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500/45 to-transparent" />
+
+      {/* glow no canto */}
+      <div className="pointer-events-none absolute -right-14 -top-14 h-32 w-32 rounded-full bg-blue-500/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
       <CardHeader className="shrink-0 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -1313,7 +1332,7 @@ const DashboardWidget = memo(function DashboardWidget({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="rounded-xl border-zinc-200 bg-white"
+                  className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
                   title="Trocar gráfico"
                 >
                   <Settings2 className="h-4 w-4" />
@@ -1343,7 +1362,7 @@ const DashboardWidget = memo(function DashboardWidget({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="rounded-xl border-zinc-200 bg-white"
+                  className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
                   title="Trocar tipo do gráfico"
                 >
                   <BarChart3 className="mr-2 h-4 w-4" />
@@ -1704,7 +1723,7 @@ function ChartFrame({ children, minHeight = 160 }) {
   return (
     <div
       ref={ref}
-      className="h-full w-full min-w-0 overflow-hidden"
+      className="h-full w-full min-w-0 overflow-hidden rounded-2xl border border-zinc-100/70 bg-gradient-to-br from-white to-zinc-50/50 p-2"
       style={{ minHeight }}
     >
       {ok ? (
