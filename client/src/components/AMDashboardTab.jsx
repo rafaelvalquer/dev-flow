@@ -55,12 +55,7 @@ import {
 
 import { Cell } from "recharts";
 
-import RGL, { Responsive } from "react-grid-layout";
-
-const WidthProvider = RGL.WidthProvider;
-// O seu código abaixo já faz a verificação de segurança, então pode manter:
-const ResponsiveGridLayout =
-  typeof WidthProvider === "function" ? WidthProvider(Responsive) : Responsive;
+import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 
 import "/node_modules/react-grid-layout/css/styles.css";
 import "/node_modules/react-resizable/css/styles.css";
@@ -169,11 +164,9 @@ function hasCronogramaField(v) {
   }
 
   if (typeof v === "object") {
-    // ADF padrão do Jira
     const content = v?.content;
     if (Array.isArray(content) && content.length > 0) return true;
 
-    // fallback: objeto “grande o suficiente”
     try {
       const s = JSON.stringify(v);
       return s.length > 40;
@@ -333,17 +326,28 @@ const VIZ_ICON = {
 };
 
 const CHART_COLORS = [
-  "#2563eb",
-  "#16a34a",
+  "#3b82f6",
+  "#22c55e",
   "#f59e0b",
-  "#dc2626",
-  "#7c3aed",
-  "#0891b2",
-  "#ea580c",
-  "#0f172a",
-  "#a21caf",
-  "#65a30d",
+  "#ef4444",
+  "#8b5cf6",
+  "#06b6d4",
+  "#f97316",
+  "#334155",
+  "#d946ef",
+  "#84cc16",
 ];
+
+const PRIORITY_COLORS = {
+  HIGHEST: "#b91c1c",
+  HIGH: "#d97706",
+  MEDIUM: "#3b82f6",
+  LOW: "#22c55e",
+  LOWEST: "#6b7280",
+  "Não informado": "#6b7280",
+};
+
+const AGING_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444", "#b91c1c"];
 
 function metricDef(metricKey) {
   return METRICS.find((m) => m.metric === metricKey) || null;
@@ -353,7 +357,6 @@ function metricDef(metricKey) {
    Layout padrão (12 colunas no lg)
 ========================= */
 function buildDefaultConfig() {
-  // Widgets padrão (>= 8)
   const widgets = [
     { id: uid("w"), metric: "createdPerDay", viz: "line" },
     { id: uid("w"), metric: "updatedPerDay", viz: "area" },
@@ -369,34 +372,25 @@ function buildDefaultConfig() {
     { id: uid("w"), metric: "noSchedule", viz: "kpi" },
   ];
 
-  // Tamanhos:
-  // - grandes (linhas/áreas): 6x4
-  // - médios (barras/pizza): 4x4 ou 3x4
-  // - kpi: 3x3
   const lg = [
     { i: widgets[0].id, x: 0, y: 0, w: 6, h: 4 },
     { i: widgets[1].id, x: 6, y: 0, w: 6, h: 4 },
-
     { i: widgets[2].id, x: 0, y: 4, w: 4, h: 4 },
     { i: widgets[3].id, x: 4, y: 4, w: 4, h: 4 },
     { i: widgets[4].id, x: 8, y: 4, w: 4, h: 4 },
-
     { i: widgets[5].id, x: 0, y: 8, w: 6, h: 4 },
     { i: widgets[6].id, x: 6, y: 8, w: 3, h: 4 },
     { i: widgets[7].id, x: 9, y: 8, w: 3, h: 4 },
-
     { i: widgets[8].id, x: 0, y: 12, w: 6, h: 4 },
     { i: widgets[9].id, x: 6, y: 12, w: 6, h: 4 },
-
     { i: widgets[10].id, x: 0, y: 16, w: 3, h: 3 },
     { i: widgets[11].id, x: 3, y: 16, w: 3, h: 3 },
   ];
 
-  // “Degrada” automaticamente para breakpoints menores
   const makeSmaller = (cols) =>
     lg.map((it) => ({
       ...it,
-      x: Math.min(it.x, cols - 1),
+      x: Math.min(it.x, cols - it.w),
       w: Math.min(it.w, cols),
     }));
 
@@ -412,6 +406,49 @@ function buildDefaultConfig() {
   };
 }
 
+function validateLayouts(layouts, widgets, colsMap) {
+  const widgetIds = new Set(widgets.map((w) => w.id));
+  const validated = {};
+
+  for (const bp in layouts) {
+    const col = colsMap[bp] || 12;
+    const l = layouts[bp] || [];
+    const seen = new Set();
+    const fixed = l
+      .filter(
+        (item) => widgetIds.has(item.i) && !seen.has(item.i) && seen.add(item.i)
+      )
+      .map((item) => ({
+        ...item,
+        x: Math.max(0, Math.min(item.x, col - item.w)),
+        w: Math.max(1, Math.min(item.w, col)),
+        y: Math.max(0, item.y),
+        h: Math.max(1, item.h),
+      }));
+
+    // Sort by y, then x to avoid overlaps
+    fixed.sort((a, b) => a.y - b.y || a.x - b.x);
+
+    // Simple overlap resolution: push down if overlap
+    for (let i = 0; i < fixed.length; i++) {
+      for (let j = i + 1; j < fixed.length; j++) {
+        if (
+          fixed[j].y < fixed[i].y + fixed[i].h &&
+          fixed[j].x < fixed[i].x + fixed[i].w &&
+          fixed[j].x + fixed[j].w > fixed[i].x &&
+          fixed[j].y + fixed[j].h > fixed[i].y
+        ) {
+          fixed[j].y = fixed[i].y + fixed[i].h;
+        }
+      }
+    }
+
+    validated[bp] = fixed;
+  }
+
+  return validated;
+}
+
 function loadFromStorage() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -422,7 +459,6 @@ function loadFromStorage() {
     if (!Array.isArray(parsed.widgets) || typeof parsed.layouts !== "object")
       return null;
 
-    // Validação mínima
     const widgets = parsed.widgets
       .filter((w) => w && w.id && w.metric)
       .map((w) => ({
@@ -444,8 +480,135 @@ function saveToStorage(payload) {
   } catch {}
 }
 
+function widgetGridSize(widget) {
+  const v = String(widget?.viz || "");
+  if (v === "kpi") return { w: 3, h: 3 };
+  if (v === "line" || v === "area") return { w: 6, h: 4 };
+  return { w: 4, h: 4 };
+}
+
+function normalizeAndFillLayouts(layouts, widgets, colsMap) {
+  const widgetIds = widgets.map((w) => w.id);
+  const widgetById = new Map(widgets.map((w) => [w.id, w]));
+  const out = {};
+
+  for (const bp of Object.keys(colsMap)) {
+    const cols = colsMap[bp] ?? 12;
+    const l = Array.isArray(layouts?.[bp]) ? layouts[bp] : [];
+
+    const seen = new Set();
+    const normalized = [];
+
+    // mantém o que existe e é válido
+    for (const it of l) {
+      if (!it?.i) continue;
+      if (!widgetById.has(it.i)) continue;
+      if (seen.has(it.i)) continue;
+      seen.add(it.i);
+
+      normalized.push({
+        ...it,
+        w: Math.max(1, Math.min(it.w || 4, cols)),
+        h: Math.max(1, it.h || 4),
+        x: Math.max(
+          0,
+          Math.min(it.x || 0, cols - Math.max(1, Math.min(it.w || 4, cols)))
+        ),
+        y: Number.isFinite(it.y) ? Math.max(0, it.y) : Infinity,
+      });
+    }
+
+    // adiciona widgets que faltam (isso evita “tudo empilhado”)
+    for (const id of widgetIds) {
+      if (seen.has(id)) continue;
+      const sz = widgetGridSize(widgetById.get(id));
+      normalized.push({ i: id, x: 0, y: Infinity, ...sz });
+    }
+
+    out[bp] = normalized;
+  }
+
+  return out;
+}
+
+function hasInfinityY(layouts) {
+  for (const bp in layouts) {
+    const l = layouts[bp] || [];
+    if (l.some((it) => !Number.isFinite(it.y))) return true;
+  }
+  return false;
+}
+
+function hasOverlapInAnyBp(layouts) {
+  for (const bp in layouts) {
+    const l = layouts[bp] || [];
+    for (let i = 0; i < l.length; i++) {
+      for (let j = i + 1; j < l.length; j++) {
+        const a = l[i];
+        const b = l[j];
+
+        const overlap =
+          b.y < a.y + a.h &&
+          b.x < a.x + a.w &&
+          b.x + b.w > a.x &&
+          b.y + b.h > a.y;
+
+        if (overlap) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// organiza em “linhas”, respeitando a ordem do array widgets
+function packLayoutsByWidgetOrder(layouts, widgets, colsMap) {
+  const widgetIds = widgets.map((w) => w.id);
+  const out = {};
+
+  for (const bp of Object.keys(colsMap)) {
+    const cols = colsMap[bp] ?? 12;
+    const list = Array.isArray(layouts?.[bp]) ? layouts[bp] : [];
+    const byId = new Map(list.map((it) => [it.i, it]));
+
+    let x = 0;
+    let y = 0;
+    let rowH = 0;
+
+    out[bp] = widgetIds.map((id) => {
+      const base = byId.get(id);
+      const w0 = Math.max(1, Math.min(base?.w || 4, cols));
+      const h0 = Math.max(1, base?.h || 4);
+
+      if (x + w0 > cols) {
+        x = 0;
+        y += rowH || 1;
+        rowH = 0;
+      }
+
+      const placed = { ...(base || { i: id }), i: id, x, y, w: w0, h: h0 };
+
+      x += w0;
+      rowH = Math.max(rowH, h0);
+
+      return placed;
+    });
+  }
+
+  return out;
+}
+
+// trava o layout no modo OFF (garantia extra)
+function withStatic(layouts, lock) {
+  if (!lock) return layouts;
+  const out = {};
+  for (const bp in layouts) {
+    out[bp] = (layouts[bp] || []).map((it) => ({ ...it, static: true }));
+  }
+  return out;
+}
+
 /* =========================
-   Component
+   //#region Component
 ========================= */
 export default function AMDashboardTab({ rows = [], loading = false }) {
   const [editMode, setEditMode] = useState(false);
@@ -457,26 +620,52 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
   const [ready, setReady] = useState(false);
   const hydratedRef = useRef(false);
 
-  // espera 1 frame pro layout existir (evita warning do recharts)
+  const [gridRef, gridWidth] = useElementWidth();
+
+  const colsMap = useMemo(
+    () => ({
+      lg: 12,
+      md: 10,
+      sm: 6,
+      xs: 4,
+      xxs: 2,
+    }),
+    []
+  );
+
   useEffect(() => {
     const id = requestAnimationFrame(() => setReady(true));
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Carrega persistido (1x) - só depois do ready
   useEffect(() => {
     if (!ready) return;
 
     const stored = loadFromStorage();
     if (stored) {
+      // 1) garante que TODOS widgets existam em TODOS breakpoints
+      const filled = normalizeAndFillLayouts(
+        stored.layouts,
+        stored.widgets,
+        colsMap
+      );
+
+      // 2) valida/clampa
+      const validated = validateLayouts(filled, stored.widgets, colsMap);
+
+      // 3) se tiver Infinity (itens “sem posição”) ou overlap, auto organiza
+      const needsPack = hasInfinityY(validated) || hasOverlapInAnyBp(validated);
+      const finalLayouts = needsPack
+        ? packLayoutsByWidgetOrder(validated, stored.widgets, colsMap)
+        : validated;
+
       setWidgets(stored.widgets);
-      setLayouts(stored.layouts);
+      setLayouts(finalLayouts);
     }
 
     hydratedRef.current = true;
-  }, [ready]);
+  }, [ready, colsMap]);
 
-  // Persistência - só depois de hidratar
   useEffect(() => {
     if (!ready) return;
     if (!hydratedRef.current) return;
@@ -490,7 +679,6 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
       const f = t?.fields || {};
       const priority = t?.priorityName || f?.priority?.name || "Não informado";
 
-      const sizeRaw = f?.customfield_10988;
       const size =
         t?.sizeValue ||
         f?.customfield_10988?.value ||
@@ -524,8 +712,6 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
 
       const hasSchedule = hasCronogramaField(f?.customfield_14017);
 
-      //console.log(rows[0]);
-
       return {
         _raw: t,
         key: t?.key || "",
@@ -547,10 +733,17 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     });
   }, [rows]);
 
+  const autoOrganize = useCallback(() => {
+    setLayouts((prev) => {
+      const filled = normalizeAndFillLayouts(prev, widgets, colsMap);
+      const validated = validateLayouts(filled, widgets, colsMap);
+      return packLayoutsByWidgetOrder(validated, widgets, colsMap);
+    });
+  }, [widgets, colsMap]);
+
   const dashData = useMemo(() => {
     const list = normalized;
 
-    // Prioridade (ordem amigável)
     const priorityOrder = new Map([
       ["HIGHEST", 1],
       ["HIGH", 2],
@@ -559,30 +752,45 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
       ["LOWEST", 5],
     ]);
 
-    const priorityCounts = countBy(list, (x) => x.priority).sort((a, b) => {
-      const pa = priorityOrder.get(String(a.name || "").toUpperCase()) || 99;
-      const pb = priorityOrder.get(String(b.name || "").toUpperCase()) || 99;
-      if (pa !== pb) return pa - pb;
-      return b.value - a.value;
-    });
+    const priorityCounts = countBy(list, (x) => x.priority)
+      .sort((a, b) => {
+        const pa = priorityOrder.get(String(a.name || "").toUpperCase()) || 99;
+        const pb = priorityOrder.get(String(b.name || "").toUpperCase()) || 99;
+        if (pa !== pb) return pa - pb;
+        return b.value - a.value;
+      })
+      .map((item, idx) => ({
+        ...item,
+        fill:
+          PRIORITY_COLORS[item.name.toUpperCase()] ||
+          CHART_COLORS[idx % CHART_COLORS.length],
+      }));
 
-    const sizeCounts = countBy(list, (x) => x.size).sort(
-      (a, b) => b.value - a.value
-    );
+    const sizeCounts = countBy(list, (x) => x.size)
+      .sort((a, b) => b.value - a.value)
+      .map((item, idx) => ({
+        ...item,
+        fill: CHART_COLORS[idx % CHART_COLORS.length],
+      }));
 
-    const statusCounts = countBy(list, (x) => x.status).sort(
-      (a, b) => b.value - a.value
-    );
+    const statusCounts = countBy(list, (x) => x.status)
+      .sort((a, b) => b.value - a.value)
+      .map((item, idx) => ({
+        ...item,
+        fill: CHART_COLORS[idx % CHART_COLORS.length],
+      }));
 
     const ownerCounts = topN(
       countBy(list, (x) => x.owner).sort((a, b) => b.value - a.value),
       12
-    );
+    ).map((item, idx) => ({
+      ...item,
+      fill: CHART_COLORS[idx % CHART_COLORS.length],
+    }));
 
     const createdSeries = buildLastNDaysSeries(list, (x) => x.created, 30);
     const updatedSeries = buildLastNDaysSeries(list, (x) => x.updated, 30);
 
-    // SLA
     const today0 = startOfTodayLocal();
 
     let inside = 0;
@@ -611,11 +819,15 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     }
 
     const slaPie = [
-      { name: "Dentro do prazo", value: inside },
-      { name: "Data limite estourada", value: overdueBase },
-      { name: "Data limite alterada estourada", value: overdueAlt },
-      { name: "Sem data limite", value: noDue },
-      { name: "Concluídos", value: done },
+      { name: "Dentro do prazo", value: inside, fill: "#22c55e" },
+      { name: "Data limite estourada", value: overdueBase, fill: "#ef4444" },
+      {
+        name: "Data limite alterada estourada",
+        value: overdueAlt,
+        fill: "#f59e0b",
+      },
+      { name: "Sem data limite", value: noDue, fill: "#6b7280" },
+      { name: "Concluídos", value: done, fill: "#3b82f6" },
     ].filter((x) => x.value > 0);
 
     const slaStack = [
@@ -629,7 +841,6 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
       },
     ];
 
-    // Aging buckets
     const aging = new Map([
       ["0-2d", 0],
       ["3-7d", 0],
@@ -651,21 +862,24 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
       else aging.set("30+d", aging.get("30+d") + 1);
     }
 
-    const agingCounts = Array.from(aging.entries()).map(([name, value]) => ({
-      name,
-      value,
-    }));
+    const agingCounts = Array.from(aging.entries())
+      .map(([name, value]) => ({ name, value }))
+      .map((item, idx) => ({
+        ...item,
+        fill: AGING_COLORS[idx],
+      }));
 
-    // Componentes
     const componentsAll = [];
     for (const t of list) for (const c of t.components) componentsAll.push(c);
 
     const componentsCounts = topN(
       countBy(componentsAll, (x) => x),
       12
-    );
+    ).map((item, idx) => ({
+      ...item,
+      fill: CHART_COLORS[idx % CHART_COLORS.length],
+    }));
 
-    // Diretorias
     const dirsAll = [];
     for (const t of list) {
       const dirs = Array.isArray(t?.diretorias) ? t.diretorias : [];
@@ -675,9 +889,11 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     const directoratesCounts = topN(
       countBy(dirsAll, (x) => x),
       12
-    );
+    ).map((item, idx) => ({
+      ...item,
+      fill: CHART_COLORS[idx % CHART_COLORS.length],
+    }));
 
-    // KPIs
     const noAssigneeCount = list.filter(
       (t) => String(t.owner || "").toLowerCase() === "sem responsável"
     ).length;
@@ -706,7 +922,6 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
   }, [normalized]);
 
   const addWidget = useCallback(() => {
-    // adiciona “um padrão”: próximo gráfico ainda não usado, senão prioridade
     const used = new Set(widgets.map((w) => w.metric));
     const candidate = METRICS.find((m) => !used.has(m.metric)) || METRICS[0];
 
@@ -719,7 +934,6 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
 
     setWidgets((prev) => [...prev, next]);
 
-    // coloca no final em cada breakpoint
     setLayouts((prev) => {
       const nextLayouts = { ...(prev || {}) };
 
@@ -803,21 +1017,34 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     setLayouts(fresh.layouts);
   }, []);
 
-  const onLayoutChange = useCallback((_, allLayouts) => {
-    setLayouts(allLayouts);
-  }, []);
+  const onLayoutChange = useCallback(
+    (currentLayout, allLayouts) => {
+      // garante que TODOS widgets existam em TODOS breakpoints
+      const filled = normalizeAndFillLayouts(allLayouts, widgets, colsMap);
+
+      // valida/clampa e remove bagunça
+      const validated = validateLayouts(filled, widgets, colsMap);
+
+      setLayouts(validated);
+    },
+    [widgets, colsMap]
+  );
 
   const isBusy = Boolean(loading);
+
+  const gridLayouts = useMemo(
+    () => withStatic(layouts, !editMode),
+    [layouts, editMode]
+  );
 
   return (
     <TooltipProvider>
       <div className="grid gap-4">
-        {/* Header / actions */}
         <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-red-600 to-red-700 text-white shadow-sm">
+                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-sm">
                   <LayoutDashboard className="h-5 w-5" />
                 </div>
 
@@ -868,7 +1095,7 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                      className="rounded-xl bg-blue-600 text-white hover:bg-blue-700"
                       disabled={isBusy}
                     >
                       <Plus className="mr-2 h-4 w-4" />
@@ -905,6 +1132,17 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
                 <Button
                   variant="outline"
                   className="rounded-xl border-zinc-200 bg-white"
+                  onClick={autoOrganize}
+                  disabled={isBusy}
+                  title="Reorganiza automaticamente os widgets"
+                >
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Auto organizar
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-zinc-200 bg-white"
                   onClick={resetLayout}
                   disabled={isBusy}
                   title="Limpa localStorage e restaura layout padrão"
@@ -919,42 +1157,49 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
           <CardContent className="pt-0">
             <Separator className="mb-4" />
 
-            {!ready || (isBusy && !rows?.length) ? (
-              <DashboardSkeleton />
-            ) : (
-              <ResponsiveGridLayout
-                className="layout"
-                layouts={layouts}
-                onLayoutChange={onLayoutChange}
-                breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-                cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-                rowHeight={90}
-                margin={[12, 12]}
-                containerPadding={[0, 0]}
-                isDraggable={editMode}
-                isResizable={editMode}
-                compactType="vertical"
-                draggableHandle=".am-dash-drag"
-                draggableCancel=".am-dash-nodrag"
-                resizeHandles={["se", "s", "e"]}
-                useCSSTransforms={true}
-              >
-                {widgets.map((w) => (
-                  <div key={w.id} className="h-full">
-                    <DashboardWidget
-                      widget={w}
-                      editMode={editMode}
-                      dashData={dashData}
-                      onRemove={() => removeWidget(w.id)}
-                      onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
-                      onChangeMetric={(metricKey) =>
-                        changeWidgetMetric(w.id, metricKey)
-                      }
-                    />
-                  </div>
-                ))}
-              </ResponsiveGridLayout>
-            )}
+            <div ref={gridRef} className="w-full">
+              {gridWidth <= 0 ? (
+                <DashboardSkeleton />
+              ) : (
+                <ResponsiveGridLayout
+                  width={gridWidth}
+                  className="layout"
+                  layouts={gridLayouts}
+                  onLayoutChange={editMode ? onLayoutChange : undefined}
+                  breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+                  cols={colsMap}
+                  rowHeight={90}
+                  margin={[12, 12]}
+                  containerPadding={[0, 0]}
+                  isDraggable={editMode}
+                  isResizable={editMode}
+                  draggableHandle={
+                    editMode ? ".am-dash-drag" : ".__no_handle__"
+                  }
+                  draggableCancel=".am-dash-nodrag"
+                  resizeHandles={editMode ? ["se", "s", "e"] : []}
+                  compactType="vertical"
+                  preventCollision={false}
+                  useCSSTransforms={true}
+                  autoSize={true}
+                >
+                  {widgets.map((w) => (
+                    <div key={w.id} className="h-full">
+                      <DashboardWidget
+                        widget={w}
+                        editMode={editMode}
+                        dashData={dashData}
+                        onRemove={() => removeWidget(w.id)}
+                        onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
+                        onChangeMetric={(metricKey) =>
+                          changeWidgetMetric(w.id, metricKey)
+                        }
+                      />
+                    </div>
+                  ))}
+                </ResponsiveGridLayout>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1001,7 +1246,6 @@ const DashboardWidget = memo(function DashboardWidget({
       case "status":
         return d.statusCounts || [];
       case "sla":
-        // donut/bar usam slaPie; stack usa slaStack
         return currentViz === "stack" ? d.slaStack || [] : d.slaPie || [];
       case "aging":
         return d.agingCounts || [];
@@ -1019,15 +1263,21 @@ const DashboardWidget = memo(function DashboardWidget({
   }, [dashData, widget.metric, currentViz]);
 
   return (
-    <Card className="h-full flex flex-col rounded-2xl border-zinc-200 bg-white shadow-sm">
+    <Card
+      className={cn(
+        "h-full flex flex-col rounded-2xl border-zinc-200 bg-white shadow-sm",
+        !editMode &&
+          "transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5"
+      )}
+    >
       <CardHeader className="shrink-0 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span
                 className={cn(
-                  "am-dash-drag inline-flex items-center gap-1.5",
-                  editMode ? "cursor-move" : "cursor-default"
+                  "inline-flex items-center gap-1.5",
+                  editMode ? "am-dash-drag cursor-move" : "cursor-default"
                 )}
                 title={editMode ? "Arrastar widget" : "Edit mode OFF"}
               >
@@ -1058,7 +1308,6 @@ const DashboardWidget = memo(function DashboardWidget({
           </div>
 
           <div className="am-dash-nodrag flex items-center gap-2">
-            {/* Trocar métrica */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1089,7 +1338,6 @@ const DashboardWidget = memo(function DashboardWidget({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Trocar tipo de visualização */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1157,7 +1405,6 @@ const DashboardWidget = memo(function DashboardWidget({
 });
 
 function WidgetBody({ metric, viz, data }) {
-  // KPI
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;
 
@@ -1179,7 +1426,6 @@ function WidgetBody({ metric, viz, data }) {
     );
   }
 
-  // Séries
   if (viz === "line" || viz === "area") {
     const series = Array.isArray(data) ? data : [];
     if (!series.length) {
@@ -1205,6 +1451,7 @@ function WidgetBody({ metric, viz, data }) {
                 type="monotone"
                 dataKey="value"
                 name="Tickets"
+                stroke="#3b82f6"
                 dot={false}
               />
             </LineChart>
@@ -1213,7 +1460,6 @@ function WidgetBody({ metric, viz, data }) {
       );
     }
 
-    // ✅ AREA (sem ResponsiveContainer)
     return (
       <ChartFrame minHeight={160}>
         {({ width, height }) => (
@@ -1227,7 +1473,9 @@ function WidgetBody({ metric, viz, data }) {
               type="monotone"
               dataKey="value"
               name="Tickets"
+              fill="#3b82f6"
               fillOpacity={0.25}
+              stroke="#3b82f6"
             />
           </AreaChart>
         )}
@@ -1235,7 +1483,6 @@ function WidgetBody({ metric, viz, data }) {
     );
   }
 
-  // SLA empilhado
   if (viz === "stack") {
     const stack = Array.isArray(data) ? data : [];
     if (!stack.length) return <EmptyChart text="Sem dados de SLA." />;
@@ -1253,13 +1500,13 @@ function WidgetBody({ metric, viz, data }) {
               dataKey="dentro"
               stackId="a"
               name="Dentro do prazo"
-              fill="#16a34a"
+              fill="#22c55e"
             />
             <Bar
               dataKey="estourada"
               stackId="a"
               name="Data limite estourada"
-              fill="#dc2626"
+              fill="#ef4444"
             />
             <Bar
               dataKey="alterada"
@@ -1277,7 +1524,7 @@ function WidgetBody({ metric, viz, data }) {
               dataKey="concluidos"
               stackId="a"
               name="Concluídos"
-              fill="#2563eb"
+              fill="#3b82f6"
             />
           </BarChart>
         )}
@@ -1285,7 +1532,6 @@ function WidgetBody({ metric, viz, data }) {
     );
   }
 
-  // Pizza/Donut
   if (viz === "pie" || viz === "donut") {
     const series = Array.isArray(data) ? data : [];
     if (!series.length) return <EmptyChart text="Sem dados para pizza." />;
@@ -1309,10 +1555,10 @@ function WidgetBody({ metric, viz, data }) {
                 innerRadius={inner}
                 outerRadius={radius}
               >
-                {series.map((_, idx) => (
+                {series.map((entry, idx) => (
                   <Cell
                     key={`cell-${idx}`}
-                    fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                    fill={entry.fill || CHART_COLORS[idx % CHART_COLORS.length]}
                   />
                 ))}
               </Pie>
@@ -1323,10 +1569,11 @@ function WidgetBody({ metric, viz, data }) {
     );
   }
 
-  // Barras
   if (viz === "bar") {
     const series = Array.isArray(data) ? data : [];
     if (!series.length) return <EmptyChart text="Sem dados para barras." />;
+
+    const needsAngle = series.length > 8;
 
     return (
       <ChartFrame minHeight={160}>
@@ -1335,18 +1582,23 @@ function WidgetBody({ metric, viz, data }) {
             width={width}
             height={height}
             data={series}
-            margin={{ top: 5, right: 16, bottom: 5, left: 0 }}
+            margin={{ top: 5, right: 16, bottom: needsAngle ? 20 : 5, left: 0 }}
           >
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <XAxis
+              dataKey="name"
+              tick={{ fontSize: 11 }}
+              angle={needsAngle ? -25 : 0}
+              textAnchor={needsAngle ? "end" : "middle"}
+            />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <RTooltip />
             <Legend />
             <Bar dataKey="value" name="Tickets">
-              {series.map((_, idx) => (
+              {series.map((entry, idx) => (
                 <Cell
                   key={`cell-${idx}`}
-                  fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                  fill={entry.fill || CHART_COLORS[idx % CHART_COLORS.length]}
                 />
               ))}
             </Bar>
@@ -1394,6 +1646,30 @@ function DashboardSkeleton() {
   );
 }
 
+function useElementWidth() {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const update = () => {
+      const w = Math.floor(el.getBoundingClientRect().width);
+      if (w > 0) setWidth(w);
+    };
+
+    update();
+
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+
+    return () => ro.disconnect();
+  }, []);
+
+  return [ref, width];
+}
+
 function ChartFrame({ children, minHeight = 160 }) {
   const ref = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -1407,7 +1683,6 @@ function ChartFrame({ children, minHeight = 160 }) {
       const w = Math.floor(r.width);
       const h = Math.floor(r.height);
 
-      // só salva valores válidos
       if (w > 0 && h > 0) setSize({ width: w, height: h });
     };
 

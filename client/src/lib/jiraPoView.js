@@ -48,9 +48,6 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
     const hasIniciado = containsTagInComments(comments, "[INICIADO]");
     const cronogramaAdf = issue?.fields?.customfield_14017 || null;
 
-    console.log("teste");
-    console.log(issue);
-
     return {
       key,
       summary: issue?.fields?.summary || "",
