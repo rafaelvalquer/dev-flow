@@ -66,19 +66,22 @@ td {
 html,
 body,
 #root {
+  width: 100%;
   height: 100%;
-}
-body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Segoe UI", Arial, sans-serif;
+  padding: 0;
+}
+
+body {
+  display: block;
 }
 
 .container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 20px;
+  width: 100%;
+  max-width: none; /* remove limite */
+  margin: 0; /* remove centralização */
+  padding: 16px; /* opcional (pode usar 0 se quiser colado) */
+  box-sizing: border-box;
 }
 
 /* =========================

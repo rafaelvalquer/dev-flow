@@ -72,9 +72,11 @@ import {
   RefreshCcw,
   Search,
   UserX,
+  LayoutDashboard,
 } from "lucide-react";
 
 import AMCalendarTab from "./AMCalendarTab";
+import AMDashboardTab from "./AMDashboardTab";
 
 import { DateValuePicker } from "@/components/ui/date-range-picker";
 import {
@@ -385,7 +387,7 @@ function diffDays(a, b) {
    //#region COMPONENT
 ========================= */
 export default function AMPanelTab() {
-  const [subView, setSubView] = useState("alertas"); // alertas | calendario | gant
+  const [subView, setSubView] = useState("alertas"); // alertas | calendario | gant | dashboard
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -882,6 +884,17 @@ export default function AMPanelTab() {
                 </Button>
 
                 <Button
+                  type="button"
+                  variant="outline"
+                  className={topNavButtonClasses(subView === "dashboard")}
+                  onClick={() => setSubView("dashboard")}
+                  aria-pressed={subView === "dashboard"}
+                >
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Dashboard
+                </Button>
+
+                <Button
                   onClick={reload}
                   disabled={loading}
                   className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
@@ -968,6 +981,15 @@ export default function AMPanelTab() {
                   setDetailsOpen(true);
                 }}
               />
+            </section>
+          )}
+
+          {/* =========================
+            DASHBOARD (React-Grid-Layout + Recharts)
+           ========================= */}
+          {subView === "dashboard" && (
+            <section className="grid gap-3">
+              <AMDashboardTab rows={rawIssues || []} loading={loading} />
             </section>
           )}
 

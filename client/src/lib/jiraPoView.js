@@ -26,12 +26,14 @@ export const PO_JQL_BODY = {
     "updated",
     "assignee",
     "parent",
+    "priority",
+    "customfield_10988",
   ],
 };
 
 // campos necessários no detalhe
 const ISSUE_FIELDS =
-  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519";
+  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519,priority,customfield_10988";
 
 export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
   const baseIssues = await jiraSearchJqlAll(PO_JQL_BODY);
@@ -46,6 +48,9 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
     const hasIniciado = containsTagInComments(comments, "[INICIADO]");
     const cronogramaAdf = issue?.fields?.customfield_14017 || null;
 
+    console.log("teste");
+    console.log(issue);
+
     return {
       key,
       summary: issue?.fields?.summary || "",
@@ -59,6 +64,8 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       cronogramaAdf,
       dueDateRaw: issue?.fields?.duedate || "",
       customfield_11519: issue?.fields?.customfield_11519 || "",
+      priorityName: issue?.fields?.priority?.name ?? null,
+      sizeValue: issue?.fields?.customfield_10988?.value ?? null,
     };
   });
 
