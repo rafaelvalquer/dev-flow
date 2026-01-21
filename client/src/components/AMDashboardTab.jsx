@@ -126,6 +126,21 @@ function diffDays(a, b) {
   return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function dueBucketLabel(t, today0) {
+  if (!t?.effectiveDueDate) return "Sem data limite";
+
+  // delta = due - hoje
+  const delta = diffDays(t.effectiveDueDate, today0);
+
+  if (delta < 0) return "Atrasado";
+  if (delta === 0) return "Hoje";
+  if (delta <= 2) return "1-2 dias";
+  if (delta <= 7) return "3-7 dias";
+  if (delta <= 14) return "8-14 dias";
+  if (delta <= 30) return "15-30 dias";
+  return "30+ dias";
+}
+
 function fmtShortBRFromYmd(ymd) {
   const dt = parseIsoYmdLocal(ymd);
   if (!dt) return ymd;
@@ -195,6 +210,7 @@ function countBy(list, getKey) {
 
 function buildLastNDaysSeries(list, getYmd, nDays = 30) {
   const today0 = startOfTodayLocal();
+
   const days = [];
 
   for (let i = nDays - 1; i >= 0; i--) {
@@ -304,6 +320,34 @@ const METRICS = [
     subtitle: "Tickets sem customfield_14017",
     defaultViz: "kpi",
     allowedViz: ["kpi", "donut"],
+  },
+  {
+    metric: "dueBuckets",
+    title: "Vencimento (buckets)",
+    subtitle: "Distribuição por prazo (abertos)",
+    defaultViz: "bar",
+    allowedViz: ["bar", "donut", "pie"],
+  },
+  {
+    metric: "issueType",
+    title: "Tipo do ticket",
+    subtitle: "Quantidade por issueType",
+    defaultViz: "bar",
+    allowedViz: ["bar", "donut", "pie"],
+  },
+  {
+    metric: "reporter",
+    title: "Reportado por",
+    subtitle: "Top reporters",
+    defaultViz: "bar",
+    allowedViz: ["bar", "donut", "pie"],
+  },
+  {
+    metric: "donePerDay",
+    title: "Concluídos por dia",
+    subtitle: "Últimos 30 dias (somente Done)",
+    defaultViz: "line",
+    allowedViz: ["line", "area"],
   },
 ];
 
@@ -642,7 +686,11 @@ function withStatic(layouts, lock) {
 /* =========================
    //#region Component
 ========================= */
-export default function AMDashboardTab({ rows = [], loading = false }) {
+export default function AMDashboardTab({
+  rows = [],
+  doneRows = [],
+  loading = false,
+}) {
   const [editMode, setEditMode] = useState(false);
 
   const defaultConfig = useMemo(() => buildDefaultConfig(), []);
@@ -709,6 +757,9 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     const list = Array.isArray(rows) ? rows : [];
     return list.map((t) => {
       const f = t?.fields || {};
+      const issueType = f?.issuetype?.name || t?.issueType || "—";
+      const reporter =
+        f?.reporter?.displayName || t?.reporterName || t?.reporter || "—";
       const priority = t?.priorityName || f?.priority?.name || "Não informado";
 
       const size =
@@ -753,6 +804,8 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
         updated,
         status,
         owner,
+        issueType,
+        reporter,
         dueBaseYmd,
         dueAltYmd,
         hasDueAlt,
@@ -765,6 +818,24 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     });
   }, [rows]);
 
+  const normalizedDone = useMemo(() => {
+    const list = Array.isArray(doneRows) ? doneRows : [];
+    return list.map((t) => {
+      const f = t?.fields || {};
+      const resolutionDate = f?.resolutiondate || t?.resolutionDateRaw || "";
+      const reporter = f?.reporter?.displayName || t?.reporter || "—";
+      const issueType = f?.issuetype?.name || t?.issueType || "—";
+
+      return {
+        _raw: t,
+        key: t?.key || "",
+        resolutionDate,
+        reporter,
+        issueType,
+      };
+    });
+  }, [doneRows]);
+
   const autoOrganize = useCallback(() => {
     setLayouts((prev) => {
       const filled = normalizeAndFillLayouts(prev, widgets, colsMap);
@@ -775,6 +846,7 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
 
   const dashData = useMemo(() => {
     const list = normalized;
+    const doneList = normalizedDone;
 
     const priorityOrder = new Map([
       ["HIGHEST", 1],
@@ -824,6 +896,46 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
     const updatedSeries = buildLastNDaysSeries(list, (x) => x.updated, 30);
 
     const today0 = startOfTodayLocal();
+
+    const issueTypeCounts = countBy(list, (x) => x.issueType)
+      .sort((a, b) => b.value - a.value)
+      .map((item, idx) => ({
+        ...item,
+        fill: CHART_COLORS[idx % CHART_COLORS.length],
+      }));
+
+    const reporterCounts = topN(
+      countBy(list, (x) => x.reporter).sort((a, b) => b.value - a.value),
+      12
+    ).map((item, idx) => ({
+      ...item,
+      fill: CHART_COLORS[idx % CHART_COLORS.length],
+    }));
+
+    const bucketOrder = new Map([
+      ["Atrasado", 1],
+      ["Hoje", 2],
+      ["1-2 dias", 3],
+      ["3-7 dias", 4],
+      ["8-14 dias", 5],
+      ["15-30 dias", 6],
+      ["30+ dias", 7],
+      ["Sem data limite", 99],
+    ]);
+
+    const openList = list.filter((t) => !t.done);
+
+    const dueBucketsCounts = countBy(openList, (x) => dueBucketLabel(x, today0))
+      .sort((a, b) => {
+        const oa = bucketOrder.get(a.name) ?? 999;
+        const ob = bucketOrder.get(b.name) ?? 999;
+        if (oa !== ob) return oa - ob;
+        return b.value - a.value;
+      })
+      .map((item, idx) => ({
+        ...item,
+        fill: CHART_COLORS[idx % CHART_COLORS.length],
+      }));
 
     let inside = 0;
     let overdueBase = 0;
@@ -932,6 +1044,11 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
 
     const noScheduleCount = list.filter((t) => !t.hasSchedule).length;
 
+    const donePerDaySeries = buildLastNDaysSeries(
+      doneList,
+      (x) => x.resolutionDate,
+      30
+    );
     return {
       priorityCounts,
       sizeCounts,
@@ -939,11 +1056,15 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
       ownerCounts,
       createdSeries,
       updatedSeries,
+      donePerDaySeries,
       slaPie,
       slaStack,
       agingCounts,
       componentsCounts,
       directoratesCounts,
+      dueBucketsCounts,
+      issueTypeCounts,
+      reporterCounts,
       kpis: {
         total: list.length,
         noAssigneeCount,
@@ -951,7 +1072,7 @@ export default function AMDashboardTab({ rows = [], loading = false }) {
         overdueCount: overdueBase + overdueAlt,
       },
     };
-  }, [normalized]);
+  }, [normalized, normalizedDone]);
 
   const addWidget = useCallback(() => {
     const used = new Set(widgets.map((w) => w.metric));
@@ -1300,6 +1421,14 @@ const DashboardWidget = memo(function DashboardWidget({
         return d.kpis?.noAssigneeCount ?? 0;
       case "noSchedule":
         return d.kpis?.noScheduleCount ?? 0;
+      case "dueBuckets":
+        return d.dueBucketsCounts || [];
+      case "issueType":
+        return d.issueTypeCounts || [];
+      case "reporter":
+        return d.reporterCounts || [];
+      case "donePerDay":
+        return d.donePerDaySeries || [];
       default:
         return [];
     }
@@ -1479,7 +1608,12 @@ const DashboardWidget = memo(function DashboardWidget({
 
       <CardContent className="flex-1 min-h-0 p-4">
         <div className="h-full min-h-[160px] min-w-0 am-dash-nodrag">
-          <WidgetBody metric={widget.metric} viz={currentViz} data={data} />
+          <WidgetBody
+            metric={widget.metric}
+            viz={currentViz}
+            data={data}
+            accent={accent}
+          />
         </div>
       </CardContent>
     </Card>
@@ -1619,7 +1753,7 @@ function MinimalLegend({ payload }) {
   );
 }
 
-function WidgetBody({ metric, viz, data }) {
+function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;
 
@@ -1678,7 +1812,7 @@ function WidgetBody({ metric, viz, data }) {
                 type="monotone"
                 dataKey="value"
                 name="Tickets"
-                stroke="#3b82f6"
+                stroke={accent}
                 dot={false}
               />
             </LineChart>
@@ -1712,9 +1846,9 @@ function WidgetBody({ metric, viz, data }) {
               type="monotone"
               dataKey="value"
               name="Tickets"
-              fill="#3b82f6"
+              fill={accent}
               fillOpacity={0.25}
-              stroke="#3b82f6"
+              stroke={accent}
             />
           </AreaChart>
         )}

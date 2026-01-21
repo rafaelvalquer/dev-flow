@@ -93,6 +93,8 @@ import {
   fetchPoIssuesDetailed,
   makeDefaultCronogramaDraft,
   saveCronogramaToJira,
+  fetchPoActiveRows,
+  fetchPoDoneLast30Days,
 } from "../lib/jiraPoView";
 
 // NOVO: buscar detalhes do ticket + comentar

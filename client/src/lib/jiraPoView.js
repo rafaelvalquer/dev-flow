@@ -15,6 +15,8 @@ import {
   formatDateRangeBR,
 } from "../utils/cronograma";
 
+// src/lib/jiraPoView.js
+
 export const PO_JQL_BODY = {
   jql: 'project = ICON AND status IN ("PRE SAVE", "EM PLANEJAMENTO", "Para Dev", "Desenvolvimento", "Para Homolog.", "Homolog. Negócio", "Para Deploy") AND updated >= -365d ORDER BY updated DESC',
   maxResults: 100,
@@ -28,12 +30,49 @@ export const PO_JQL_BODY = {
     "parent",
     "priority",
     "customfield_10988",
+    "duedate",
+    "customfield_11519",
+    "resolutiondate",
+    "customfield_11993",
   ],
 };
 
+export const PO_DONE_LAST_30D_JQL_BODY = {
+  jql: "project = ICON AND statusCategory = Done AND resolved >= -30d ORDER BY resolved ASC",
+  maxResults: 200,
+  fields: ["key", "summary", "status", "resolutiondate"],
+};
+
+export async function fetchPoActiveRows() {
+  return jiraSearchJqlAll(PO_JQL_BODY);
+}
+
+export async function fetchPoDoneLast30Days() {
+  const issues = await jiraSearchJqlAll(PO_DONE_LAST_30D_JQL_BODY);
+
+  return issues.map((i) => ({
+    key: i?.key || "",
+    summary: i?.fields?.summary || "",
+    statusName: i?.fields?.status?.name || "",
+    resolutionDateRaw: i?.fields?.resolutiondate || "",
+  }));
+}
+
 // campos necessários no detalhe
 const ISSUE_FIELDS =
-  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519,priority,customfield_10988";
+  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519,priority,customfield_10988,resolutiondate,customfield_11993";
+
+function pickText(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v.trim();
+  if (Array.isArray(v)) return v.map(pickText).filter(Boolean).join(", ");
+
+  if (typeof v === "object") {
+    return v.displayName || v.value || v.name || v.label || v.key || "";
+  }
+
+  return String(v).trim();
+}
 
 export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
   const baseIssues = await jiraSearchJqlAll(PO_JQL_BODY);
@@ -63,6 +102,8 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       customfield_11519: issue?.fields?.customfield_11519 || "",
       priorityName: issue?.fields?.priority?.name ?? null,
       sizeValue: issue?.fields?.customfield_10988?.value ?? null,
+      resolutionDateRaw: issue?.fields?.resolutiondate || "",
+      reporterName: pickText(issue?.fields?.customfield_11993) || "—",
     };
   });
 
