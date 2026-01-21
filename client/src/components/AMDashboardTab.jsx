@@ -340,6 +340,36 @@ const CHART_COLORS = [
   "#84cc16",
 ];
 
+const METRIC_ACCENT = {
+  createdPerDay: "#3b82f6", // blue
+  updatedPerDay: "#6366f1", // indigo
+  priority: "#f59e0b", // amber
+  status: "#8b5cf6", // violet
+  owner: "#22c55e", // green
+  sla: "#ef4444", // red
+  size: "#06b6d4", // cyan
+  aging: "#eab308", // yellow
+  components: "#0ea5e9", // sky
+  directorates: "#a855f7", // purple
+  noAssignee: "#f97316", // orange
+  noSchedule: "#64748b", // slate
+};
+
+function hexToRgba(hex, alpha = 1) {
+  const h = String(hex || "")
+    .replace("#", "")
+    .trim();
+  if (h.length !== 6) return `rgba(100,116,139,${alpha})`; // fallback slate
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function metricAccent(metricKey) {
+  return METRIC_ACCENT[metricKey] || "#3b82f6";
+}
+
 const PRIORITY_COLORS = {
   HIGHEST: "#b91c1c",
   HIGH: "#d97706",
@@ -1275,6 +1305,10 @@ const DashboardWidget = memo(function DashboardWidget({
     }
   }, [dashData, widget.metric, currentViz]);
 
+  const accent = metricAccent(widget.metric);
+  const accentSoft = hexToRgba(accent, 0.14);
+  const accentLine = hexToRgba(accent, 0.55);
+
   return (
     <Card
       className={cn(
@@ -1282,12 +1316,35 @@ const DashboardWidget = memo(function DashboardWidget({
         !editMode &&
           "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_55px_-35px_rgba(15,23,42,0.60)]"
       )}
+      style={{
+        "--accent": accent,
+        "--accentSoft": accentSoft,
+        "--accentLine": accentLine,
+      }}
     >
-      {/* linha de destaque no topo */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-transparent via-blue-500/45 to-transparent" />
+      {/* topo com highlight (dinâmico por métrica) */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[2px]"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent, var(--accentLine), transparent)",
+        }}
+      />
 
-      {/* glow no canto */}
-      <div className="pointer-events-none absolute -right-14 -top-14 h-32 w-32 rounded-full bg-blue-500/10 blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+      {/* borda lateral premium */}
+      <div
+        className="pointer-events-none absolute left-0 top-0 h-full w-[3px] opacity-80"
+        style={{
+          background:
+            "linear-gradient(180deg, transparent, var(--accent), transparent)",
+        }}
+      />
+
+      {/* glow dinâmico */}
+      <div
+        className="pointer-events-none absolute -right-14 -top-14 h-32 w-32 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+        style={{ backgroundColor: "var(--accentSoft)" }}
+      />
 
       <CardHeader className="shrink-0 pb-3">
         <div className="flex items-start justify-between gap-2">
@@ -1309,7 +1366,13 @@ const DashboardWidget = memo(function DashboardWidget({
                     {title}
                   </h3>
 
-                  <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                  <Badge
+                    className="rounded-full border bg-white/70 text-zinc-700 shadow-sm backdrop-blur"
+                    style={{
+                      borderColor: hexToRgba(accent, 0.22),
+                      backgroundColor: hexToRgba(accent, 0.08),
+                    }}
+                  >
                     <span className="inline-flex items-center gap-1.5">
                       <IconViz className="h-3.5 w-3.5" />
                       {VIZ_LABEL[currentViz] || currentViz}
@@ -1423,6 +1486,139 @@ const DashboardWidget = memo(function DashboardWidget({
   );
 });
 
+function fmtTooltipValue(v) {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return new Intl.NumberFormat("pt-BR").format(v);
+  }
+  return String(v ?? "");
+}
+
+function ShadcnChartTooltip({ active, payload, label }) {
+  if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+
+  // título do tooltip (eixo X) ou nome do slice (pizza)
+  const title =
+    String(label ?? "").trim() ||
+    String(payload?.[0]?.payload?.name ?? "").trim() ||
+    "—";
+
+  // monta itens do tooltip
+  const items = payload
+    .map((p) => {
+      const color =
+        p?.color ||
+        p?.fill ||
+        p?.payload?.fill ||
+        p?.payload?.stroke ||
+        "#94a3b8";
+
+      // nome da série (Tickets / Dentro do prazo / etc)
+      const nameRaw = String(p?.name ?? p?.dataKey ?? "").trim();
+      const name = nameRaw && nameRaw !== "value" ? nameRaw : "Tickets";
+
+      return {
+        key: `${name}-${String(p?.dataKey ?? "")}`,
+        name,
+        color,
+        value: p?.value,
+      };
+    })
+    .filter((x) => x.name && x.value !== undefined && x.value !== null);
+
+  // se for pizza/donut, geralmente vem 1 item com name "value" ou "Tickets" — deixa mais clean
+  const prettyItems =
+    items.length === 1 ? [{ ...items[0], name: "Quantidade" }] : items;
+
+  return (
+    <div className="pointer-events-none select-none">
+      <div
+        className={cn(
+          "rounded-xl border border-white/10 bg-zinc-950/90 px-3 py-2",
+          "shadow-[0_18px_45px_-30px_rgba(0,0,0,0.90)] backdrop-blur"
+        )}
+      >
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <div className="max-w-[220px] truncate text-[11px] font-medium text-zinc-100">
+            {title}
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          {prettyItems.map((it) => (
+            <div
+              key={it.key}
+              className="flex items-center justify-between gap-4 text-[11px]"
+            >
+              <div className="min-w-0 inline-flex items-center gap-2 text-zinc-200">
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: it.color }}
+                />
+                <span className="max-w-[170px] truncate">{it.name}</span>
+              </div>
+
+              <div className="tabular-nums font-semibold text-zinc-50">
+                {fmtTooltipValue(it.value)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MinimalLegend({ payload }) {
+  const items = Array.isArray(payload) ? payload : [];
+
+  // remove duplicados e itens vazios
+  const uniq = [];
+  const seen = new Set();
+
+  for (const it of items) {
+    const label = String(it?.value ?? it?.payload?.name ?? it?.dataKey ?? "")
+      .trim()
+      .replace(/^value$/i, "Tickets");
+
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+
+    const color =
+      it?.color ||
+      it?.payload?.fill ||
+      it?.payload?.stroke ||
+      it?.payload?.color ||
+      "#64748b";
+
+    uniq.push({ label, color });
+  }
+
+  if (!uniq.length) return null;
+
+  // se tiver muito item (pizza), limita pra não virar bagunça
+  const MAX = 10;
+  const shown = uniq.slice(0, MAX);
+  const remaining = uniq.length - shown.length;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-600">
+      {shown.map((it) => (
+        <span key={it.label} className="inline-flex items-center gap-1.5">
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ background: it.color }}
+          />
+          <span className="max-w-[160px] truncate">{it.label}</span>
+        </span>
+      ))}
+
+      {remaining > 0 ? (
+        <span className="text-[11px] text-zinc-400">+{remaining}</span>
+      ) : null}
+    </div>
+  );
+}
+
 function WidgetBody({ metric, viz, data }) {
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;
@@ -1464,8 +1660,20 @@ function WidgetBody({ metric, viz, data }) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-              <RTooltip />
-              <Legend />
+              <RTooltip
+                content={<ShadcnChartTooltip />}
+                wrapperStyle={{ outline: "none", zIndex: 80 }}
+                allowEscapeViewBox={{ x: true, y: true }}
+                cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
+              />
+
+              <Legend
+                verticalAlign="bottom"
+                align="left"
+                height={24}
+                content={MinimalLegend}
+              />
+
               <Line
                 type="monotone"
                 dataKey="value"
@@ -1486,8 +1694,20 @@ function WidgetBody({ metric, viz, data }) {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="date" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-            <RTooltip />
-            <Legend />
+            <RTooltip
+              content={<ShadcnChartTooltip />}
+              wrapperStyle={{ outline: "none", zIndex: 80 }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
+            />
+
+            <Legend
+              verticalAlign="bottom"
+              align="left"
+              height={24}
+              content={MinimalLegend}
+            />
+
             <Area
               type="monotone"
               dataKey="value"
@@ -1513,8 +1733,20 @@ function WidgetBody({ metric, viz, data }) {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-            <RTooltip />
-            <Legend />
+            <RTooltip
+              content={<ShadcnChartTooltip />}
+              wrapperStyle={{ outline: "none", zIndex: 80 }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              cursor={{ fill: "rgba(15,23,42,0.06)" }}
+            />
+
+            <Legend
+              verticalAlign="bottom"
+              align="left"
+              height={32}
+              content={MinimalLegend}
+            />
+
             <Bar
               dataKey="dentro"
               stackId="a"
@@ -1563,8 +1795,19 @@ function WidgetBody({ metric, viz, data }) {
 
           return (
             <PieChart width={width} height={height}>
-              <RTooltip />
-              <Legend />
+              <RTooltip
+                content={<ShadcnChartTooltip />}
+                wrapperStyle={{ outline: "none", zIndex: 80 }}
+                allowEscapeViewBox={{ x: true, y: true }}
+              />
+
+              <Legend
+                verticalAlign="bottom"
+                align="left"
+                height={44}
+                content={MinimalLegend}
+              />
+
               <Pie
                 data={series}
                 dataKey="value"
@@ -1611,8 +1854,20 @@ function WidgetBody({ metric, viz, data }) {
               textAnchor={needsAngle ? "end" : "middle"}
             />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-            <RTooltip />
-            <Legend />
+            <RTooltip
+              content={<ShadcnChartTooltip />}
+              wrapperStyle={{ outline: "none", zIndex: 80 }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              cursor={{ fill: "rgba(15,23,42,0.06)" }}
+            />
+
+            <Legend
+              verticalAlign="bottom"
+              align="left"
+              height={24}
+              content={MinimalLegend}
+            />
+
             <Bar dataKey="value" name="Tickets">
               {series.map((entry, idx) => (
                 <Cell
@@ -1723,7 +1978,7 @@ function ChartFrame({ children, minHeight = 160 }) {
   return (
     <div
       ref={ref}
-      className="h-full w-full min-w-0 overflow-hidden rounded-2xl border border-zinc-100/70 bg-gradient-to-br from-white to-zinc-50/50 p-2"
+      className="relative h-full w-full min-w-0 overflow-visible rounded-2xl border border-zinc-100/70 bg-gradient-to-br from-white to-zinc-50/50 p-2"
       style={{ minHeight }}
     >
       {ok ? (
