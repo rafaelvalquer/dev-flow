@@ -86,6 +86,92 @@ export async function jiraSearchJqlAll(baseBody) {
   return all;
 }
 
+// ============================
+// Done (últimos N dias)
+// ============================
+
+function stripOrderBy(jql) {
+  return String(jql || "")
+    .replace(/\border\s+by\b[\s\S]*$/i, "")
+    .trim();
+}
+
+// Remove cláusulas comuns que impedem retornar "Done"
+function sanitizeBaseJqlForDone(baseJql) {
+  let s = stripOrderBy(baseJql);
+
+  // muito comum em filtros de board:
+  s = s.replace(/\bstatusCategory\s*!=\s*Done\b/gi, "");
+  s = s.replace(/\bstatusCategory\s+not\s+in\s*\(\s*Done\s*\)\b/gi, "");
+
+  // muito comum também:
+  s = s.replace(/\bresolution\s*=\s*Unresolved\b/gi, "");
+  s = s.replace(/\bresolution\s+is\s+EMPTY\b/gi, "");
+  s = s.replace(/\bresolution\s*=\s*EMPTY\b/gi, "");
+
+  // se existir "status not in (...Done...)" remove só se tiver Done/Resolved/Closed no miolo
+  s = s.replace(/\bstatus\s+not\s+in\s*\([^)]+\)/gi, (m) => {
+    return /done|resolv|closed|fechad|conclu/i.test(m) ? "" : m;
+  });
+
+  // limpa AND/OR sobrando
+  s = s
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s+(AND|OR)\s+(AND|OR)\s+/gi, " $1 ")
+    .replace(/^\s*(AND|OR)\s+/i, "")
+    .replace(/\s+(AND|OR)\s*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return s;
+}
+
+// Monta JQL somente para Done dos últimos N dias
+export function buildDoneLastNDaysJql(baseJql = "", days = 30) {
+  const base = sanitizeBaseJqlForDone(baseJql);
+  const prefix = base ? `(${base}) AND ` : "";
+
+  // resolved é o melhor campo para "concluídos por dia"
+  return `${prefix}statusCategory = Done AND resolved >= startOfDay(-${days}) ORDER BY resolved ASC`;
+}
+
+// Busca os "Done" dos últimos N dias (paginação via nextPageToken)
+export async function jiraSearchDoneLastNDays({
+  baseJql,
+  days = 30,
+  maxResults = 200,
+  fields = [
+    "summary",
+    "status",
+    "assignee",
+    "priority",
+    "created",
+    "updated",
+    "resolutiondate",
+    "duedate",
+    "components",
+    "issuetype",
+  ],
+} = {}) {
+  const base = String(baseJql || "").trim();
+
+  const doneJql = `
+    (${base})
+    AND statusCategory = Done
+    AND resolved IS NOT EMPTY
+    AND resolved >= -${Number(days) || 30}d
+    ORDER BY resolved DESC, updated DESC
+  `.trim();
+
+  console.log("[DONE] JQL =>", doneJql);
+
+  return jiraSearchJqlAll({
+    jql: doneJql,
+    fields,
+    maxResults,
+  });
+}
+
 export async function jiraGetIssue(key, fieldsCsv) {
   const qs = new URLSearchParams();
   if (fieldsCsv) qs.set("fields", fieldsCsv);

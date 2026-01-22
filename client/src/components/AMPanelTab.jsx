@@ -84,6 +84,8 @@ import {
   jiraSearchAssignableUsers,
   jiraSearchUsers,
   jiraTransitionToStatus,
+  jiraSearchJqlAll,
+  jiraSearchDoneLastNDays,
 } from "../lib/jiraClient";
 import { buildCronogramaADF } from "../utils/cronograma";
 
@@ -108,7 +110,6 @@ import GanttTab from "./GanttTab";
 function cn(...a) {
   return a.filter(Boolean).join(" ");
 }
-
 const CLAMP_2 = {
   display: "-webkit-box",
   WebkitLineClamp: 2,
@@ -438,13 +439,25 @@ export default function AMPanelTab() {
   const [persisting, setPersisting] = useState(false);
   const busy = Boolean(loading || persisting);
 
+  // dashboard tickets
+  const [rows, setRows] = useState([]);
+  const [doneRows, setDoneRows] = useState([]);
+
   const reload = useCallback(async () => {
     setLoading(true);
     setErr("");
     try {
-      const detailed = await fetchPoIssuesDetailed({ concurrency: 8 });
+      const [detailed, done] = await Promise.all([
+        fetchPoIssuesDetailed({ concurrency: 8 }),
+        fetchPoDoneLast30Days(), // ✅ DONE últimos 30 dias
+      ]);
+
       setRawIssues(detailed);
       setViewData(buildPoView(detailed));
+
+      // ✅ alimenta o dashboard
+      setRows(detailed);
+      setDoneRows(done);
     } catch (e) {
       console.error(e);
       setErr(e?.message || "Falha ao carregar dados do Jira.");
@@ -452,6 +465,45 @@ export default function AMPanelTab() {
       setLoading(false);
     }
   }, []);
+
+  async function loadData(baseJql) {
+    setLoading(true);
+    try {
+      const [openIssues, doneIssues] = await Promise.all([
+        jiraSearchJqlAll({
+          jql: baseJql,
+          maxResults: 100,
+          fields: [
+            "summary",
+            "status",
+            "assignee",
+            "priority",
+            "created",
+            "updated",
+            "duedate",
+            "components",
+            "issuetype",
+            "reporter",
+            "customfield_10988",
+            "customfield_11519",
+            "customfield_11520",
+            "customfield_14017",
+          ],
+        }),
+
+        // ✅ NOVO: Done (últimos 30 dias)
+        jiraSearchDoneLastNDays({
+          baseJql,
+          days: 30,
+        }),
+      ]);
+
+      setRows(openIssues);
+      setDoneRows(doneIssues);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     reload();
@@ -991,7 +1043,11 @@ export default function AMPanelTab() {
            ========================= */}
           {subView === "dashboard" && (
             <section className="grid gap-3">
-              <AMDashboardTab rows={rawIssues || []} loading={loading} />
+              <AMDashboardTab
+                rows={rows}
+                doneRows={doneRows}
+                loading={loading}
+              />
             </section>
           )}
 

@@ -37,6 +37,8 @@ import {
   LineChart as LineChartIcon,
   AreaChart as AreaChartIcon,
   Gauge,
+  AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 
 import {
@@ -53,7 +55,23 @@ import {
   Line,
   AreaChart,
   Area,
+  RadialBarChart,
+  RadialBar,
+  PolarAngleAxis,
+  ResponsiveContainer,
+  ComposedChart,
 } from "recharts";
+
+import { Input } from "@/components/ui/input";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { Cell } from "recharts";
 
@@ -67,6 +85,8 @@ function cn(...a) {
 }
 
 const LS_KEY = "am_dashboard_layout_v1";
+const LS_SLA_TARGET_KEY = "am_dashboard_sla_target_pct_v1";
+const JIRA_BASE_URL = "https://clarobr-jsw-tecnologia.atlassian.net";
 
 function uid(prefix = "w") {
   try {
@@ -77,7 +97,7 @@ function uid(prefix = "w") {
 }
 
 /* =========================
-   Datas / helpers
+   //#region Datas / helpers
 ========================= */
 function extractYmd(v) {
   if (!v) return "";
@@ -152,6 +172,79 @@ function fmtShortBRFromYmd(ymd) {
 function isDoneStatus(statusName) {
   const s = String(statusName || "").toUpperCase();
   return /(DONE|CONCLU|RESOLV|CLOSED|FECHAD)/i.test(s);
+}
+
+function normalizeIssue(t) {
+  const f = t?.fields || {};
+
+  const issueType = f?.issuetype?.name || t?.issueType || "—";
+  const reporter =
+    f?.reporter?.displayName || t?.reporterName || t?.reporter || "—";
+  const priority = t?.priorityName || f?.priority?.name || "Não informado";
+  const summary = f?.summary || t?.summary || "—";
+
+  const size =
+    t?.sizeValue ||
+    f?.customfield_10988?.value ||
+    f?.customfield_10988?.name ||
+    "Não informado";
+
+  const created = f?.created || t?.createdRaw || t?.created || "";
+  const updated = f?.updated || t?.updatedRaw || t?.updated || "";
+
+  const status = f?.status?.name || t?.statusName || t?.status?.name || "—";
+
+  const owner = f?.assignee?.displayName || t?.assignee || "Sem responsável";
+
+  const dueBaseYmd = extractYmd(f?.duedate || t?.duedate || t?.dueDateRaw);
+  const dueAltYmd = extractYmd(f?.customfield_11519 || t?.customfield_11519);
+
+  const dueBaseDate = parseIsoYmdLocal(dueBaseYmd);
+  const dueAltDate = parseIsoYmdLocal(dueAltYmd);
+
+  const hasDueAlt = Boolean(dueAltDate);
+  const effectiveDueDate = dueAltDate || dueBaseDate;
+
+  const components = Array.isArray(f?.components)
+    ? f.components.map((c) => c?.name).filter(Boolean)
+    : [];
+
+  const directorias = toNamesArray(f?.customfield_11520);
+
+  const hasSchedule = hasCronogramaField(f?.customfield_14017);
+
+  // ✅ importantíssimo para séries de "concluídos por dia"
+  const resolutionDate =
+    f?.resolutiondate ||
+    t?.resolutiondate ||
+    t?.resolutionDateRaw ||
+    t?.doneAt ||
+    "";
+
+  const done = isDoneStatus(status);
+
+  return {
+    _raw: t,
+    key: t?.key || "",
+    summary,
+    priority,
+    size,
+    created,
+    updated,
+    status,
+    owner,
+    issueType,
+    reporter,
+    dueBaseYmd,
+    dueAltYmd,
+    hasDueAlt,
+    effectiveDueDate,
+    components,
+    directorias,
+    hasSchedule,
+    resolutionDate,
+    done,
+  };
 }
 
 function toNamesArray(v) {
@@ -349,6 +442,20 @@ const METRICS = [
     defaultViz: "line",
     allowedViz: ["line", "area"],
   },
+  {
+    metric: "slaCompliance",
+    title: "SLA Compliance (meta)",
+    subtitle: "Percentual dentro do prazo (exclui Done e Sem data limite)",
+    defaultViz: "gauge",
+    allowedViz: ["gauge", "kpi"],
+  },
+  {
+    metric: "createdVsDonePerDay",
+    title: "Criados vs Concluídos por dia",
+    subtitle: "Entrada x saída (últimos 30 dias)",
+    defaultViz: "composed",
+    allowedViz: ["composed"],
+  },
 ];
 
 const VIZ_LABEL = {
@@ -359,6 +466,8 @@ const VIZ_LABEL = {
   area: "Área",
   stack: "Barras empilhadas",
   kpi: "KPI",
+  gauge: "Gauge",
+  composed: "Composto",
 };
 
 const VIZ_ICON = {
@@ -369,6 +478,8 @@ const VIZ_ICON = {
   area: AreaChartIcon,
   stack: BarChart3,
   kpi: Gauge,
+  gauge: Gauge,
+  composed: BarChart3,
 };
 
 const CHART_COLORS = [
@@ -559,7 +670,9 @@ function saveToStorage(payload) {
 function widgetGridSize(widget) {
   const v = String(widget?.viz || "");
   if (v === "kpi") return { w: 3, h: 3 };
+  if (v === "gauge") return { w: 4, h: 4 };
   if (v === "line" || v === "area") return { w: 6, h: 4 };
+  if (v === "composed") return { w: 6, h: 4 };
   return { w: 4, h: 4 };
 }
 
@@ -700,7 +813,27 @@ export default function AMDashboardTab({
   const [ready, setReady] = useState(false);
   const hydratedRef = useRef(false);
 
+  const [slaTargetPct, setSlaTargetPct] = useState(90);
+  const [slaCfgOpen, setSlaCfgOpen] = useState(false);
+  const [slaCfgValue, setSlaCfgValue] = useState("90");
+
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillTitle, setDrillTitle] = useState("");
+  const [drillItems, setDrillItems] = useState([]);
+
   const [gridRef, gridWidth] = useElementWidth();
+
+  const saveSlaTarget = useCallback((next) => {
+    const n = Math.max(1, Math.min(100, Number(next)));
+    if (!Number.isFinite(n)) return;
+
+    setSlaTargetPct(n);
+    setSlaCfgValue(String(n));
+
+    try {
+      localStorage.setItem(LS_SLA_TARGET_KEY, String(n));
+    } catch {}
+  }, []);
 
   const colsMap = useMemo(
     () => ({
@@ -753,88 +886,37 @@ export default function AMDashboardTab({
     saveToStorage({ widgets, layouts });
   }, [ready, widgets, layouts]);
 
-  const normalized = useMemo(() => {
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(LS_SLA_TARGET_KEY);
+      if (v != null) {
+        const num = Number(v);
+        if (Number.isFinite(num) && num > 0 && num <= 100) {
+          setSlaTargetPct(num);
+          setSlaCfgValue(String(num));
+        }
+      }
+    } catch {}
+  }, []);
+
+  const normalizedOpen = useMemo(() => {
     const list = Array.isArray(rows) ? rows : [];
-    return list.map((t) => {
-      const f = t?.fields || {};
-      const issueType = f?.issuetype?.name || t?.issueType || "—";
-      const reporter =
-        f?.reporter?.displayName || t?.reporterName || t?.reporter || "—";
-      const priority = t?.priorityName || f?.priority?.name || "Não informado";
-
-      const size =
-        t?.sizeValue ||
-        f?.customfield_10988?.value ||
-        f?.customfield_10988?.name ||
-        "Não informado";
-
-      const created = f?.created || t?.createdRaw || t?.created || "";
-      const updated = f?.updated || t?.updatedRaw || t?.updated || "";
-
-      const status = f?.status?.name || t?.statusName || t?.status?.name || "—";
-
-      const owner =
-        f?.assignee?.displayName || t?.assignee || "Sem responsável";
-
-      const dueBaseYmd = extractYmd(f?.duedate || t?.duedate || t?.dueDateRaw);
-      const dueAltYmd = extractYmd(
-        f?.customfield_11519 || t?.customfield_11519
-      );
-
-      const dueBaseDate = parseIsoYmdLocal(dueBaseYmd);
-      const dueAltDate = parseIsoYmdLocal(dueAltYmd);
-
-      const hasDueAlt = Boolean(dueAltDate);
-      const effectiveDueDate = dueAltDate || dueBaseDate;
-
-      const components = Array.isArray(f?.components)
-        ? f.components.map((c) => c?.name).filter(Boolean)
-        : [];
-
-      const directorias = toNamesArray(f?.customfield_11520);
-
-      const hasSchedule = hasCronogramaField(f?.customfield_14017);
-
-      return {
-        _raw: t,
-        key: t?.key || "",
-        priority,
-        size,
-        created,
-        updated,
-        status,
-        owner,
-        issueType,
-        reporter,
-        dueBaseYmd,
-        dueAltYmd,
-        hasDueAlt,
-        effectiveDueDate,
-        components,
-        directorias,
-        hasSchedule,
-        done: isDoneStatus(status),
-      };
-    });
+    return list.map(normalizeIssue);
   }, [rows]);
 
-  const normalizedDone = useMemo(() => {
+  const normalizedDoneFull = useMemo(() => {
     const list = Array.isArray(doneRows) ? doneRows : [];
-    return list.map((t) => {
-      const f = t?.fields || {};
-      const resolutionDate = f?.resolutiondate || t?.resolutionDateRaw || "";
-      const reporter = f?.reporter?.displayName || t?.reporter || "—";
-      const issueType = f?.issuetype?.name || t?.issueType || "—";
-
-      return {
-        _raw: t,
-        key: t?.key || "",
-        resolutionDate,
-        reporter,
-        issueType,
-      };
-    });
+    return list.map(normalizeIssue);
   }, [doneRows]);
+
+  // ✅ junta tudo e remove duplicados por KEY
+  const normalizedAll = useMemo(() => {
+    const byKey = new Map();
+    for (const t of [...normalizedOpen, ...normalizedDoneFull]) {
+      if (t?.key) byKey.set(t.key, t);
+    }
+    return Array.from(byKey.values());
+  }, [normalizedOpen, normalizedDoneFull]);
 
   const autoOrganize = useCallback(() => {
     setLayouts((prev) => {
@@ -844,9 +926,202 @@ export default function AMDashboardTab({
     });
   }, [widgets, colsMap]);
 
+  const openDrill = useCallback(
+    ({ metric, label }) => {
+      const today0 = startOfTodayLocal();
+      const m = String(metric || "");
+      const name = String(label || "").trim();
+
+      const listAll = normalizedAll || [];
+      const listOpen = listAll.filter((t) => !t.done);
+      const listDone = listAll.filter((t) => t.done);
+
+      const pick = (arr) => {
+        setDrillItems(arr);
+        setDrillTitle(`${metricDef(m)?.title || m}: ${name}`);
+        setDrillOpen(true);
+      };
+
+      if (!name) return;
+
+      switch (m) {
+        case "priority":
+          return pick(listOpen.filter((t) => t.priority === name));
+
+        case "status":
+          return pick(listOpen.filter((t) => t.status === name));
+
+        case "owner":
+          return pick(listOpen.filter((t) => t.owner === name));
+
+        case "size":
+          return pick(listOpen.filter((t) => t.size === name));
+
+        case "issueType":
+          return pick(listOpen.filter((t) => t.issueType === name));
+
+        case "reporter":
+          return pick(listOpen.filter((t) => t.reporter === name));
+
+        case "dueBuckets": {
+          const openList = list.filter((t) => !t.done);
+          return pick(
+            openList.filter((t) => dueBucketLabel(t, today0) === name)
+          );
+        }
+
+        case "sla": {
+          if (name === "Dentro do prazo") {
+            return pick(
+              listOpen.filter(
+                (t) => t.effectiveDueDate && t.effectiveDueDate >= today0
+              )
+            );
+          }
+          if (name === "Data limite estourada") {
+            return pick(
+              list.filter(
+                (t) =>
+                  !t.done &&
+                  t.effectiveDueDate &&
+                  t.effectiveDueDate < today0 &&
+                  !t.hasDueAlt
+              )
+            );
+          }
+          if (name === "Data limite alterada estourada") {
+            return pick(
+              list.filter(
+                (t) =>
+                  !t.done &&
+                  t.effectiveDueDate &&
+                  t.effectiveDueDate < today0 &&
+                  t.hasDueAlt
+              )
+            );
+          }
+          if (name === "Sem data limite") {
+            return pick(listOpen.filter((t) => !t.effectiveDueDate));
+          }
+          // se quiser manter opcional:
+          if (name === "Concluídos") {
+            return pick(listDone);
+          }
+          return;
+        }
+
+        case "slaCompliance": {
+          // mostra somente os elegíveis (com due date e não Done)
+          return pick(
+            list.filter((t) => !t.done && Boolean(t.effectiveDueDate))
+          );
+        }
+        case "aging": {
+          const today0 = startOfTodayLocal();
+
+          const inBucket = (t) => {
+            const ymd = extractYmd(t.created);
+            const d = parseIsoYmdLocal(ymd);
+            if (!d) return false;
+
+            const age = Math.max(0, diffDays(today0, d));
+
+            if (name === "0-2d") return age <= 2;
+            if (name === "3-7d") return age >= 3 && age <= 7;
+            if (name === "8-14d") return age >= 8 && age <= 14;
+            if (name === "15-30d") return age >= 15 && age <= 30;
+            if (name === "30+d") return age >= 31;
+            return false;
+          };
+
+          return pick(listOpen.filter(inBucket));
+        }
+
+        default:
+          return;
+      }
+    },
+    [normalizedAll]
+  );
+
+  function ymdLocal(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function brLabelFromYmd(ymd) {
+    // "2026-01-05" -> "05/01"
+    if (!ymd) return "";
+    const [y, m, d] = ymd.split("-");
+    return `${d}/${m}`;
+  }
+
+  function buildCreatedVsDoneByDay({ rows = [], doneRows = [], days = 30 }) {
+    // junta tudo pra não perder "created" de itens que hoje estão em done
+    const byKey = new Map();
+
+    for (const t of [...rows, ...doneRows]) {
+      const key = t?.key;
+      if (key) byKey.set(key, t);
+    }
+
+    const allTickets = Array.from(byKey.values());
+
+    const createdCount = new Map();
+    const doneCount = new Map();
+
+    for (const t of allTickets) {
+      const createdIso =
+        t?.createdRaw || t?.created || t?.fields?.created || t?.fields?.Created;
+
+      // ✅ sem Date.parse, só pega YYYY-MM-DD
+      const cYmd = extractYmd(createdIso);
+      if (cYmd) createdCount.set(cYmd, (createdCount.get(cYmd) || 0) + 1);
+    }
+
+    for (const t of doneRows) {
+      const doneIso =
+        t?.fields?.resolutiondate ||
+        t?.resolutiondate ||
+        t?.doneAt ||
+        t?.resolutionDateRaw ||
+        t?.updatedRaw ||
+        t?.updated;
+
+      // ✅ sem Date.parse
+      const dYmd = extractYmd(doneIso);
+      if (dYmd) doneCount.set(dYmd, (doneCount.get(dYmd) || 0) + 1);
+    }
+
+    const out = [];
+    const today0 = startOfTodayLocal();
+
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today0);
+      d.setDate(d.getDate() - i);
+
+      const ymd = extractYmd(d);
+
+      out.push({
+        ymd,
+        day: fmtShortBRFromYmd(ymd),
+        created: createdCount.get(ymd) || 0,
+        done: doneCount.get(ymd) || 0,
+      });
+    }
+
+    return out;
+  }
+
   const dashData = useMemo(() => {
-    const list = normalized;
-    const doneList = normalizedDone;
+    const listAll = normalizedAll || [];
+    const openList = listAll.filter((t) => !t.done);
+    const doneList = listAll.filter((t) => t.done);
 
     const priorityOrder = new Map([
       ["HIGHEST", 1],
@@ -856,7 +1131,8 @@ export default function AMDashboardTab({
       ["LOWEST", 5],
     ]);
 
-    const priorityCounts = countBy(list, (x) => x.priority)
+    // ✅ PRIORIDADE (somente abertos)
+    const priorityCounts = countBy(openList, (x) => x.priority)
       .sort((a, b) => {
         const pa = priorityOrder.get(String(a.name || "").toUpperCase()) || 99;
         const pb = priorityOrder.get(String(b.name || "").toUpperCase()) || 99;
@@ -870,48 +1146,55 @@ export default function AMDashboardTab({
           CHART_COLORS[idx % CHART_COLORS.length],
       }));
 
-    const sizeCounts = countBy(list, (x) => x.size)
+    // ✅ TAMANHO (somente abertos)
+    const sizeCounts = countBy(openList, (x) => x.size)
       .sort((a, b) => b.value - a.value)
       .map((item, idx) => ({
         ...item,
         fill: CHART_COLORS[idx % CHART_COLORS.length],
       }));
 
-    const statusCounts = countBy(list, (x) => x.status)
+    // ✅ STATUS (somente abertos)
+    const statusCounts = countBy(openList, (x) => x.status)
       .sort((a, b) => b.value - a.value)
       .map((item, idx) => ({
         ...item,
         fill: CHART_COLORS[idx % CHART_COLORS.length],
       }));
 
+    // ✅ OWNER (somente abertos)
     const ownerCounts = topN(
-      countBy(list, (x) => x.owner).sort((a, b) => b.value - a.value),
+      countBy(openList, (x) => x.owner).sort((a, b) => b.value - a.value),
       12
     ).map((item, idx) => ({
       ...item,
       fill: CHART_COLORS[idx % CHART_COLORS.length],
     }));
 
-    const createdSeries = buildLastNDaysSeries(list, (x) => x.created, 30);
-    const updatedSeries = buildLastNDaysSeries(list, (x) => x.updated, 30);
+    // ✅ SÉRIES (somente abertos)
+    const createdSeries = buildLastNDaysSeries(openList, (x) => x.created, 30);
+    const updatedSeries = buildLastNDaysSeries(openList, (x) => x.updated, 30);
 
     const today0 = startOfTodayLocal();
 
-    const issueTypeCounts = countBy(list, (x) => x.issueType)
+    // ✅ ISSUE TYPE (somente abertos)
+    const issueTypeCounts = countBy(openList, (x) => x.issueType)
       .sort((a, b) => b.value - a.value)
       .map((item, idx) => ({
         ...item,
         fill: CHART_COLORS[idx % CHART_COLORS.length],
       }));
 
+    // ✅ REPORTER (somente abertos)
     const reporterCounts = topN(
-      countBy(list, (x) => x.reporter).sort((a, b) => b.value - a.value),
+      countBy(openList, (x) => x.reporter).sort((a, b) => b.value - a.value),
       12
     ).map((item, idx) => ({
       ...item,
       fill: CHART_COLORS[idx % CHART_COLORS.length],
     }));
 
+    // ✅ DUE BUCKETS já era de abertos (mantém)
     const bucketOrder = new Map([
       ["Atrasado", 1],
       ["Hoje", 2],
@@ -922,8 +1205,6 @@ export default function AMDashboardTab({
       ["30+ dias", 7],
       ["Sem data limite", 99],
     ]);
-
-    const openList = list.filter((t) => !t.done);
 
     const dueBucketsCounts = countBy(openList, (x) => dueBucketLabel(x, today0))
       .sort((a, b) => {
@@ -937,18 +1218,13 @@ export default function AMDashboardTab({
         fill: CHART_COLORS[idx % CHART_COLORS.length],
       }));
 
+    // ✅ SLA (somente abertos)
     let inside = 0;
     let overdueBase = 0;
     let overdueAlt = 0;
     let noDue = 0;
-    let done = 0;
 
-    for (const t of list) {
-      if (t.done) {
-        done++;
-        continue;
-      }
-
+    for (const t of openList) {
       if (!t.effectiveDueDate) {
         noDue++;
         continue;
@@ -962,6 +1238,23 @@ export default function AMDashboardTab({
       }
     }
 
+    const overdueTotal = overdueBase + overdueAlt;
+    const eligible = inside + overdueTotal; // exclui Done e Sem data limite
+    const slaCompliancePct =
+      eligible > 0 ? Math.round((inside / eligible) * 1000) / 10 : 100;
+
+    const slaBreach = slaCompliancePct < slaTargetPct;
+
+    const slaCompliance = {
+      pct: slaCompliancePct,
+      targetPct: slaTargetPct,
+      eligibleTotal: eligible,
+      inside,
+      overdueTotal,
+      breach: slaBreach,
+    };
+
+    // ✅ SLA charts SEM "Concluídos"
     const slaPie = [
       { name: "Dentro do prazo", value: inside, fill: "#22c55e" },
       { name: "Data limite estourada", value: overdueBase, fill: "#ef4444" },
@@ -971,7 +1264,6 @@ export default function AMDashboardTab({
         fill: "#f59e0b",
       },
       { name: "Sem data limite", value: noDue, fill: "#6b7280" },
-      { name: "Concluídos", value: done, fill: "#3b82f6" },
     ].filter((x) => x.value > 0);
 
     const slaStack = [
@@ -981,10 +1273,10 @@ export default function AMDashboardTab({
         estourada: overdueBase,
         alterada: overdueAlt,
         semData: noDue,
-        concluidos: done,
       },
     ];
 
+    // ✅ AGING (somente abertos)
     const aging = new Map([
       ["0-2d", 0],
       ["3-7d", 0],
@@ -993,7 +1285,7 @@ export default function AMDashboardTab({
       ["30+d", 0],
     ]);
 
-    for (const t of list) {
+    for (const t of openList) {
       const ymd = extractYmd(t.created);
       const d = parseIsoYmdLocal(ymd);
       if (!d) continue;
@@ -1008,13 +1300,12 @@ export default function AMDashboardTab({
 
     const agingCounts = Array.from(aging.entries())
       .map(([name, value]) => ({ name, value }))
-      .map((item, idx) => ({
-        ...item,
-        fill: AGING_COLORS[idx],
-      }));
+      .map((item, idx) => ({ ...item, fill: AGING_COLORS[idx] }));
 
+    // ✅ COMPONENTS (somente abertos)
     const componentsAll = [];
-    for (const t of list) for (const c of t.components) componentsAll.push(c);
+    for (const t of openList)
+      for (const c of t.components) componentsAll.push(c);
 
     const componentsCounts = topN(
       countBy(componentsAll, (x) => x),
@@ -1024,8 +1315,9 @@ export default function AMDashboardTab({
       fill: CHART_COLORS[idx % CHART_COLORS.length],
     }));
 
+    // ✅ DIRECTORIAS (somente abertos)
     const dirsAll = [];
-    for (const t of list) {
+    for (const t of openList) {
       const dirs = Array.isArray(t?.diretorias) ? t.diretorias : [];
       for (const d of dirs) dirsAll.push(d);
     }
@@ -1038,17 +1330,26 @@ export default function AMDashboardTab({
       fill: CHART_COLORS[idx % CHART_COLORS.length],
     }));
 
-    const noAssigneeCount = list.filter(
+    // ✅ KPI (sem Done nos “sem responsável/cronograma”)
+    const noAssigneeCount = openList.filter(
       (t) => String(t.owner || "").toLowerCase() === "sem responsável"
     ).length;
 
-    const noScheduleCount = list.filter((t) => !t.hasSchedule).length;
+    const noScheduleCount = openList.filter((t) => !t.hasSchedule).length;
 
+    // ✅ SOMENTE DONE nos gráficos certos:
     const donePerDaySeries = buildLastNDaysSeries(
       doneList,
       (x) => x.resolutionDate,
       30
     );
+
+    const createdVsDoneSeries = buildCreatedVsDoneByDay({
+      rows,
+      doneRows,
+      days: 30,
+    });
+
     return {
       priorityCounts,
       sizeCounts,
@@ -1066,13 +1367,15 @@ export default function AMDashboardTab({
       issueTypeCounts,
       reporterCounts,
       kpis: {
-        total: list.length,
+        total: listAll.length, // mantém o total geral (abertos + concluídos)
         noAssigneeCount,
         noScheduleCount,
         overdueCount: overdueBase + overdueAlt,
       },
+      slaCompliance,
+      createdVsDoneSeries,
     };
-  }, [normalized, normalizedDone]);
+  }, [normalizedAll, slaTargetPct, rows, doneRows]);
 
   const addWidget = useCallback(() => {
     const used = new Set(widgets.map((w) => w.metric));
@@ -1222,6 +1525,10 @@ export default function AMDashboardTab({
                       <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
                         Sem cronograma: {dashData?.kpis?.noScheduleCount ?? 0}
                       </Badge>
+                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                        SLA: {dashData?.slaCompliance?.pct ?? 0}% (meta{" "}
+                        {dashData?.slaCompliance?.targetPct ?? 90}%)
+                      </Badge>
                     </div>
                   </div>
                 </div>
@@ -1300,6 +1607,16 @@ export default function AMDashboardTab({
                   <Button
                     variant="outline"
                     className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                    onClick={() => setSlaCfgOpen(true)}
+                    disabled={isBusy}
+                  >
+                    <Gauge className="mr-2 h-4 w-4" />
+                    Meta SLA
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
                     onClick={resetLayout}
                     disabled={isBusy}
                     title="Limpa localStorage e restaura layout padrão"
@@ -1357,6 +1674,7 @@ export default function AMDashboardTab({
                           onChangeMetric={(metricKey) =>
                             changeWidgetMetric(w.id, metricKey)
                           }
+                          onDrill={openDrill}
                         />
                       </div>
                     ))}
@@ -1367,6 +1685,115 @@ export default function AMDashboardTab({
           </Card>
         </div>
       </div>
+      <Dialog open={slaCfgOpen} onOpenChange={setSlaCfgOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configurar meta de SLA</DialogTitle>
+            <DialogDescription>
+              Defina o alvo de “tickets dentro do prazo” (somente tickets com
+              data limite).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-2">
+            <div className="text-sm text-zinc-600">Meta (%)</div>
+            <Input
+              value={slaCfgValue}
+              onChange={(e) => setSlaCfgValue(e.target.value)}
+              inputMode="numeric"
+              placeholder="90"
+            />
+            <div className="text-xs text-zinc-500">
+              Intervalo recomendado: 80 a 95.
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setSlaCfgOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => {
+                saveSlaTarget(slaCfgValue);
+                setSlaCfgOpen(false);
+              }}
+            >
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={drillOpen} onOpenChange={setDrillOpen}>
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>{drillTitle}</DialogTitle>
+            <DialogDescription>{drillItems.length} ticket(s)</DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[70vh] overflow-auto rounded-xl border border-zinc-200">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b">
+                  <th className="px-3 py-2 text-left">Key</th>
+                  <th className="px-3 py-2 text-left">Resumo</th>
+                  <th className="px-3 py-2 text-left">Status</th>
+                  <th className="px-3 py-2 text-left">Prioridade</th>
+                  <th className="px-3 py-2 text-left">Responsável</th>
+                  <th className="px-3 py-2 text-left">Due</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {drillItems.map((t) => {
+                  const key = t?.key || "—";
+                  const summary = t?.summary || "—";
+                  const due = t?.dueAltYmd || t?.dueBaseYmd || "";
+                  const url =
+                    t?._raw?.link ||
+                    t?._raw?.url ||
+                    (JIRA_BASE_URL
+                      ? `${JIRA_BASE_URL.replace(/\/$/, "")}/browse/${key}`
+                      : "");
+
+                  return (
+                    <tr key={key} className="border-b hover:bg-zinc-50">
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {url ? (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                          >
+                            {key}
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        ) : (
+                          <span className="font-semibold">{key}</span>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 min-w-[360px]">{summary}</td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {t?.status || "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {t?.priority || "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {t?.owner || "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        {due ? fmtShortBRFromYmd(due) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
@@ -1381,6 +1808,7 @@ const DashboardWidget = memo(function DashboardWidget({
   onRemove,
   onChangeViz,
   onChangeMetric,
+  onDrill,
 }) {
   const def = metricDef(widget.metric);
   const title = def?.title || "Widget";
@@ -1429,12 +1857,22 @@ const DashboardWidget = memo(function DashboardWidget({
         return d.reporterCounts || [];
       case "donePerDay":
         return d.donePerDaySeries || [];
+      case "slaCompliance":
+        return d.slaCompliance || { pct: 0, targetPct: 90, breach: false };
+      case "createdVsDonePerDay":
+        return d.createdVsDoneSeries || [];
+
       default:
         return [];
     }
   }, [dashData, widget.metric, currentViz]);
 
-  const accent = metricAccent(widget.metric);
+  let accent = metricAccent(widget.metric);
+
+  if (widget.metric === "slaCompliance") {
+    const breach = Boolean(dashData?.slaCompliance?.breach);
+    accent = breach ? "#ef4444" : "#22c55e";
+  }
   const accentSoft = hexToRgba(accent, 0.14);
   const accentLine = hexToRgba(accent, 0.55);
 
@@ -1613,6 +2051,7 @@ const DashboardWidget = memo(function DashboardWidget({
             viz={currentViz}
             data={data}
             accent={accent}
+            onItemClick={(label) => onDrill?.({ metric: widget.metric, label })}
           />
         </div>
       </CardContent>
@@ -1753,7 +2192,7 @@ function MinimalLegend({ payload }) {
   );
 }
 
-function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
+function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;
 
@@ -1772,6 +2211,47 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (viz === "composed") {
+    const series = Array.isArray(data) ? data : [];
+    if (!series.length) return <EmptyChart text="Sem dados suficientes." />;
+
+    return (
+      <ChartFrame minHeight={160}>
+        {({ width, height }) => (
+          <ComposedChart width={width} height={height} data={series}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+
+            <RTooltip
+              content={<ShadcnChartTooltip />}
+              wrapperStyle={{ outline: "none", zIndex: 80 }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
+            />
+
+            <Legend
+              verticalAlign="bottom"
+              align="left"
+              height={24}
+              content={MinimalLegend}
+            />
+
+            <Bar dataKey="created" name="Criados" fill={accent} />
+            <Line
+              type="monotone"
+              dataKey="done"
+              name="Concluídos"
+              stroke="#22c55e"
+              strokeWidth={2}
+              dot={false}
+            />
+          </ComposedChart>
+        )}
+      </ChartFrame>
     );
   }
 
@@ -1950,6 +2430,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
                 cy={height / 2}
                 innerRadius={inner}
                 outerRadius={radius}
+                onClick={(p) => onItemClick?.(p?.name)}
               >
                 {series.map((entry, idx) => (
                   <Cell
@@ -1971,6 +2452,73 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
 
     const needsAngle = series.length > 8;
 
+    // ✅ Dataset comum: [{ name, value, fill }]
+    const isValueSeries = series.some((x) => typeof x?.value === "number");
+
+    // ✅ Dataset SLA stack (fallback de segurança): [{ name: "SLA", dentro, estourada, ... }]
+    const sample = series?.[0] || {};
+    const looksLikeStack =
+      !isValueSeries && ("dentro" in sample || "estourada" in sample);
+
+    if (looksLikeStack) {
+      // Mantém seu comportamento antigo caso chegue dados empilhados aqui por engano
+      return (
+        <ChartFrame minHeight={160}>
+          {({ width, height }) => (
+            <BarChart width={width} height={height} data={series}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <RTooltip
+                content={<ShadcnChartTooltip />}
+                wrapperStyle={{ outline: "none", zIndex: 80 }}
+                allowEscapeViewBox={{ x: true, y: true }}
+                cursor={{ fill: "rgba(15,23,42,0.06)" }}
+              />
+              <Legend
+                verticalAlign="bottom"
+                align="left"
+                height={24}
+                content={MinimalLegend}
+              />
+
+              <Bar
+                dataKey="dentro"
+                stackId="a"
+                name="Dentro do prazo"
+                fill="#22c55e"
+              />
+              <Bar
+                dataKey="estourada"
+                stackId="a"
+                name="Data limite estourada"
+                fill="#ef4444"
+              />
+              <Bar
+                dataKey="alterada"
+                stackId="a"
+                name="Data limite alterada estourada"
+                fill="#f59e0b"
+              />
+              <Bar
+                dataKey="semData"
+                stackId="a"
+                name="Sem data limite"
+                fill="#6b7280"
+              />
+              <Bar
+                dataKey="concluidos"
+                stackId="a"
+                name="Concluídos"
+                fill="#3b82f6"
+              />
+            </BarChart>
+          )}
+        </ChartFrame>
+      );
+    }
+
+    // ✅ CORRETO: gráfico de barras genérico (Status, Owner, Aging, Priority, etc)
     return (
       <ChartFrame minHeight={160}>
         {({ width, height }) => (
@@ -1994,7 +2542,6 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
               allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ fill: "rgba(15,23,42,0.06)" }}
             />
-
             <Legend
               verticalAlign="bottom"
               align="left"
@@ -2002,17 +2549,89 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6" }) {
               content={MinimalLegend}
             />
 
-            <Bar dataKey="value" name="Tickets">
+            <Bar
+              dataKey="value"
+              name="Tickets"
+              fill={accent}
+              onClick={(e) => onItemClick?.(e?.payload?.name)}
+            >
               {series.map((entry, idx) => (
                 <Cell
                   key={`cell-${idx}`}
-                  fill={entry.fill || CHART_COLORS[idx % CHART_COLORS.length]}
+                  fill={entry?.fill || CHART_COLORS[idx % CHART_COLORS.length]}
                 />
               ))}
             </Bar>
           </BarChart>
         )}
       </ChartFrame>
+    );
+  }
+
+  if (viz === "gauge") {
+    const info = typeof data === "object" && data ? data : null;
+
+    // Quando o widget for slaCompliance, o "data" vai vir do dashData abaixo (ajuste no passo 14)
+    // mas aqui garantimos fallback:
+    const pct = Number(info?.pct ?? 0);
+    const targetPct = Number(info?.targetPct ?? 90);
+    const breach = Boolean(info?.breach);
+
+    const safePct = Math.max(0, Math.min(100, pct));
+
+    return (
+      <div
+        className="h-full rounded-2xl border border-zinc-100 bg-zinc-50/40 p-3 cursor-pointer hover:bg-zinc-50/70 transition"
+        onClick={() => onItemClick?.("SLA Compliance")}
+        title="Clique para ver os tickets elegíveis"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs text-zinc-600">
+            Meta: <span className="font-semibold">{targetPct}%</span>
+          </div>
+
+          {breach ? (
+            <Badge className="rounded-full bg-red-600 text-white">
+              <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+              Abaixo da meta
+            </Badge>
+          ) : (
+            <Badge className="rounded-full bg-green-600 text-white">OK</Badge>
+          )}
+        </div>
+
+        <div className="mt-2 grid place-items-center">
+          <RadialBarChart
+            width={240}
+            height={180}
+            cx="50%"
+            cy="60%"
+            innerRadius={60}
+            outerRadius={90}
+            barSize={14}
+            data={[{ name: "SLA", value: safePct }]}
+            startAngle={180}
+            endAngle={0}
+          >
+            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+
+            <RadialBar
+              background
+              clockWise
+              dataKey="value"
+              cornerRadius={8}
+              fill={accent}
+            />
+          </RadialBarChart>
+
+          <div className="-mt-10 text-center">
+            <div className="text-4xl font-bold tracking-tight text-zinc-900">
+              {safePct.toFixed(1)}%
+            </div>
+            <div className="text-xs text-zinc-500">SLA Compliance</div>
+          </div>
+        </div>
+      </div>
     );
   }
 
