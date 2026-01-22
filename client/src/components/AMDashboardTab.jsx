@@ -60,6 +60,7 @@ import {
   PolarAngleAxis,
   ResponsiveContainer,
   ComposedChart,
+  Treemap,
 } from "recharts";
 
 import { Input } from "@/components/ui/input";
@@ -146,6 +147,18 @@ function diffDays(a, b) {
   return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function issueTypeKind(issueTypeName) {
+  const s = String(issueTypeName || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (/(sub[-\s]?task|subtarefa|sub\-tarefa)/.test(s)) return "subtask";
+  if (/(historia|story|hist)/.test(s)) return "story";
+
+  return "other"; // segurança
+}
+
 function dueBucketLabel(t, today0) {
   if (!t?.effectiveDueDate) return "Sem data limite";
 
@@ -178,6 +191,11 @@ function normalizeIssue(t) {
   const f = t?.fields || {};
 
   const issueType = f?.issuetype?.name || t?.issueType || "—";
+
+  const isSubtask =
+    Boolean(f?.issuetype?.subtask) ||
+    /subtarefa|sub-task|subtask/i.test(issueType);
+
   const reporter =
     f?.reporter?.displayName || t?.reporterName || t?.reporter || "—";
   const priority = t?.priorityName || f?.priority?.name || "Não informado";
@@ -234,6 +252,7 @@ function normalizeIssue(t) {
     status,
     owner,
     issueType,
+    isSubtask,
     reporter,
     dueBaseYmd,
     dueAltYmd,
@@ -335,7 +354,7 @@ const METRICS = [
     title: "Prioridade do ticket",
     subtitle: "Quantidade por prioridade",
     defaultViz: "bar",
-    allowedViz: ["bar", "donut", "pie"],
+    allowedViz: ["bar", "barh", "donut", "pie", "treemap"],
   },
   {
     metric: "size",
@@ -370,7 +389,7 @@ const METRICS = [
     title: "Distribuição por status",
     subtitle: "Quantidade por status",
     defaultViz: "bar",
-    allowedViz: ["bar", "donut", "pie"],
+    allowedViz: ["bar", "barh", "donut", "pie", "treemap"],
   },
   {
     metric: "sla",
@@ -384,21 +403,21 @@ const METRICS = [
     title: "Aging (idade do ticket)",
     subtitle: "Faixas de dias desde criação",
     defaultViz: "bar",
-    allowedViz: ["bar"],
+    allowedViz: ["bar", "barh"],
   },
   {
     metric: "components",
     title: "Componentes",
     subtitle: "Top componentes",
     defaultViz: "bar",
-    allowedViz: ["bar", "donut", "pie"],
+    allowedViz: ["bar", "barh", "donut", "pie", "treemap"],
   },
   {
     metric: "directorates",
     title: "Diretorias",
     subtitle: "Top diretorias",
     defaultViz: "bar",
-    allowedViz: ["bar", "donut", "pie"],
+    allowedViz: ["bar", "barh", "donut", "pie", "treemap"], // ✅
   },
   {
     metric: "noAssignee",
@@ -433,7 +452,7 @@ const METRICS = [
     title: "Reportado por",
     subtitle: "Top reporters",
     defaultViz: "bar",
-    allowedViz: ["bar", "donut", "pie"],
+    allowedViz: ["bar", "barh", "donut", "pie", "treemap"],
   },
   {
     metric: "donePerDay",
@@ -452,17 +471,20 @@ const METRICS = [
   {
     metric: "createdVsDonePerDay",
     title: "Criados vs Concluídos por dia",
-    subtitle: "Entrada x saída (últimos 30 dias)",
+    subtitle: "História x Subtarefas (últimos 30 dias)",
     defaultViz: "composed",
-    allowedViz: ["composed"],
+    allowedViz: ["composed", "multiLine"],
   },
 ];
 
 const VIZ_LABEL = {
   bar: "Barras",
+  barh: "Barras horizontais", // ✅ NEW
+  treemap: "Treemap", // ✅ NEW
   pie: "Pizza",
   donut: "Donut",
   line: "Linha",
+  multiLine: "Linhas múltiplas", // ✅ NEW
   area: "Área",
   stack: "Barras empilhadas",
   kpi: "KPI",
@@ -472,9 +494,12 @@ const VIZ_LABEL = {
 
 const VIZ_ICON = {
   bar: BarChart3,
+  barh: BarChart3, // ✅ NEW
+  treemap: PieChartIcon, // ✅ NEW (pode trocar se quiser)
   pie: PieChartIcon,
   donut: PieChartIcon,
   line: LineChartIcon,
+  multiLine: LineChartIcon, // ✅ NEW
   area: AreaChartIcon,
   stack: BarChart3,
   kpi: Gauge,
@@ -1061,61 +1086,61 @@ export default function AMDashboardTab({
     return `${d}/${m}`;
   }
 
-  function buildCreatedVsDoneByDay({ rows = [], doneRows = [], days = 30 }) {
-    // junta tudo pra não perder "created" de itens que hoje estão em done
-    const byKey = new Map();
-
-    for (const t of [...rows, ...doneRows]) {
-      const key = t?.key;
-      if (key) byKey.set(key, t);
-    }
-
-    const allTickets = Array.from(byKey.values());
-
-    const createdCount = new Map();
-    const doneCount = new Map();
-
-    for (const t of allTickets) {
-      const createdIso =
-        t?.createdRaw || t?.created || t?.fields?.created || t?.fields?.Created;
-
-      // ✅ sem Date.parse, só pega YYYY-MM-DD
-      const cYmd = extractYmd(createdIso);
-      if (cYmd) createdCount.set(cYmd, (createdCount.get(cYmd) || 0) + 1);
-    }
-
-    for (const t of doneRows) {
-      const doneIso =
-        t?.fields?.resolutiondate ||
-        t?.resolutiondate ||
-        t?.doneAt ||
-        t?.resolutionDateRaw ||
-        t?.updatedRaw ||
-        t?.updated;
-
-      // ✅ sem Date.parse
-      const dYmd = extractYmd(doneIso);
-      if (dYmd) doneCount.set(dYmd, (doneCount.get(dYmd) || 0) + 1);
-    }
-
-    const out = [];
+  function buildCreatedVsDoneByDay({
+    allTickets = [],
+    doneTickets = [],
+    days = 30,
+  }) {
     const today0 = startOfTodayLocal();
 
+    // prepara dias alvo (últimos N)
+    const daysList = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(today0);
       d.setDate(d.getDate() - i);
-
-      const ymd = extractYmd(d);
-
-      out.push({
-        ymd,
-        day: fmtShortBRFromYmd(ymd),
-        created: createdCount.get(ymd) || 0,
-        done: doneCount.get(ymd) || 0,
-      });
+      daysList.push(extractYmd(d));
     }
 
-    return out;
+    // mapas: ymd -> count
+    const createdStory = new Map(daysList.map((d) => [d, 0]));
+    const createdSub = new Map(daysList.map((d) => [d, 0]));
+    const doneStory = new Map(daysList.map((d) => [d, 0]));
+    const doneSub = new Map(daysList.map((d) => [d, 0]));
+
+    // CREATED: usa todos tickets (abertos + done) para não perder created
+    for (const t of allTickets) {
+      const ymd = extractYmd(t?.created);
+      if (!ymd || !createdStory.has(ymd)) continue;
+
+      const kind = issueTypeKind(t?.issueType);
+      if (kind === "story") createdStory.set(ymd, createdStory.get(ymd) + 1);
+      else if (kind === "subtask") createdSub.set(ymd, createdSub.get(ymd) + 1);
+    }
+
+    // DONE: usa apenas doneTickets e resolutionDate
+    for (const t of doneTickets) {
+      const ymd = extractYmd(t?.resolutionDate);
+      if (!ymd || !doneStory.has(ymd)) continue;
+
+      const kind = issueTypeKind(t?.issueType);
+      if (kind === "story") doneStory.set(ymd, doneStory.get(ymd) + 1);
+      else if (kind === "subtask") doneSub.set(ymd, doneSub.get(ymd) + 1);
+    }
+
+    return daysList.map((ymd) => ({
+      ymd,
+      day: fmtShortBRFromYmd(ymd),
+
+      createdStory: createdStory.get(ymd) || 0,
+      createdSubtask: createdSub.get(ymd) || 0,
+
+      doneStory: doneStory.get(ymd) || 0,
+      doneSubtask: doneSub.get(ymd) || 0,
+
+      // (opcional, mas útil pro tooltip)
+      createdTotal: (createdStory.get(ymd) || 0) + (createdSub.get(ymd) || 0),
+      doneTotal: (doneStory.get(ymd) || 0) + (doneSub.get(ymd) || 0),
+    }));
   }
 
   const dashData = useMemo(() => {
@@ -1345,8 +1370,8 @@ export default function AMDashboardTab({
     );
 
     const createdVsDoneSeries = buildCreatedVsDoneByDay({
-      rows,
-      doneRows,
+      allTickets: listAll, // ✅ normalizedAll
+      doneTickets: doneList, // ✅ somente Done
       days: 30,
     });
 
@@ -2236,20 +2261,103 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <Legend
               verticalAlign="bottom"
               align="left"
-              height={24}
+              height={28}
               content={MinimalLegend}
             />
 
-            <Bar dataKey="created" name="Criados" fill={accent} />
+            {/* ✅ Criados (barras empilhadas) */}
+            <Bar
+              dataKey="createdStory"
+              stackId="created"
+              name="Criados História"
+              fill="#3b82f6"
+            />
+            <Bar
+              dataKey="createdSubtask"
+              stackId="created"
+              name="Criados Subtarefas"
+              fill="#06b6d4"
+            />
+
+            {/* ✅ Concluídos (linhas) */}
             <Line
               type="monotone"
-              dataKey="done"
-              name="Concluídos"
+              dataKey="doneStory"
+              name="Concluídos História"
               stroke="#22c55e"
               strokeWidth={2}
               dot={false}
             />
+            <Line
+              type="monotone"
+              dataKey="doneSubtask"
+              name="Concluídos Subtarefas"
+              stroke="#84cc16"
+              strokeWidth={2}
+              dot={false}
+            />
           </ComposedChart>
+        )}
+      </ChartFrame>
+    );
+  }
+
+  if (viz === "multiLine") {
+    const series = Array.isArray(data) ? data : [];
+    if (!series.length) return <EmptyChart text="Sem dados suficientes." />;
+
+    return (
+      <ChartFrame minHeight={160}>
+        {({ width, height }) => (
+          <LineChart width={width} height={height} data={series}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+
+            <RTooltip
+              content={<ShadcnChartTooltip />}
+              wrapperStyle={{ outline: "none", zIndex: 80 }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
+            />
+
+            <Legend
+              verticalAlign="bottom"
+              align="left"
+              height={28}
+              content={MinimalLegend}
+            />
+
+            <Line
+              type="monotone"
+              dataKey="createdStory"
+              name="Criados História"
+              stroke="#3b82f6"
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="createdSubtask"
+              name="Criados Subtarefas"
+              stroke="#06b6d4"
+              dot={false}
+            />
+
+            <Line
+              type="monotone"
+              dataKey="doneStory"
+              name="Concluídos História"
+              stroke="#22c55e"
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="doneSubtask"
+              name="Concluídos Subtarefas"
+              stroke="#84cc16"
+              dot={false}
+            />
+          </LineChart>
         )}
       </ChartFrame>
     );
@@ -2397,6 +2505,30 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
     );
   }
 
+  if (viz === "treemap") {
+    const series = Array.isArray(data) ? data : [];
+    if (!series.length) return <EmptyChart text="Sem dados para treemap." />;
+
+    return (
+      <ChartFrame minHeight={160}>
+        {({ width, height }) => (
+          <Treemap
+            width={width}
+            height={height}
+            data={series}
+            dataKey="value"
+            nameKey="name"
+            stroke="rgba(255,255,255,0.85)"
+            fill={accent}
+            isAnimationActive={false}
+          >
+            <RTooltip content={<ShadcnChartTooltip />} />
+          </Treemap>
+        )}
+      </ChartFrame>
+    );
+  }
+
   if (viz === "pie" || viz === "donut") {
     const series = Array.isArray(data) ? data : [];
     if (!series.length) return <EmptyChart text="Sem dados para pizza." />;
@@ -2442,6 +2574,59 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             </PieChart>
           );
         }}
+      </ChartFrame>
+    );
+  }
+
+  if (viz === "barh") {
+    const series = Array.isArray(data) ? data : [];
+    if (!series.length) return <EmptyChart text="Sem dados para barras." />;
+
+    return (
+      <ChartFrame minHeight={160}>
+        {({ width, height }) => (
+          <BarChart
+            layout="vertical"
+            width={width}
+            height={height}
+            data={series}
+            margin={{ top: 5, right: 16, bottom: 5, left: 24 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              type="number"
+              tick={{ fontSize: 11 }}
+              allowDecimals={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              tick={{ fontSize: 11 }}
+              width={110}
+            />
+
+            <RTooltip
+              content={<ShadcnChartTooltip />}
+              wrapperStyle={{ outline: "none", zIndex: 80 }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              cursor={{ fill: "rgba(15,23,42,0.06)" }}
+            />
+
+            <Bar
+              dataKey="value"
+              name="Tickets"
+              fill={accent}
+              onClick={(e) => onItemClick?.(e?.payload?.name)}
+            >
+              {series.map((entry, idx) => (
+                <Cell
+                  key={`cell-${idx}`}
+                  fill={entry?.fill || CHART_COLORS[idx % CHART_COLORS.length]}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        )}
       </ChartFrame>
     );
   }
