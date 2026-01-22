@@ -8,21 +8,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import {
-  AlertTriangle,
-  Loader2,
-  Search,
-  Lock,
-  Unlock,
-  Link2,
-  Link2Off,
-} from "lucide-react";
+import { AlertTriangle, Loader2, Search, Link2, Link2Off } from "lucide-react";
+
+import GanttTaskInspectorDrawer from "./GanttTaskInspectorDrawer";
 
 /* =========================
    Helpers
@@ -93,6 +88,34 @@ function getActivityIdFromTaskId(id) {
   return String(parts?.[1] || "").trim();
 }
 
+function inferDueDateFromIssue(iss) {
+  const raw =
+    iss?.dueDateRaw ||
+    iss?.dueDate ||
+    iss?.fields?.duedate ||
+    iss?.fields?.dueDate ||
+    iss?.fields?.due_date;
+
+  const s = String(raw || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+
+  // fim do dia
+  const d = new Date(`${s}T23:59:59.999`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function calcOverdueDays({ dueDate, statusName }) {
+  if (!dueDate) return 0;
+  if (isDoneStatus(statusName)) return 0;
+
+  const now = new Date();
+  if (now.getTime() <= dueDate.getTime()) return 0;
+
+  const ms = now.getTime() - dueDate.getTime();
+  const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
+  return Math.max(1, days || 1);
+}
+
 /* =========================
    Tooltip do Gantt (remove "From/To")
 ========================= */
@@ -105,8 +128,14 @@ function GanttTooltipContent({ task, fontSize, fontFamily }) {
       style={{ fontSize, fontFamily }}
       className="min-w-[220px] rounded-xl border border-zinc-200 bg-white p-3 shadow-md"
     >
-      <div className="text-xs font-semibold text-zinc-900">
-        {isProject ? `Ticket ${issueKey}` : task?.name || "—"}
+      <div className="flex items-center gap-2">
+        <div className="text-xs font-semibold text-zinc-900">
+          {isProject ? `Ticket ${issueKey}` : task?.name || "—"}
+        </div>
+
+        {!isProject && task?.risk ? (
+          <Badge className="rounded-full bg-orange-600 text-white">Risco</Badge>
+        ) : null}
       </div>
 
       {!isProject ? (
@@ -207,10 +236,11 @@ function buildLegendItems(tasks, colorMode) {
       key = t.recurso || "Sem recurso";
       label = key;
     } else if (colorMode === "atividade") {
-      colorKey = t.activityId || groupAtividadeName(t.name);
+      key = t.activityId || groupAtividadeName(t.name);
+      label = ATIVIDADE_LABEL_BY_ID[t.activityId] || key;
     } else {
       key = t.issueKey || "—";
-      label = key;
+      label = key || "—";
     }
 
     const color = t.styles?.backgroundColor || "#111827";
@@ -225,7 +255,7 @@ function buildLegendItems(tasks, colorMode) {
 const PO_CHAIN = ["devUra", "rdm", "gmud", "hml", "deploy"];
 
 /* =========================
-   Build tasks (SEU CÓDIGO - mantido)
+   Build tasks (SEU CÓDIGO - mantido + metaOverrides)
 ========================= */
 export function buildGanttTasksFromViewData({
   viewData,
@@ -236,6 +266,7 @@ export function buildGanttTasksFromViewData({
   groupByTicket,
   quickView,
   collapsedProjects,
+  metaOverrides, // ✅ NOVO
 }) {
   const issues = Array.isArray(viewData?.calendarioIssues)
     ? viewData.calendarioIssues
@@ -269,9 +300,11 @@ export function buildGanttTasksFromViewData({
     for (const atv of atividades) {
       const activityId = String(atv?.id || "").trim();
       if (!issueKey || !activityId) continue;
+
       metaIndex.set(`${issueKey}::${activityId}`, {
         recurso: String(atv?.recurso || "").trim() || "Sem recurso",
         area: String(atv?.area || "").trim() || "—",
+        risk: Boolean(atv?.risk),
         activityName: String(atv?.name || "").trim() || activityId,
         statusName: String(iss?.statusName || iss?.status || ""),
         summary: String(iss?.summary || ""),
@@ -311,10 +344,18 @@ export function buildGanttTasksFromViewData({
       const range = dateIndex.get(`${issueKey}::${activityId}`);
       if (!range) continue;
 
-      const meta = metaIndex.get(`${issueKey}::${activityId}`) || {};
+      const baseMeta = metaIndex.get(`${issueKey}::${activityId}`) || {};
+
+      // ✅ aplica override otimista (recurso/área/risco)
+      const override = metaOverrides?.get?.(`${issueKey}::${activityId}`) || {};
+      const mergedMeta = {
+        ...baseMeta,
+        ...override,
+      };
+
       const name =
         ATIVIDADE_LABEL_BY_ID[activityId] ||
-        meta.activityName ||
+        mergedMeta.activityName ||
         atv?.name ||
         activityId;
 
@@ -330,10 +371,13 @@ export function buildGanttTasksFromViewData({
 
         issueKey,
         activityId,
-        recurso: meta.recurso || "Sem recurso",
-        area: meta.area || "—",
-        statusName: meta.statusName || "",
-        summary: meta.summary || "",
+
+        recurso: String(mergedMeta.recurso || "").trim() || "Sem recurso",
+        area: String(mergedMeta.area || "").trim() || "—",
+        risk: Boolean(mergedMeta.risk),
+
+        statusName: mergedMeta.statusName || "",
+        summary: mergedMeta.summary || "",
       });
     }
 
@@ -392,6 +436,8 @@ export function buildGanttTasksFromViewData({
         activityId: "",
         recurso: "",
         area: "",
+        risk: false,
+
         statusName: String(iss?.statusName || iss?.status || ""),
         summary: String(iss?.summary || ""),
       });
@@ -413,18 +459,6 @@ export function buildGanttTasksFromViewData({
       });
 
   let finalTasks = filteredByText;
-  if (quickView === "recurso") {
-    finalTasks = [...filteredByText].sort((a, b) => {
-      if (a.type === "project" && b.type !== "project") return -1;
-      if (a.type !== "project" && b.type === "project") return 1;
-
-      const ra = String(a.recurso || "");
-      const rb = String(b.recurso || "");
-      const c = ra.localeCompare(rb);
-      if (c !== 0) return c;
-      return a.start.getTime() - b.start.getTime();
-    });
-  }
 
   const conflictSet = new Set();
   if (quickView === "risco") {
@@ -455,15 +489,15 @@ export function buildGanttTasksFromViewData({
     if (colorMode === "ticket") colorKey = t.issueKey || "—";
     else if (colorMode === "recurso") colorKey = t.recurso || "Sem recurso";
     else if (colorMode === "atividade") {
-      colorKey =
-        ATIVIDADE_COLOR_BY_ID[t.activityId] ||
-        t.activityId ||
-        groupAtividadeName(t.name);
+      colorKey = t.activityId || groupAtividadeName(t.name);
     }
 
     if (!colorMap.has(colorKey)) {
       const fixed =
-        colorMode === "atividade" ? ATIVIDADE_COLOR_BY_ID[colorKey] : null;
+        colorMode === "atividade"
+          ? ATIVIDADE_COLOR_BY_ID[colorKey] || null
+          : null;
+
       colorMap.set(colorKey, fixed || pickColor(colorKey));
     }
   }
@@ -473,14 +507,12 @@ export function buildGanttTasksFromViewData({
     if (colorMode === "ticket") colorKey = t.issueKey || "—";
     else if (colorMode === "recurso") colorKey = t.recurso || "Sem recurso";
     else if (colorMode === "atividade") {
-      colorKey =
-        ATIVIDADE_COLOR_BY_ID[t.activityId] ||
-        t.activityId ||
-        groupAtividadeName(t.name);
+      colorKey = t.activityId || groupAtividadeName(t.name);
     }
 
     const baseColor = colorMap.get(colorKey) || pickColor(colorKey);
 
+    // quickView risco/overlap = laranja
     const color =
       quickView === "risco" && conflictSet.has(t.id) ? "#F97316" : baseColor;
 
@@ -538,8 +570,7 @@ function makeGridTemplate(w) {
 }
 
 /* =========================
-   TaskListHeader (CUSTOM) - remove Name/From/To + RESIZE
-   (isso elimina o cabeçalho padrão do lib)
+   TaskListHeader (CUSTOM) - RESIZE
 ========================= */
 function TaskListHeaderFactory({ colWidthsRef, beginResize }) {
   return function TaskListHeader({ headerHeight, rowWidth }) {
@@ -575,7 +606,9 @@ function TaskListHeaderFactory({ colWidthsRef, beginResize }) {
 }
 
 /* =========================
-   TaskListTable (CUSTOM) - SOMENTE LINHAS (header fica no TaskListHeader)
+   TaskListTable (CUSTOM)
+   ✅ Recurso/Área editáveis
+   ✅ Clique abre inspector
 ========================= */
 function TaskListTableFactory({
   onOpenDetails,
@@ -586,7 +619,11 @@ function TaskListTableFactory({
   lockedSet,
   onToggleChain,
   onChangeDuration,
+  onChangeMeta, // ✅ NOVO
   busy,
+
+  onOpenInspectorByTaskId, // ✅ NOVO
+  ganttSetSelectedTaskIdRef, // ✅ NOVO (ref p/ selecionar via Drawer)
 }) {
   return function TaskListTable({
     rowHeight,
@@ -595,6 +632,11 @@ function TaskListTableFactory({
     selectedTaskId,
     setSelectedTask,
   }) {
+    // ✅ expõe pro pai (Drawer selecionar task)
+    useEffect(() => {
+      ganttSetSelectedTaskIdRef.current = setSelectedTask;
+    }, [setSelectedTask]);
+
     const taskRows = tasks.filter(
       (t) => t.type === "task" || t.type === "project"
     );
@@ -608,7 +650,6 @@ function TaskListTableFactory({
       const e = safeDate(t?.end);
 
       if (!s || !e) return 1;
-
       if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
 
       const diff = e.getTime() - s.getTime();
@@ -616,8 +657,49 @@ function TaskListTableFactory({
       return Math.max(1, days || 1);
     }
 
+    // ✅ edição inline (Dias)
     const [editingDurId, setEditingDurId] = useState(null);
     const [editingDurValue, setEditingDurValue] = useState("");
+
+    // ✅ edição inline (Recurso/Área)
+    const [editingMeta, setEditingMeta] = useState({
+      id: null,
+      field: null, // "recurso" | "area"
+      value: "",
+    });
+
+    const beginEditMeta = (t, field) => {
+      if (!t || t.type !== "task") return;
+      setEditingMeta({
+        id: t.id,
+        field,
+        value: String(t?.[field] || "").trim(),
+      });
+    };
+
+    const commitEditMeta = (t) => {
+      if (!t || t.type !== "task") return;
+
+      const { id, field, value } = editingMeta || {};
+      if (id !== t.id || !field) return;
+
+      const trimmed = String(value || "").trim();
+
+      // validação simples / fallback
+      const nextValue =
+        field === "recurso" ? trimmed || "Sem recurso" : trimmed || "—";
+
+      setEditingMeta({ id: null, field: null, value: "" });
+
+      const current =
+        field === "recurso"
+          ? String(t.recurso || "").trim() || "Sem recurso"
+          : String(t.area || "").trim() || "—";
+
+      if (nextValue !== current) {
+        onChangeMeta?.(t, { [field]: nextValue });
+      }
+    };
 
     return (
       <div
@@ -638,7 +720,10 @@ function TaskListTableFactory({
                 selected ? "bg-red-50" : "bg-white",
                 "items-center"
               )}
-              onClick={() => setSelectedTask(t.id)}
+              onClick={() => {
+                setSelectedTask(t.id);
+                onOpenInspectorByTaskId?.(t.id);
+              }}
             >
               {/* Ticket */}
               <div className="min-w-0 flex items-center gap-2">
@@ -690,21 +775,110 @@ function TaskListTableFactory({
                   {t.name}
                 </span>
 
-                {!isProject && conflictSet?.has(t.id) ? (
+                {!isProject && t.risk ? (
                   <Badge className="ml-auto rounded-full bg-orange-600 text-white">
+                    Risco
+                  </Badge>
+                ) : null}
+
+                {!isProject && conflictSet?.has(t.id) ? (
+                  <Badge className="ml-2 rounded-full bg-orange-600 text-white">
                     ⚠ conflito
                   </Badge>
                 ) : null}
               </div>
 
-              {/* Recurso */}
-              <div className="truncate text-zinc-700" title={t.recurso}>
-                {isProject ? "—" : t.recurso || "Sem recurso"}
+              {/* ✅ Recurso (editável inline) */}
+              <div className="min-w-0">
+                {isProject ? (
+                  <span className="text-zinc-300">—</span>
+                ) : editingMeta.id === t.id &&
+                  editingMeta.field === "recurso" ? (
+                  <Input
+                    autoFocus
+                    disabled={busy}
+                    className="h-8 rounded-lg border-zinc-200 bg-white px-2 text-[12px] focus-visible:ring-red-500"
+                    value={editingMeta.value}
+                    onChange={(e) =>
+                      setEditingMeta((p) => ({ ...p, value: e.target.value }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setEditingMeta({ id: null, field: null, value: "" });
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => commitEditMeta(t)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="Sem recurso"
+                    title="Editar recurso (Enter/blur salva)"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEditMeta(t, "recurso");
+                    }}
+                    className={cn(
+                      "w-full truncate text-left text-zinc-700 hover:underline",
+                      busy && "opacity-60"
+                    )}
+                    title="Clique para editar"
+                  >
+                    {t.recurso || "Sem recurso"}
+                  </button>
+                )}
               </div>
 
-              {/* Área */}
-              <div className="truncate text-zinc-700" title={t.area}>
-                {isProject ? "—" : t.area || "—"}
+              {/* ✅ Área (editável inline) */}
+              <div className="min-w-0">
+                {isProject ? (
+                  <span className="text-zinc-300">—</span>
+                ) : editingMeta.id === t.id && editingMeta.field === "area" ? (
+                  <Input
+                    autoFocus
+                    disabled={busy}
+                    className="h-8 rounded-lg border-zinc-200 bg-white px-2 text-[12px] focus-visible:ring-red-500"
+                    value={editingMeta.value}
+                    onChange={(e) =>
+                      setEditingMeta((p) => ({ ...p, value: e.target.value }))
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setEditingMeta({ id: null, field: null, value: "" });
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => commitEditMeta(t)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="—"
+                    title="Editar área (Enter/blur salva)"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      beginEditMeta(t, "area");
+                    }}
+                    className={cn(
+                      "w-full truncate text-left text-zinc-700 hover:underline",
+                      busy && "opacity-60"
+                    )}
+                    title="Clique para editar"
+                  >
+                    {t.area || "—"}
+                  </button>
+                )}
               </div>
 
               {/* ✅ Dias (editável) */}
@@ -733,7 +907,6 @@ function TaskListTableFactory({
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
-                        // reverte visualmente
                         setEditingDurId(null);
                         setEditingDurValue("");
                         e.currentTarget.blur();
@@ -757,6 +930,7 @@ function TaskListTableFactory({
                         onChangeDuration?.(t, parsed);
                       }
                     }}
+                    onClick={(e) => e.stopPropagation()}
                     title="Duração (dias). Ao alterar, ajusta o End. Se encadeado, empurra as próximas."
                   />
                 )}
@@ -822,6 +996,9 @@ export function GanttTab({
   setFilterText,
   onPersistDateChange,
   onOpenDetails,
+
+  // ✅ NOVO callback para persistir recurso/area/risco no Jira
+  onPersistMetaChange,
 }) {
   const [viewMode, setViewMode] = useState(ViewMode.Week);
   const [groupByTicket, setGroupByTicket] = useState(true);
@@ -830,9 +1007,17 @@ export function GanttTab({
   const [quickView, setQuickView] = useState("po");
   const [collapsedProjects, setCollapsedProjects] = useState(() => new Set());
 
-  // trava durante persistência de mudança de datas (drag/resize)
-  const [persisting, setPersisting] = useState(false);
-  const busy = Boolean(loading || persisting);
+  // ✅ drawer inspector
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorTaskId, setInspectorTaskId] = useState("");
+
+  // ✅ overrides otimistas: recurso/area/risco
+  const [metaOverrides, setMetaOverrides] = useState(() => new Map());
+
+  // trava durante persistência
+  const [persistingDates, setPersistingDates] = useState(false);
+  const [persistingMeta, setPersistingMeta] = useState(false);
+  const busy = Boolean(loading || persistingDates || persistingMeta);
 
   /* =========================
      ✅ Encadear (chain locks)
@@ -888,7 +1073,6 @@ export function GanttTab({
     } catch {}
   }, [colWidths]);
 
-  // ✅ calcula o listCellWidth (7 colunas => 6 gaps)
   const listCellWidth = useMemo(() => {
     const sum = Object.values(colWidths || {}).reduce(
       (acc, v) => acc + Number(v || 0),
@@ -974,6 +1158,7 @@ export function GanttTab({
       groupByTicket,
       quickView,
       collapsedProjects,
+      metaOverrides, // ✅ aplica overrides
     });
   }, [
     viewData,
@@ -984,6 +1169,7 @@ export function GanttTab({
     groupByTicket,
     quickView,
     collapsedProjects,
+    metaOverrides,
   ]);
 
   const safeTasks = useMemo(() => {
@@ -1001,17 +1187,14 @@ export function GanttTab({
   const { taskById, nextById, prevById } = useMemo(() => {
     const tasksOnly = (safeTasks || []).filter((t) => t?.type === "task");
 
-    // id -> task
     const taskById = new Map(tasksOnly.map((t) => [t.id, t]));
 
-    // ticket -> array de tasks ordenadas
     const byIssue = new Map();
     for (const t of tasksOnly) {
       if (!byIssue.has(t.issueKey)) byIssue.set(t.issueKey, []);
       byIssue.get(t.issueKey).push(t);
     }
 
-    // ordena cada ticket no "mesmo critério" que você usa no cascade
     for (const [issueKey, list] of byIssue.entries()) {
       const arr = [...list];
 
@@ -1036,7 +1219,6 @@ export function GanttTab({
       byIssue.set(issueKey, arr);
     }
 
-    // gera next/prev
     const nextById = new Map();
     const prevById = new Map();
 
@@ -1054,10 +1236,7 @@ export function GanttTab({
     return { taskById, nextById, prevById };
   }, [safeTasks, quickView]);
 
-  /* =========================
-     ✅ lockedSet e ganttTasks
-     (AGORA dentro do componente)
-  ========================= */
+  // ✅ lockedSet
   const lockedSet = useMemo(() => {
     const locked = new Set();
 
@@ -1076,7 +1255,96 @@ export function GanttTab({
     });
   }, [safeTasks, lockedSet]);
 
-  // ✅ Day header: mostrar só "10 11 12" (remove "sex", "sab", "dom")
+  // ✅ issues index
+  const issueByKey = useMemo(() => {
+    const arr = Array.isArray(viewData?.calendarioIssues)
+      ? viewData.calendarioIssues
+      : [];
+    const m = new Map();
+    for (const iss of arr) {
+      const k = String(iss?.key || "")
+        .trim()
+        .toUpperCase();
+      if (k) m.set(k, iss);
+    }
+    return m;
+  }, [viewData?.calendarioIssues]);
+
+  // ✅ ref: permite selecionar task via Drawer
+  const ganttSetSelectedTaskIdRef = useRef(null);
+
+  const openInspectorByTaskId = useCallback(
+    (taskId) => {
+      const id = String(taskId || "");
+      if (!id) return;
+
+      setInspectorTaskId(id);
+      setInspectorOpen(true);
+
+      // mantém filtro funcionando
+      const issueKey =
+        getIssueKeyFromTaskId(id) || taskById.get(id)?.issueKey || "";
+      if (issueKey) setSelectedIssueKey(issueKey);
+
+      // tenta também selecionar no gantt (highlight/scroll na lista)
+      ganttSetSelectedTaskIdRef.current?.(id);
+    },
+    [taskById]
+  );
+
+  const selectedInspectorTask = useMemo(() => {
+    const id = String(inspectorTaskId || "");
+    if (!id) return null;
+
+    // procura em ganttTasks (inclui project)
+    const t = (ganttTasks || []).find((x) => x?.id === id);
+    if (t) return t;
+
+    // fallback: pode estar filtrado, mas ainda assim mostra algo mínimo
+    const issueKey = getIssueKeyFromTaskId(id);
+    if (issueKey && id.startsWith("P::")) {
+      return { id, type: "project", issueKey };
+    }
+    return null;
+  }, [inspectorTaskId, ganttTasks]);
+
+  const selectedIssue = useMemo(() => {
+    const issueKey =
+      selectedInspectorTask?.issueKey ||
+      getIssueKeyFromTaskId(selectedInspectorTask?.id);
+    if (!issueKey) return null;
+    return issueByKey.get(String(issueKey).toUpperCase()) || null;
+  }, [selectedInspectorTask, issueByKey]);
+
+  const selectedDueDate = useMemo(() => {
+    if (!selectedIssue) return null;
+    return inferDueDateFromIssue(selectedIssue);
+  }, [selectedIssue]);
+
+  const selectedOverdueDays = useMemo(() => {
+    const statusName = selectedIssue?.statusName || selectedIssue?.status || "";
+    return calcOverdueDays({ dueDate: selectedDueDate, statusName });
+  }, [selectedDueDate, selectedIssue]);
+
+  const prevTask = useMemo(() => {
+    if (!selectedInspectorTask || selectedInspectorTask.type !== "task")
+      return null;
+    const prevId = prevById.get(selectedInspectorTask.id);
+    if (!prevId) return null;
+    return taskById.get(prevId) || null;
+  }, [selectedInspectorTask, prevById, taskById]);
+
+  const nextTask = useMemo(() => {
+    if (!selectedInspectorTask || selectedInspectorTask.type !== "task")
+      return null;
+    const nextId = nextById.get(selectedInspectorTask.id);
+    if (!nextId) return null;
+    return taskById.get(nextId) || null;
+  }, [selectedInspectorTask, nextById, taskById]);
+
+  /* =========================
+     ✅ Day header: remover dia da semana
+  ========================= */
   useEffect(() => {
     if (viewMode !== ViewMode.Day && viewMode !== ViewMode.Week) return;
 
@@ -1085,14 +1353,12 @@ export function GanttTab({
 
     let rafId = null;
 
-    // ⚠️ sem \b pra pegar "12Ter." e "12Ter.,"
     const WEEKDAY_RE =
       /(seg|ter|qua|qui|sex|sab|sáb|dom|mon|tue|wed|thu|fri|sat|sun)/i;
 
     const fixLabels = () => {
       rafId = null;
 
-      // tenta classes da lib; se não achar, varre todos os <text> do svg
       const preferred = root.querySelectorAll(
         ".calendarBottomText, .calendarBottomTextSmall, [class*='calendarBottomText']"
       );
@@ -1104,14 +1370,9 @@ export function GanttTab({
       nodes.forEach((el) => {
         const txt = String(el.textContent || "").trim();
         if (!txt) return;
-
-        // ignora ano "2026"
         if (/\d{4}/.test(txt)) return;
-
-        // só mexe se tiver dia da semana junto
         if (!WEEKDAY_RE.test(txt)) return;
 
-        // pega o PRIMEIRO número mesmo grudado: "12Ter." => "12"
         const m = txt.match(/(\d{1,2})/);
         if (!m) return;
 
@@ -1161,47 +1422,13 @@ export function GanttTab({
         : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
     );
 
-  const findNextTaskSameIssue = useCallback(
-    (taskId) => {
-      const cur = (ganttTasks || []).find((t) => t?.id === taskId);
-      if (!cur || cur.type !== "task") return null;
-
-      const issueTasks = (ganttTasks || []).filter(
-        (t) => t.type === "task" && t.issueKey === cur.issueKey
-      );
-
-      // ordem baseada no modo atual
-      if (quickView === "po") {
-        issueTasks.sort((a, b) => {
-          const ai = PO_CHAIN.indexOf(a.activityId);
-          const bi = PO_CHAIN.indexOf(b.activityId);
-
-          const aIn = ai !== -1;
-          const bIn = bi !== -1;
-
-          if (aIn && bIn) return ai - bi;
-          if (aIn) return -1;
-          if (bIn) return 1;
-
-          return a.start.getTime() - b.start.getTime();
-        });
-      } else {
-        issueTasks.sort((a, b) => a.start.getTime() - b.start.getTime());
-      }
-
-      const idx = issueTasks.findIndex((t) => t.id === taskId);
-      return idx >= 0 ? issueTasks[idx + 1] || null : null;
-    },
-    [ganttTasks, quickView]
-  );
-
   /* =========================
-     ✅ handleDateChange (APENAS 1)
+     ✅ handleDateChange
      com cascata quando encadeado
   ========================= */
   const handleDateChange = useCallback(
     async (task) => {
-      if (persisting) return false;
+      if (persistingDates || persistingMeta) return false;
       if (!task || task.type === "project" || task.isDisabled) return false;
 
       const baseId = String(task.id || "");
@@ -1238,9 +1465,7 @@ export function GanttTab({
 
       const updates = [base];
 
-      // evita loop caso algum bug gere ciclo
       const visited = new Set([base.id]);
-
       let cur = base;
 
       while (chainSet.has(cur.id)) {
@@ -1270,7 +1495,7 @@ export function GanttTab({
         cur = nextUpdate;
       }
 
-      setPersisting(true);
+      setPersistingDates(true);
       try {
         const ok = await onPersistDateChange?.(updates);
         return ok !== false;
@@ -1278,10 +1503,17 @@ export function GanttTab({
         console.error(err);
         return false;
       } finally {
-        setPersisting(false);
+        setPersistingDates(false);
       }
     },
-    [persisting, chainSet, nextById, taskById, onPersistDateChange]
+    [
+      persistingDates,
+      persistingMeta,
+      chainSet,
+      nextById,
+      taskById,
+      onPersistDateChange,
+    ]
   );
 
   const handleDurationChange = useCallback(
@@ -1302,46 +1534,54 @@ export function GanttTab({
         ...baseOriginal,
         ...task,
         start,
-        end: nextEnd, // ✅ só muda o end
+        end: nextEnd,
       });
     },
     [handleDateChange, taskById]
   );
 
+  const openJira = useCallback((issueKey) => {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!key) return;
+
+    const envBase = String(
+      import.meta?.env?.VITE_JIRA_BROWSE_BASE || ""
+    ).trim();
+    const base = (
+      envBase || "https://clarobr-jsw-tecnologia.atlassian.net"
+    ).replace(/\/$/, "");
+
+    window.open(`${base}/browse/${key}`, "_blank", "noopener,noreferrer");
+  }, []);
+
+  // ✅ Clique na barra / linha: abre drawer com selectedTaskId real
   const handleClick = useCallback(
     (task) => {
-      if (persisting) return;
+      if (persistingDates || persistingMeta) return;
+
       const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
       if (issueKey) setSelectedIssueKey(issueKey);
+
+      openInspectorByTaskId(task?.id);
     },
-    [persisting]
+    [persistingDates, persistingMeta, openInspectorByTaskId]
   );
 
   const handleDoubleClick = useCallback(
     (task) => {
-      if (persisting) return;
+      if (persistingDates || persistingMeta) return;
       const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
       if (!issueKey) return;
-
-      const envBase = String(
-        import.meta?.env?.VITE_JIRA_BROWSE_BASE || ""
-      ).trim();
-      const base = (
-        envBase || "https://clarobr-jsw-tecnologia.atlassian.net"
-      ).replace(/\/$/, "");
-
-      window.open(
-        `${base}/browse/${issueKey}`,
-        "_blank",
-        "noopener,noreferrer"
-      );
+      openJira(issueKey);
     },
-    [persisting]
+    [persistingDates, persistingMeta, openJira]
   );
 
   const handleToggleProject = useCallback(
     (task) => {
-      if (persisting) return;
+      if (persistingDates || persistingMeta) return;
       const id = String(task?.id || "");
       if (!id.startsWith("P::")) return;
 
@@ -1352,10 +1592,124 @@ export function GanttTab({
         return next;
       });
     },
-    [persisting]
+    [persistingDates, persistingMeta]
   );
 
-  // ✅ Header custom remove Name/From/To
+  /* =========================
+     ✅ Persistência META (Recurso/Área/Risco)
+     - Otimista via metaOverrides
+     - Se falhar: reverte
+  ========================= */
+  const persistMetaChange = useCallback(
+    async (issueKey, activityId, patch) => {
+      const key = String(issueKey || "")
+        .trim()
+        .toUpperCase();
+      const act = String(activityId || "").trim();
+      if (!key || !act) return false;
+
+      const mapKey = `${key}::${act}`;
+
+      // snapshot p/ revert
+      const prevOverride = metaOverrides.get(mapKey);
+
+      // optimistic apply
+      setMetaOverrides((prev) => {
+        const next = new Map(prev);
+        const cur = next.get(mapKey) || {};
+        next.set(mapKey, { ...cur, ...(patch || {}) });
+        return next;
+      });
+
+      setPersistingMeta(true);
+      try {
+        if (typeof onPersistMetaChange === "function") {
+          const ok = await onPersistMetaChange(key, act, patch);
+          if (ok === false)
+            throw new Error("onPersistMetaChange returned false");
+          return true;
+        }
+
+        // fallback (deixa estruturado pro pai)
+        console.warn(
+          "[GanttTab] onPersistMetaChange não foi fornecido. " +
+            "Implemente no componente pai para persistir customfield_14017 no Jira.",
+          { issueKey: key, activityId: act, patch }
+        );
+
+        throw new Error("Missing onPersistMetaChange");
+      } catch (err) {
+        console.error(err);
+
+        // revert
+        setMetaOverrides((prev) => {
+          const next = new Map(prev);
+          if (prevOverride == null) next.delete(mapKey);
+          else next.set(mapKey, prevOverride);
+          return next;
+        });
+
+        return false;
+      } finally {
+        setPersistingMeta(false);
+      }
+    },
+    [metaOverrides, onPersistMetaChange]
+  );
+
+  const handleMetaChangeFromGrid = useCallback(
+    async (task, patch) => {
+      if (!task || task.type !== "task") return;
+      const issueKey = task.issueKey || getIssueKeyFromTaskId(task.id);
+      const activityId = task.activityId || getActivityIdFromTaskId(task.id);
+      if (!issueKey || !activityId) return;
+
+      await persistMetaChange(issueKey, activityId, patch);
+    },
+    [persistMetaChange]
+  );
+
+  // Drawer actions
+  const toggleRiskForSelected = useCallback(async () => {
+    if (!selectedInspectorTask || selectedInspectorTask.type !== "task") return;
+
+    const issueKey = selectedInspectorTask.issueKey;
+    const activityId = selectedInspectorTask.activityId;
+    const nextRisk = !Boolean(selectedInspectorTask.risk);
+
+    await persistMetaChange(issueKey, activityId, { risk: nextRisk });
+  }, [selectedInspectorTask, persistMetaChange]);
+
+  const shiftDatesForSelected = useCallback(
+    async (deltaDays) => {
+      if (!selectedInspectorTask || selectedInspectorTask.type !== "task")
+        return;
+
+      const baseOriginal =
+        taskById.get(String(selectedInspectorTask.id || "")) ||
+        selectedInspectorTask;
+
+      const start = safeDate(baseOriginal.start);
+      const end = safeDate(baseOriginal.end);
+      if (!start || !end) return;
+
+      await handleDateChange({
+        ...baseOriginal,
+        start: addDays(start, deltaDays),
+        end: addDays(end, deltaDays),
+      });
+    },
+    [selectedInspectorTask, taskById, handleDateChange]
+  );
+
+  const toggleChainForSelected = useCallback(() => {
+    if (!selectedInspectorTask || selectedInspectorTask.type !== "task") return;
+    toggleChain(selectedInspectorTask.id);
+  }, [selectedInspectorTask, toggleChain]);
+
+  /* =========================
+     Header / Table custom
+  ========================= */
   const TaskListHeader = useMemo(() => {
     return TaskListHeaderFactory({
       colWidthsRef,
@@ -1371,10 +1725,13 @@ export function GanttTab({
       onToggleProject: handleToggleProject,
       colWidthsRef,
       chainSet,
-      lockedSet,
       onToggleChain: toggleChain,
       onChangeDuration: handleDurationChange,
+      onChangeMeta: handleMetaChangeFromGrid,
       busy,
+
+      onOpenInspectorByTaskId: openInspectorByTaskId,
+      ganttSetSelectedTaskIdRef,
     });
   }, [
     onOpenDetails,
@@ -1384,7 +1741,9 @@ export function GanttTab({
     lockedSet,
     toggleChain,
     handleDurationChange,
+    handleMetaChangeFromGrid,
     busy,
+    openInspectorByTaskId,
   ]);
 
   return (
@@ -1397,7 +1756,7 @@ export function GanttTab({
               <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
                 <Loader2 className="h-4 w-4 animate-spin text-red-600" />
                 <span className="text-sm font-semibold text-zinc-800">
-                  {persisting
+                  {persistingDates || persistingMeta
                     ? "Salvando alteração..."
                     : "Atualizando dados..."}
                 </span>
@@ -1655,6 +2014,30 @@ export function GanttTab({
           </div>
         </CardContent>
       </Card>
+
+      {/* ✅ Drawer Inspector */}
+      <GanttTaskInspectorDrawer
+        open={inspectorOpen}
+        onOpenChange={(v) => {
+          setInspectorOpen(v);
+          if (!v) setInspectorTaskId("");
+        }}
+        task={selectedInspectorTask}
+        issue={selectedIssue}
+        dueDate={selectedDueDate}
+        overdueDays={selectedOverdueDays}
+        prevTask={prevTask}
+        nextTask={nextTask}
+        chainActive={Boolean(
+          selectedInspectorTask?.type === "task" &&
+            chainSet.has(selectedInspectorTask.id)
+        )}
+        onOpenJira={(k) => openJira(k)}
+        onToggleRisk={toggleRiskForSelected}
+        onShiftDates={(delta) => shiftDatesForSelected(delta)}
+        onToggleChain={toggleChainForSelected}
+        onSelectTask={(id) => openInspectorByTaskId(id)}
+      />
     </div>
   );
 }
