@@ -879,6 +879,127 @@ export default function AMPanelTab() {
     [viewData.calendarioIssues, viewData.events] // dependencies
   );
 
+  const persistGanttMetaChange = useCallback(
+    async (issueKey, activityId, patch) => {
+      const ik = String(issueKey || "")
+        .trim()
+        .toUpperCase();
+      const aid = String(activityId || "").trim();
+      if (!ik || !aid) return false;
+
+      // normaliza patch
+      const nextPatch = {};
+      if (patch && "recurso" in patch) {
+        nextPatch.recurso = String(patch.recurso || "").trim() || "Sem recurso";
+      }
+      if (patch && "area" in patch) {
+        nextPatch.area = String(patch.area || "").trim() || "—";
+      }
+      if (patch && "risk" in patch) {
+        nextPatch.risk = Boolean(patch.risk);
+      }
+
+      if (!Object.keys(nextPatch).length) return false;
+
+      // snapshot p/ rollback
+      const prevSnapshot = (viewData.calendarioIssues || []).map((x) => ({
+        ...x,
+        atividades: (x.atividades || []).map((a) => ({ ...a })),
+      }));
+
+      const prevEventsSnapshot = (viewData.events || []).map((e) => ({
+        ...e,
+        extendedProps: { ...(e?.extendedProps || {}) },
+      }));
+
+      // monta nextCalendarioIssues (em memória)
+      const currentIssues = Array.isArray(viewData?.calendarioIssues)
+        ? viewData.calendarioIssues
+        : [];
+
+      const nextCalendarioIssues = currentIssues.map((iss) => {
+        const key = String(iss?.key || "")
+          .trim()
+          .toUpperCase();
+        if (key !== ik) return iss;
+
+        const nextAtividades = Array.isArray(iss?.atividades)
+          ? iss.atividades.map((a) => {
+              if (String(a?.id || "").trim() !== aid) return a;
+              return { ...a, ...nextPatch };
+            })
+          : [];
+
+        return { ...iss, atividades: nextAtividades };
+      });
+
+      // otimista: atualiza calendárioIssues (+ opcionalmente events meta)
+      setViewData((prev) => {
+        const nextEvents = (prev?.events || []).map((ev) => {
+          const p = ev?.extendedProps || {};
+          const evIssueKey = String(p.issueKey || ev?.issueKey || "")
+            .trim()
+            .toUpperCase();
+          const evActivityId = String(p.activityId || "").trim();
+
+          if (evIssueKey !== ik || evActivityId !== aid) return ev;
+
+          return {
+            ...ev,
+            extendedProps: {
+              ...p,
+              ...nextPatch,
+            },
+          };
+        });
+
+        return {
+          ...prev,
+          calendarioIssues: nextCalendarioIssues,
+          events: nextEvents,
+        };
+      });
+
+      try {
+        const issue = nextCalendarioIssues.find(
+          (x) =>
+            String(x?.key || "")
+              .trim()
+              .toUpperCase() === ik
+        );
+        if (!issue) return false;
+
+        const adf = buildCronogramaADF(issue.atividades || []);
+
+        await jiraEditIssue(ik, {
+          fields: {
+            customfield_14017: adf,
+          },
+        });
+
+        await reload();
+        return true;
+      } catch (e) {
+        console.error(e);
+        setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+
+        // rollback local
+        setViewData((v) => ({
+          ...v,
+          calendarioIssues: prevSnapshot,
+          events: prevEventsSnapshot,
+        }));
+
+        try {
+          await reload();
+        } catch {}
+
+        return false;
+      }
+    },
+    [viewData.calendarioIssues, viewData.events] // dependencies
+  );
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-zinc-50">
@@ -1030,6 +1151,7 @@ export default function AMPanelTab() {
                 filterText={calendarFilter}
                 setFilterText={setCalendarFilter}
                 onPersistDateChange={persistGanttDateChange}
+                onPersistMetaChange={persistGanttMetaChange}
                 onOpenDetails={(key) => {
                   setDetailsKey(key);
                   setDetailsOpen(true);

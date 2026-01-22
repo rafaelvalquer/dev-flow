@@ -301,10 +301,13 @@ export function buildGanttTasksFromViewData({
       const activityId = String(atv?.id || "").trim();
       if (!issueKey || !activityId) continue;
 
+      const riscoStr = String(atv?.risco || "").trim();
+      const riskFlag = Boolean(atv?.risk) || Boolean(riscoStr);
+
       metaIndex.set(`${issueKey}::${activityId}`, {
         recurso: String(atv?.recurso || "").trim() || "Sem recurso",
         area: String(atv?.area || "").trim() || "—",
-        risk: Boolean(atv?.risk),
+        risk: riskFlag, // ✅ agora entende risco vindo do cronograma
         activityName: String(atv?.name || "").trim() || activityId,
         statusName: String(iss?.statusName || iss?.status || ""),
         summary: String(iss?.summary || ""),
@@ -996,8 +999,6 @@ export function GanttTab({
   setFilterText,
   onPersistDateChange,
   onOpenDetails,
-
-  // ✅ NOVO callback para persistir recurso/area/risco no Jira
   onPersistMetaChange,
 }) {
   const [viewMode, setViewMode] = useState(ViewMode.Week);
@@ -1018,6 +1019,21 @@ export function GanttTab({
   const [persistingDates, setPersistingDates] = useState(false);
   const [persistingMeta, setPersistingMeta] = useState(false);
   const busy = Boolean(loading || persistingDates || persistingMeta);
+
+  // ✅ Overrides otimistas para meta (recurso/área/risco)
+  // chave: `${issueKey}::${activityId}` -> { recurso?, area?, risk? }
+  const [localOverridesMeta, setLocalOverridesMeta] = useState(() => new Map());
+  const localOverridesMetaRef = useRef(localOverridesMeta);
+
+  useEffect(() => {
+    localOverridesMetaRef.current = localOverridesMeta;
+  }, [localOverridesMeta]);
+
+  function makeMetaKey(issueKey, activityId) {
+    return `${String(issueKey || "")
+      .trim()
+      .toUpperCase()}::${String(activityId || "").trim()}`;
+  }
 
   /* =========================
      ✅ Encadear (chain locks)
@@ -1172,8 +1188,27 @@ export function GanttTab({
     metaOverrides,
   ]);
 
-  const safeTasks = useMemo(() => {
+  const tasksWithMetaOverrides = useMemo(() => {
     const arr = Array.isArray(tasks) ? tasks : [];
+    if (!localOverridesMeta || localOverridesMeta.size === 0) return arr;
+
+    return arr.map((t) => {
+      if (!t) return t;
+      if (t.type !== "task") return t;
+
+      const issueKey = t.issueKey || getIssueKeyFromTaskId(t.id);
+      const activityId = t.activityId || getActivityIdFromTaskId(t.id);
+      const o = localOverridesMeta.get(makeMetaKey(issueKey, activityId));
+      if (!o) return t;
+
+      return { ...t, ...o };
+    });
+  }, [tasks, localOverridesMeta]);
+
+  const safeTasks = useMemo(() => {
+    const arr = Array.isArray(tasksWithMetaOverrides)
+      ? tasksWithMetaOverrides
+      : [];
     return arr.filter((t) => {
       if (!t) return false;
       if (!(t.start instanceof Date) || Number.isNaN(t.start.getTime()))
@@ -1182,7 +1217,7 @@ export function GanttTab({
         return false;
       return true;
     });
-  }, [tasks]);
+  }, [tasksWithMetaOverrides]);
 
   const { taskById, nextById, prevById } = useMemo(() => {
     const tasksOnly = (safeTasks || []).filter((t) => t?.type === "task");
@@ -1516,6 +1551,62 @@ export function GanttTab({
     ]
   );
 
+  const persistMetaPatch = useCallback(
+    async (issueKey, activityId, patch) => {
+      const ik = String(issueKey || "")
+        .trim()
+        .toUpperCase();
+      const aid = String(activityId || "").trim();
+      if (!ik || !aid) return false;
+
+      const key = makeMetaKey(ik, aid);
+
+      const prev = localOverridesMetaRef.current?.get(key) || null;
+
+      // ✅ otimista: atualiza UI imediatamente
+      setLocalOverridesMeta((old) => {
+        const next = new Map(old || []);
+        next.set(key, { ...(prev || {}), ...(patch || {}) });
+        return next;
+      });
+
+      // ✅ se não tem callback, NÃO quebra a tela
+      // (mas avisa que não persiste no Jira)
+      if (!onPersistMetaChange) {
+        console.warn(
+          "[GanttTab] onPersistMetaChange não foi fornecido. A UI será atualizada, mas isso NÃO vai persistir no Jira.",
+          { issueKey: ik, activityId: aid, patch }
+        );
+        return true;
+      }
+
+      // trava tela igual dateChange
+      if (persistingDates || persistingMeta) return false;
+
+      setPersistingMeta(true);
+      try {
+        const ok = await onPersistMetaChange(ik, aid, patch);
+        if (ok === false) throw new Error("PersistMeta returned false");
+        return true;
+      } catch (err) {
+        console.error(err);
+
+        // ✅ reverte UI
+        setLocalOverridesMeta((old) => {
+          const next = new Map(old || []);
+          if (prev) next.set(key, prev);
+          else next.delete(key);
+          return next;
+        });
+
+        return false;
+      } finally {
+        setPersistingMeta(false);
+      }
+    },
+    [onPersistMetaChange, persistingDates, persistingMeta]
+  );
+
   const handleDurationChange = useCallback(
     async (task, days) => {
       if (!task || task.type !== "task" || task.isDisabled) return false;
@@ -1624,7 +1715,12 @@ export function GanttTab({
       setPersistingMeta(true);
       try {
         if (typeof onPersistMetaChange === "function") {
-          const ok = await onPersistMetaChange(key, act, patch);
+          const normalizedPatch = { ...(patch || {}) };
+          if ("risk" in normalizedPatch && !("risco" in normalizedPatch)) {
+            normalizedPatch.risco = normalizedPatch.risk ? "Risco" : "";
+          }
+
+          const ok = await onPersistMetaChange(key, act, normalizedPatch);
           if (ok === false)
             throw new Error("onPersistMetaChange returned false");
           return true;

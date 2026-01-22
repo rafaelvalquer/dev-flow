@@ -43,6 +43,31 @@ export function parseDateRangeBR(raw, now = new Date()) {
     const start = parseBRDateToken(range[1], now);
     const end = parseBRDateToken(range[2], now);
     if (!start || !end) return null;
+
+    // ✅ range cruzando ano (ex: 20/12 a 10/01)
+    const hasYearLeft = /\d{4}/.test(range[1]);
+    const hasYearRight = /\d{4}/.test(range[2]);
+
+    if (+end < +start && !hasYearLeft && !hasYearRight) {
+      const fixedEnd = new Date(end);
+      fixedEnd.setFullYear(start.getFullYear() + 1);
+      return { kind: "range", start, end: fixedEnd };
+    }
+
+    // ✅ se um lado tem ano e o outro não, herda o ano do que tem
+    if (hasYearLeft && !hasYearRight) {
+      const fixedEnd = new Date(end);
+      fixedEnd.setFullYear(start.getFullYear());
+      if (+fixedEnd < +start) fixedEnd.setFullYear(start.getFullYear() + 1);
+      return { kind: "range", start, end: fixedEnd };
+    }
+
+    if (!hasYearLeft && hasYearRight) {
+      const fixedStart = new Date(start);
+      fixedStart.setFullYear(end.getFullYear());
+      return { kind: "range", start: fixedStart, end };
+    }
+
     return { kind: "range", start, end };
   }
 
@@ -70,6 +95,43 @@ function normalizeHeader(s) {
     .trim();
 }
 
+function normalizeKey(s) {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const ATIVIDADES_MAP = new Map(
+  ATIVIDADES_PADRAO.map((a) => [normalizeKey(a.name), a])
+);
+
+function toYMDLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseRiscoFlag(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!s) return false;
+
+  // se alguém escrever explicitamente "não", "false", etc
+  if (/(nao|não|false|0|no)/i.test(s)) return false;
+
+  // qualquer valor preenchido vira risco
+  return true;
+}
+
+function riscoTextFromFlag(flag) {
+  return flag ? "Risco" : "";
+}
+
 function findFirstTable(adf) {
   function walk(node) {
     if (!node) return null;
@@ -88,63 +150,85 @@ function findFirstTable(adf) {
 }
 
 export function parseCronogramaADF(adf) {
-  if (!adf) return null;
+  if (!adf || typeof adf !== "object") return [];
 
+  // ✅ mais robusto: acha a primeira table em qualquer nível
   const table = findFirstTable(adf);
-  if (!table || !Array.isArray(table.content) || table.content.length === 0)
-    return null;
+  if (!table) return [];
 
-  const rows = table.content; // tableRow[]
-  if (!rows.length) return null;
+  const rows = Array.isArray(table?.content) ? table.content : [];
+  if (!rows.length) return [];
 
-  // header
-  const headerCells = rows[0]?.content || [];
-  const headers = headerCells.map((c) => normalizeHeader(adfCellText(c)));
-
-  const idxAtividade = headers.findIndex((h) => h.includes("atividade"));
-  const idxData = headers.findIndex((h) => h === "data" || h.includes("data"));
-  const idxRecurso = headers.findIndex((h) => h.includes("recurso"));
-  const idxArea = headers.findIndex((h) => h.includes("area"));
-
-  // fallback esperado: [Atividade, Data, Recurso, Área]
-  const ia = idxAtividade >= 0 ? idxAtividade : 0;
-  const id = idxData >= 0 ? idxData : 1;
-  const ir = idxRecurso >= 0 ? idxRecurso : 2;
-  const ii = idxArea >= 0 ? idxArea : 3;
-
+  const bodyRows = rows.slice(1);
   const list = [];
 
-  for (let r = 1; r < rows.length; r++) {
-    const cells = rows[r]?.content || [];
-    const atividade = adfCellText(cells[ia]);
-    const data = adfCellText(cells[id]);
-    const recurso = adfCellText(cells[ir]);
-    const area = adfCellText(cells[ii]);
+  for (const row of bodyRows) {
+    const cells = Array.isArray(row?.content) ? row.content : [];
 
-    if (!atividade && !data && !recurso && !area) continue;
+    // ✅ usa seu helper importado (suporta múltiplos parágrafos)
+    const getCellText = (cell) => {
+      try {
+        return String(adfCellText(cell) || "").trim();
+      } catch {
+        return "";
+      }
+    };
 
-    const def = ATIVIDADES_PADRAO.find((x) => x.name === atividade);
+    const atividadeName = getCellText(cells[0]);
+    const dateText = getCellText(cells[1]);
+    const recursoText = getCellText(cells[2]);
+    const areaText = getCellText(cells[3]);
+
+    // ✅ NOVO: risco
+    const riscoText = getCellText(cells[4]); // <-- coluna Risco
+
+    const labelRaw = String(atividadeName || "");
+    const label = labelRaw.split("(")[0].trim();
+
+    const atividadeKey = String(label || "").trim();
+
+    // ✅ CORREÇÃO: normaliza a chave
+    const atividadeDef = ATIVIDADES_MAP.get(normalizeKey(atividadeKey));
+
+    const riskFlag = parseRiscoFlag(riscoText);
+
     list.push({
-      id: def?.id || atividade || `row_${r}`,
-      name: atividade || def?.name || `Atividade ${r}`,
-      data,
-      recurso,
-      area,
+      id: atividadeDef?.id || atividadeKey || "—",
+      name: atividadeDef?.name || label || atividadeKey || "—",
+      data: String(dateText || "")
+        .replace(/\s+/g, " ")
+        .trim(),
+      recurso: recursoText || "Sem recurso",
+      area: areaText || "—",
+
+      // ✅ importante: manter os dois
+      risco: riskFlag ? "Risco" : "",
+      risk: riskFlag,
     });
   }
 
-  // garante ordem padrao (se existirem)
+  // garante todas atividades padrão
   const byId = new Map(list.map((a) => [a.id, a]));
-  const ordered = [];
-  for (const def of ATIVIDADES_PADRAO) {
-    if (byId.has(def.id)) ordered.push(byId.get(def.id));
-  }
-  // extras
-  for (const a of list) {
-    if (!ATIVIDADES_PADRAO.some((d) => d.id === a.id)) ordered.push(a);
+
+  for (const atividadeDef of ATIVIDADES_PADRAO) {
+    if (!atividadeDef?.id) continue;
+    if (byId.has(atividadeDef.id)) continue;
+
+    const empty = {
+      id: atividadeDef.id,
+      name: atividadeDef.name,
+      data: "",
+      recurso: "Sem recurso",
+      area: "—",
+      risco: "",
+      risk: false,
+    };
+
+    list.push(empty);
+    byId.set(empty.id, empty);
   }
 
-  return ordered;
+  return list;
 }
 
 function textCell(text) {
@@ -157,7 +241,6 @@ function textCell(text) {
 }
 
 export function buildCronogramaADF(atividades) {
-  // tabela padrão: Atividade | Data | Recurso | Área
   const headerRow = {
     type: "tableRow",
     content: [
@@ -165,18 +248,25 @@ export function buildCronogramaADF(atividades) {
       { type: "tableHeader", content: [textCell("Data")] },
       { type: "tableHeader", content: [textCell("Recurso")] },
       { type: "tableHeader", content: [textCell("Área")] },
+      { type: "tableHeader", content: [textCell("Risco")] },
     ],
   };
 
-  const bodyRows = (atividades || []).map((a) => ({
-    type: "tableRow",
-    content: [
-      { type: "tableCell", content: [textCell(a.name)] },
-      { type: "tableCell", content: [textCell(a.data || "")] },
-      { type: "tableCell", content: [textCell(a.recurso || "")] },
-      { type: "tableCell", content: [textCell(a.area || "")] },
-    ],
-  }));
+  const bodyRows = (atividades || []).map((a) => {
+    const riskFlag = Boolean(a?.risk) || parseRiscoFlag(a?.risco);
+    const riscoCell = riskFlag ? "Risco" : "";
+
+    return {
+      type: "tableRow",
+      content: [
+        { type: "tableCell", content: [textCell(a.name)] },
+        { type: "tableCell", content: [textCell(a.data || "")] },
+        { type: "tableCell", content: [textCell(a.recurso || "")] },
+        { type: "tableCell", content: [textCell(a.area || "")] },
+        { type: "tableCell", content: [textCell(riscoCell)] }, // ✅ escreve
+      ],
+    };
+  });
 
   return {
     type: "doc",
@@ -184,7 +274,10 @@ export function buildCronogramaADF(atividades) {
     content: [
       {
         type: "table",
-        attrs: { isNumberColumnEnabled: false, layout: "default" },
+        attrs: {
+          isNumberColumnEnabled: false,
+          layout: "default",
+        },
         content: [headerRow, ...bodyRows],
       },
     ],
@@ -204,7 +297,6 @@ export function toCalendarEvents(issueKey, atividades, now = new Date()) {
       parsed.start.getDate()
     );
 
-    // FullCalendar all-day: end é EXCLUSIVO
     const inclusiveEnd = parsed.end
       ? new Date(
           parsed.end.getFullYear(),
@@ -219,13 +311,17 @@ export function toCalendarEvents(issueKey, atividades, now = new Date()) {
     events.push({
       id: `${issueKey}::${a.id}`,
       title: `${issueKey} - ${a.name}`,
-      start: start.toISOString().slice(0, 10),
-      end: endExclusive.toISOString().slice(0, 10),
+      start: toYMDLocal(start),
+      end: toYMDLocal(endExclusive),
       allDay: true,
       extendedProps: {
         issueKey,
         activityId: a.id,
-        activityName: a.name, // ✅ novo (necessário p/ filtro + legenda)
+        activityName: a.name,
+        recurso: a.recurso || "",
+        area: a.area || "",
+        risco: a.risco || "",
+        risk: Boolean(a.risk || a.risco),
       },
     });
   }
