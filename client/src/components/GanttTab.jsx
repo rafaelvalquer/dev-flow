@@ -724,6 +724,12 @@ function TaskListTableFactory({
                 "items-center"
               )}
               onClick={() => {
+                const isEditingThisRow =
+                  (editingMeta?.id === t.id && editingMeta?.field) ||
+                  editingDurId === t.id;
+
+                if (isEditingThisRow) return;
+
                 setSelectedTask(t.id);
                 onOpenInspectorByTaskId?.(t.id);
               }}
@@ -802,10 +808,15 @@ function TaskListTableFactory({
                     disabled={busy}
                     className="h-8 rounded-lg border-zinc-200 bg-white px-2 text-[12px] focus-visible:ring-red-500"
                     value={editingMeta.value}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) =>
                       setEditingMeta((p) => ({ ...p, value: e.target.value }))
                     }
                     onKeyDown={(e) => {
+                      e.stopPropagation();
+
                       if (e.key === "Escape") {
                         setEditingMeta({ id: null, field: null, value: "" });
                         e.currentTarget.blur();
@@ -815,7 +826,6 @@ function TaskListTableFactory({
                       }
                     }}
                     onBlur={() => commitEditMeta(t)}
-                    onClick={(e) => e.stopPropagation()}
                     placeholder="Sem recurso"
                     title="Editar recurso (Enter/blur salva)"
                   />
@@ -823,9 +833,18 @@ function TaskListTableFactory({
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={(e) => {
+                    onPointerDown={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
-                      beginEditMeta(t, "recurso");
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      beginEditMeta(t, "recurso"); // ou "area"
                     }}
                     className={cn(
                       "w-full truncate text-left text-zinc-700 hover:underline",
@@ -848,10 +867,14 @@ function TaskListTableFactory({
                     disabled={busy}
                     className="h-8 rounded-lg border-zinc-200 bg-white px-2 text-[12px] focus-visible:ring-red-500"
                     value={editingMeta.value}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) =>
                       setEditingMeta((p) => ({ ...p, value: e.target.value }))
                     }
                     onKeyDown={(e) => {
+                      e.stopPropagation();
                       if (e.key === "Escape") {
                         setEditingMeta({ id: null, field: null, value: "" });
                         e.currentTarget.blur();
@@ -861,9 +884,6 @@ function TaskListTableFactory({
                       }
                     }}
                     onBlur={() => commitEditMeta(t)}
-                    onClick={(e) => e.stopPropagation()}
-                    placeholder="—"
-                    title="Editar área (Enter/blur salva)"
                   />
                 ) : (
                   <button
