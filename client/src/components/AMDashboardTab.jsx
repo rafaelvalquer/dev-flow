@@ -100,18 +100,55 @@ function uid(prefix = "w") {
 /* =========================
    //#region Datas / helpers
 ========================= */
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toYmdLocal(dt) {
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+
+function parseDateLoose(v) {
+  const s = String(v || "").trim();
+  if (!s) return null;
+
+  // caso já seja YYYY-MM-DD puro
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return parseIsoYmdLocal(s);
+  }
+
+  // Jira às vezes vem com timezone +0000 (sem ":"), normaliza para +00:00
+  const normalized = s.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+
+  const d = new Date(normalized);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function extractYmd(v) {
   if (!v) return "";
+
+  // Date nativo
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return toYmdLocal(v);
+  }
+
+  // String (created/updated/resolutiondate do Jira)
   if (typeof v === "string") {
-    const ymd = v.slice(0, 10);
+    const s = v.trim();
+
+    // se for só YYYY-MM-DD (duedate)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    // tenta parsear como data/hora e converter para dia LOCAL
+    const dt = parseDateLoose(s);
+    if (dt) return toYmdLocal(dt);
+
+    // fallback seguro
+    const ymd = s.slice(0, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
   }
-  if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    const y = v.getFullYear();
-    const m = String(v.getMonth() + 1).padStart(2, "0");
-    const d = String(v.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
-  }
+
+  // objetos variados (ex: { value: ... })
   if (typeof v === "object") {
     const candidate =
       v?.value ||
@@ -123,11 +160,10 @@ function extractYmd(v) {
       v?.from ||
       v?.to ||
       "";
-    const ymd = String(candidate).slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
+    return extractYmd(candidate);
   }
-  const ymd = String(v).slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
+
+  return extractYmd(String(v));
 }
 
 function parseIsoYmdLocal(ymd) {
@@ -147,16 +183,18 @@ function diffDays(a, b) {
   return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function issueTypeKind(issueTypeName) {
+function issueTypeKind(issueTypeName, isSubtask) {
+  if (isSubtask) return "subtask";
+
   const s = String(issueTypeName || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
-  if (/(sub[-\s]?task|subtarefa|sub\-tarefa)/.test(s)) return "subtask";
+  // se você ainda quiser separar Story de outros "principais", mantém isso:
   if (/(historia|story|hist)/.test(s)) return "story";
 
-  return "other"; // segurança
+  return "other";
 }
 
 function dueBucketLabel(t, today0) {
@@ -471,7 +509,7 @@ const METRICS = [
   {
     metric: "createdVsDonePerDay",
     title: "Criados vs Concluídos por dia",
-    subtitle: "História x Subtarefas (últimos 30 dias)",
+    subtitle: "Principal x Subtarefas (últimos 30 dias)",
     defaultViz: "composed",
     allowedViz: ["composed", "multiLine"],
   },
@@ -989,9 +1027,8 @@ export default function AMDashboardTab({
           return pick(listOpen.filter((t) => t.reporter === name));
 
         case "dueBuckets": {
-          const openList = list.filter((t) => !t.done);
           return pick(
-            openList.filter((t) => dueBucketLabel(t, today0) === name)
+            listOpen.filter((t) => dueBucketLabel(t, today0) === name)
           );
         }
 
@@ -1003,44 +1040,44 @@ export default function AMDashboardTab({
               )
             );
           }
+
           if (name === "Data limite estourada") {
             return pick(
-              list.filter(
+              listOpen.filter(
                 (t) =>
-                  !t.done &&
                   t.effectiveDueDate &&
                   t.effectiveDueDate < today0 &&
                   !t.hasDueAlt
               )
             );
           }
+
           if (name === "Data limite alterada estourada") {
             return pick(
-              list.filter(
+              listOpen.filter(
                 (t) =>
-                  !t.done &&
                   t.effectiveDueDate &&
                   t.effectiveDueDate < today0 &&
                   t.hasDueAlt
               )
             );
           }
+
           if (name === "Sem data limite") {
             return pick(listOpen.filter((t) => !t.effectiveDueDate));
           }
-          // se quiser manter opcional:
+
           if (name === "Concluídos") {
             return pick(listDone);
           }
+
           return;
         }
 
         case "slaCompliance": {
-          // mostra somente os elegíveis (com due date e não Done)
-          return pick(
-            list.filter((t) => !t.done && Boolean(t.effectiveDueDate))
-          );
+          return pick(listOpen.filter((t) => Boolean(t.effectiveDueDate)));
         }
+
         case "aging": {
           const today0 = startOfTodayLocal();
 
@@ -1093,7 +1130,6 @@ export default function AMDashboardTab({
   }) {
     const today0 = startOfTodayLocal();
 
-    // prepara dias alvo (últimos N)
     const daysList = [];
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(today0);
@@ -1101,30 +1137,38 @@ export default function AMDashboardTab({
       daysList.push(extractYmd(d));
     }
 
-    // mapas: ymd -> count
     const createdStory = new Map(daysList.map((d) => [d, 0]));
     const createdSub = new Map(daysList.map((d) => [d, 0]));
     const doneStory = new Map(daysList.map((d) => [d, 0]));
     const doneSub = new Map(daysList.map((d) => [d, 0]));
 
-    // CREATED: usa todos tickets (abertos + done) para não perder created
+    // CREATED: todos os tickets
     for (const t of allTickets) {
       const ymd = extractYmd(t?.created);
       if (!ymd || !createdStory.has(ymd)) continue;
 
-      const kind = issueTypeKind(t?.issueType);
-      if (kind === "story") createdStory.set(ymd, createdStory.get(ymd) + 1);
-      else if (kind === "subtask") createdSub.set(ymd, createdSub.get(ymd) + 1);
+      const kind = issueTypeKind(t?.issueType, t?.isSubtask);
+
+      if (kind === "subtask") {
+        createdSub.set(ymd, (createdSub.get(ymd) || 0) + 1);
+      } else {
+        // ✅ inclui story + other como "principal"
+        createdStory.set(ymd, (createdStory.get(ymd) || 0) + 1);
+      }
     }
 
-    // DONE: usa apenas doneTickets e resolutionDate
+    // DONE: resolutionDate, fallback para updated
     for (const t of doneTickets) {
-      const ymd = extractYmd(t?.resolutionDate);
+      const ymd = extractYmd(t?.resolutionDate || t?.updated);
       if (!ymd || !doneStory.has(ymd)) continue;
 
-      const kind = issueTypeKind(t?.issueType);
-      if (kind === "story") doneStory.set(ymd, doneStory.get(ymd) + 1);
-      else if (kind === "subtask") doneSub.set(ymd, doneSub.get(ymd) + 1);
+      const kind = issueTypeKind(t?.issueType, t?.isSubtask);
+
+      if (kind === "subtask") {
+        doneSub.set(ymd, (doneSub.get(ymd) || 0) + 1);
+      } else {
+        doneStory.set(ymd, (doneStory.get(ymd) || 0) + 1);
+      }
     }
 
     return daysList.map((ymd) => ({
@@ -1137,7 +1181,6 @@ export default function AMDashboardTab({
       doneStory: doneStory.get(ymd) || 0,
       doneSubtask: doneSub.get(ymd) || 0,
 
-      // (opcional, mas útil pro tooltip)
       createdTotal: (createdStory.get(ymd) || 0) + (createdSub.get(ymd) || 0),
       doneTotal: (doneStory.get(ymd) || 0) + (doneSub.get(ymd) || 0),
     }));
@@ -1196,9 +1239,9 @@ export default function AMDashboardTab({
       fill: CHART_COLORS[idx % CHART_COLORS.length],
     }));
 
-    // ✅ SÉRIES (somente abertos)
-    const createdSeries = buildLastNDaysSeries(openList, (x) => x.created, 30);
-    const updatedSeries = buildLastNDaysSeries(openList, (x) => x.updated, 30);
+    // ✅ correto: inclui abertos + concluídos
+    const createdSeries = buildLastNDaysSeries(listAll, (x) => x.created, 30);
+    const updatedSeries = buildLastNDaysSeries(listAll, (x) => x.updated, 30);
 
     const today0 = startOfTodayLocal();
 
@@ -1365,7 +1408,7 @@ export default function AMDashboardTab({
     // ✅ SOMENTE DONE nos gráficos certos:
     const donePerDaySeries = buildLastNDaysSeries(
       doneList,
-      (x) => x.resolutionDate,
+      (x) => x.resolutionDate || x.updated, // ✅ fallback
       30
     );
 
@@ -1374,6 +1417,18 @@ export default function AMDashboardTab({
       doneTickets: doneList, // ✅ somente Done
       days: 30,
     });
+
+    console.log("DONE LIST SIZE:", doneList.length);
+    console.log(
+      "DONE SAMPLE:",
+      doneList.slice(0, 3).map((d) => ({
+        key: d.key,
+        status: d.status,
+        issueType: d.issueType,
+        resolutionDate: d.resolutionDate,
+        updated: d.updated,
+      }))
+    );
 
     return {
       priorityCounts,
@@ -2217,6 +2272,14 @@ function MinimalLegend({ payload }) {
   );
 }
 
+const RECHARTS_TOOLTIP_BASE = {
+  wrapperStyle: { outline: "none", zIndex: 9999, pointerEvents: "none" },
+  allowEscapeViewBox: { x: false, y: false }, // ✅ não deixa fugir do chart
+  reverseDirection: { x: true, y: true }, // ✅ inverte quando encostar na borda
+  offset: 12, // ✅ distância do cursor
+  isAnimationActive: false, // ✅ evita flicker/sumiço
+};
+
 function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;
@@ -2252,9 +2315,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
 
             <RTooltip
+              {...RECHARTS_TOOLTIP_BASE}
               content={<ShadcnChartTooltip />}
-              wrapperStyle={{ outline: "none", zIndex: 80 }}
-              allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
             />
 
@@ -2269,9 +2331,10 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <Bar
               dataKey="createdStory"
               stackId="created"
-              name="Criados História"
+              name="Criados Principal"
               fill="#3b82f6"
             />
+
             <Bar
               dataKey="createdSubtask"
               stackId="created"
@@ -2279,15 +2342,15 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               fill="#06b6d4"
             />
 
-            {/* ✅ Concluídos (linhas) */}
             <Line
               type="monotone"
               dataKey="doneStory"
-              name="Concluídos História"
+              name="Concluídos Principal"
               stroke="#22c55e"
               strokeWidth={2}
               dot={false}
             />
+
             <Line
               type="monotone"
               dataKey="doneSubtask"
@@ -2315,9 +2378,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
 
             <RTooltip
+              {...RECHARTS_TOOLTIP_BASE}
               content={<ShadcnChartTooltip />}
-              wrapperStyle={{ outline: "none", zIndex: 80 }}
-              allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
             />
 
@@ -2331,7 +2393,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <Line
               type="monotone"
               dataKey="createdStory"
-              name="Criados História"
+              name="Criados Principal"
               stroke="#3b82f6"
               dot={false}
             />
@@ -2342,11 +2404,10 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               stroke="#06b6d4"
               dot={false}
             />
-
             <Line
               type="monotone"
               dataKey="doneStory"
-              name="Concluídos História"
+              name="Concluídos Principal"
               stroke="#22c55e"
               dot={false}
             />
@@ -2383,9 +2444,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               <XAxis dataKey="date" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
               <RTooltip
+                {...RECHARTS_TOOLTIP_BASE}
                 content={<ShadcnChartTooltip />}
-                wrapperStyle={{ outline: "none", zIndex: 80 }}
-                allowEscapeViewBox={{ x: true, y: true }}
                 cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
               />
 
@@ -2417,9 +2477,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <XAxis dataKey="date" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <RTooltip
+              {...RECHARTS_TOOLTIP_BASE}
               content={<ShadcnChartTooltip />}
-              wrapperStyle={{ outline: "none", zIndex: 80 }}
-              allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ stroke: "rgba(15,23,42,0.25)", strokeWidth: 1 }}
             />
 
@@ -2456,9 +2515,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             <XAxis dataKey="name" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <RTooltip
+              {...RECHARTS_TOOLTIP_BASE}
               content={<ShadcnChartTooltip />}
-              wrapperStyle={{ outline: "none", zIndex: 80 }}
-              allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ fill: "rgba(15,23,42,0.06)" }}
             />
 
@@ -2542,9 +2600,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
           return (
             <PieChart width={width} height={height}>
               <RTooltip
+                {...RECHARTS_TOOLTIP_BASE}
                 content={<ShadcnChartTooltip />}
-                wrapperStyle={{ outline: "none", zIndex: 80 }}
-                allowEscapeViewBox={{ x: true, y: true }}
               />
 
               <Legend
@@ -2606,9 +2663,8 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             />
 
             <RTooltip
+              {...RECHARTS_TOOLTIP_BASE}
               content={<ShadcnChartTooltip />}
-              wrapperStyle={{ outline: "none", zIndex: 80 }}
-              allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ fill: "rgba(15,23,42,0.06)" }}
             />
 
@@ -2655,11 +2711,11 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               <XAxis dataKey="name" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
               <RTooltip
+                {...RECHARTS_TOOLTIP_BASE}
                 content={<ShadcnChartTooltip />}
-                wrapperStyle={{ outline: "none", zIndex: 80 }}
-                allowEscapeViewBox={{ x: true, y: true }}
                 cursor={{ fill: "rgba(15,23,42,0.06)" }}
               />
+
               <Legend
                 verticalAlign="bottom"
                 align="left"
@@ -2722,11 +2778,11 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <RTooltip
+              {...RECHARTS_TOOLTIP_BASE}
               content={<ShadcnChartTooltip />}
-              wrapperStyle={{ outline: "none", zIndex: 80 }}
-              allowEscapeViewBox={{ x: true, y: true }}
               cursor={{ fill: "rgba(15,23,42,0.06)" }}
             />
+
             <Legend
               verticalAlign="bottom"
               align="left"
