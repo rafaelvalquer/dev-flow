@@ -1122,7 +1122,7 @@ export default memo(function AMCalendarDashboard({
 
           <div className="mt-2 text-xs text-zinc-600">
             Bordas em vermelho indicam atividades que ultrapassam o{" "}
-            <span className="font-semibold">dueDate</span> do ticket.
+            <span className="font-semibold">Data Limite</span> do ticket.
           </div>
         </div>
       </div>

@@ -1819,7 +1819,7 @@ export default function AMDashboardTab({
                   <th className="px-3 py-2 text-left">Status</th>
                   <th className="px-3 py-2 text-left">Prioridade</th>
                   <th className="px-3 py-2 text-left">Responsável</th>
-                  <th className="px-3 py-2 text-left">Due</th>
+                  <th className="px-3 py-2 text-left">Data Limite</th>
                 </tr>
               </thead>
 

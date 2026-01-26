@@ -1,7 +1,14 @@
 // src/components/ChecklistGMUDTab.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { adfFromTagAndText } from "../lib/adf";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { motion } from "framer-motion";
+
+import { adfFromTagAndText } from "../lib/adf";
 import {
   getIssue,
   getComments,
@@ -13,10 +20,9 @@ import {
   uploadAttachments,
   listAttachments,
   buildDownloadLinks,
-  getTransitions,
-  transitionIssue,
   transitionToStatusName,
 } from "../lib/jira";
+
 import {
   SCRIPTS_TAG,
   VARS_TAG,
@@ -38,6 +44,7 @@ import {
   buildTicketKanbanConfig,
   getWorkflowIndex,
 } from "../utils/kanbanJiraConfig";
+
 import {
   normalizeKey,
   extractKanbanConfigFromCommentsPayload,
@@ -50,6 +57,17 @@ import {
   buildKanbanSummary,
 } from "../utils/kanbanSync";
 
+import {
+  evidenceTag,
+  extractEvidenceByStepFromCommentsPayload,
+  summarizeEvidenceCounts,
+  mergeEvidenceFiles,
+  buildEvidenceCommentText,
+} from "../utils/evidenceByStep.js";
+
+import { buildGmudFinalSummary } from "../utils/gmudSummaryBuilder";
+import { notify } from "../utils/notify";
+
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -61,6 +79,10 @@ import {
   X,
   FileCode2,
   Layers3,
+  ClipboardCopy,
+  Printer,
+  Paperclip,
+  Trash2,
 } from "lucide-react";
 
 const JIRA_CACHE_PREFIX = "GMUD_JIRA_CACHE_V1:";
@@ -84,6 +106,11 @@ function ChecklistGMUDTab({
   const [scriptsAlterados, setScriptsAlterados] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [previewFiles, setPreviewFiles] = useState([]);
+
+  // Evidências (por step)
+  const [evidenceByStep, setEvidenceByStep] = useState({});
+  const [evidenceCountsByStep, setEvidenceCountsByStep] = useState({});
+  const [evidenceStepKey, setEvidenceStepKey] = useState("");
 
   // Variáveis
   const [chaves, setChaves] = useState([]); // {id, ambiente, nome, valor, pendente}
@@ -111,13 +138,14 @@ function ChecklistGMUDTab({
   const fileInputRef = useRef(null);
 
   // UI
-  const [activeTab, setActiveTab] = useState("scripts"); // scripts | vars | evidencias
+  const [activeTab, setActiveTab] = useState("scripts"); // scripts | vars | evidencias | comentarios
 
   // Loading
   const [syncing, setSyncing] = useState(false);
   const [savingScripts, setSavingScripts] = useState(false);
   const [savingVars, setSavingVars] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [savingEvidence, setSavingEvidence] = useState(false);
 
   const [dataLimite, setDataLimite] = useState("");
   const [dataLimiteLabel, setDataLimiteLabel] = useState("Data limite:");
@@ -148,58 +176,25 @@ function ChecklistGMUDTab({
     toIdx: null,
   });
   const [advancingStep, setAdvancingStep] = useState(false);
+
   // --- Estados para Nova Tarefa Avulsa ---
   const makeCustomTaskModal = (patch = {}) => ({
     open: false,
-    stepKey: null, // string (key do step)
+    stepKey: null,
     title: "",
-    subtasks: [""], // sempre array
+    subtasks: [""],
     ...patch,
   });
-
   const [customTaskModal, setCustomTaskModal] = useState(() =>
     makeCustomTaskModal()
   );
-
   const [creatingCustomTask, setCreatingCustomTask] = useState(false);
 
   // Comentários (Jira) - Tab "Comentários"
-  const [jiraCommentsList, setJiraCommentsList] = useState([]); // [{id, author, created, updated, text}]
+  const [jiraCommentsList, setJiraCommentsList] = useState([]);
   const [newJiraCommentText, setNewJiraCommentText] = useState("");
   const [loadingJiraComments, setLoadingJiraComments] = useState(false);
   const [postingJiraComment, setPostingJiraComment] = useState(false);
-
-  // Helpers seguros
-  const handleAddSubtaskField = () => {
-    setCustomTaskModal((prev) => {
-      const subs = Array.isArray(prev.subtasks) ? prev.subtasks : [""];
-      return { ...prev, subtasks: [...subs, ""] };
-    });
-  };
-
-  const handleUpdateSubtaskField = (index, value) => {
-    setCustomTaskModal((prev) => {
-      const subs = Array.isArray(prev.subtasks) ? [...prev.subtasks] : [""];
-      subs[index] = value;
-      return { ...prev, subtasks: subs };
-    });
-  };
-
-  const handleRemoveSubtaskField = (index) => {
-    setCustomTaskModal((prev) => {
-      const subs = Array.isArray(prev.subtasks) ? prev.subtasks : [""];
-      const next = subs.filter((_, i) => i !== index);
-      return { ...prev, subtasks: next.length ? next : [""] };
-    });
-  };
-
-  // Para exibir o título do step pelo stepKey (string)
-  function getStepTitleByKey(stepKey) {
-    const wf = getWorkflow();
-    const idx = getWorkflowIndex(wf, stepKey);
-    if (typeof idx === "number" && idx >= 0) return wf[idx]?.title || stepKey;
-    return kanbanCfg?.columns?.[stepKey]?.title || stepKey || "";
-  }
 
   const jiraCtxRef = useRef(null);
   useEffect(() => {
@@ -244,7 +239,7 @@ function ChecklistGMUDTab({
 
   function fmtDueDate(yyyyMmDd) {
     if (!yyyyMmDd) return "";
-    const [y, m, d] = String(yyyyMmDd).split("-");
+    const [y, m, d] = String(yyyyMmDd).slice(0, 10).split("-");
     if (!y || !m || !d) return String(yyyyMmDd);
     return `${d}/${m}/${y}`;
   }
@@ -284,7 +279,7 @@ function ChecklistGMUDTab({
     }
   }
 
-  // ADF simples (Jira Cloud) para comentário "normal" (sem TAG)
+  // ADF simples para comentário "normal" (sem TAG)
   function adfFromPlainText(text) {
     const raw = String(text ?? "");
     const lines = raw.split(/\r?\n/);
@@ -305,7 +300,6 @@ function ChecklistGMUDTab({
   }
 
   function extractAllJiraComments(payload) {
-    // Jira costuma retornar { comments: [...] } em Cloud
     const arr =
       payload?.comments ||
       payload?.comments?.comments ||
@@ -332,9 +326,8 @@ function ChecklistGMUDTab({
         };
       })
       .filter((c) => c.id && c.text)
-      // EXCLUI SOMENTE o comentário de config do Kanban
+      // remove só o config do Kanban
       .filter((c) => !/\[GMUD Kanban Config\]/i.test(c.text))
-      // Ordena por data (mais antigo -> mais novo)
       .sort(
         (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime()
       );
@@ -352,9 +345,14 @@ function ChecklistGMUDTab({
     try {
       const payload = await getComments(tk);
       setJiraCommentsList(extractAllJiraComments(payload));
+      // também atualiza evidências (contagens) a partir dos comentários
+      const ev = extractEvidenceByStepFromCommentsPayload(payload);
+      setEvidenceByStep(ev);
+      setEvidenceCountsByStep(summarizeEvidenceCounts(ev));
     } catch (e) {
-      console.warn("Falha ao atualizar comentários:", e);
-      alert("Erro ao atualizar comentários do Jira: " + (e?.message || e));
+      notify.error("Erro ao atualizar comentários do Jira.", {
+        description: e?.message || String(e),
+      });
     } finally {
       setLoadingJiraComments(false);
     }
@@ -366,24 +364,19 @@ function ChecklistGMUDTab({
       .toUpperCase();
     const text = String(newJiraCommentText || "").trim();
 
-    if (!tk) {
-      alert("Informe o ticket do Jira.");
-      return;
-    }
-    if (!text) {
-      alert("Digite um comentário.");
-      return;
-    }
+    if (!tk) return notify.warning("Informe o ticket do Jira.");
+    if (!text) return notify.warning("Digite um comentário.");
 
     setPostingJiraComment(true);
     try {
       await createComment(tk, adfFromPlainText(text));
       setNewJiraCommentText("");
       await refreshJiraComments();
-      alert("Comentário adicionado no Jira.");
+      notify.success("Comentário adicionado no Jira.");
     } catch (e) {
-      console.error(e);
-      alert("Erro ao adicionar comentário no Jira: " + (e?.message || e));
+      notify.error("Erro ao adicionar comentário no Jira.", {
+        description: e?.message || String(e),
+      });
     } finally {
       setPostingJiraComment(false);
     }
@@ -398,6 +391,13 @@ function ChecklistGMUDTab({
   }
   function getStepIdxByKey(stepKey) {
     return getWorkflowIndex(getWorkflow(), stepKey);
+  }
+
+  function getStepTitleByKey(stepKey) {
+    const wf = getWorkflow();
+    const idx = getWorkflowIndex(wf, stepKey);
+    if (typeof idx === "number" && idx >= 0) return wf[idx]?.title || stepKey;
+    return kanbanCfg?.columns?.[stepKey]?.title || stepKey || "";
   }
 
   function listNextStepPreview(toIdx) {
@@ -434,10 +434,7 @@ function ChecklistGMUDTab({
             pendente: false,
           }))
         );
-        setJiraCommentsList([]);
-        setNewJiraCommentText("");
 
-        // restaura cache do Jira
         const tk = String(d.ticketJira || "")
           .trim()
           .toUpperCase();
@@ -466,9 +463,17 @@ function ChecklistGMUDTab({
                   .filter(Boolean)
               );
             }
+
+            if (cache?.evidenceByStep) setEvidenceByStep(cache.evidenceByStep);
+            if (cache?.evidenceCountsByStep)
+              setEvidenceCountsByStep(cache.evidenceCountsByStep);
+            if (cache?.evidenceStepKey)
+              setEvidenceStepKey(cache.evidenceStepKey);
           }
         }
-      } catch {}
+      } catch {
+        // ignore
+      }
     }
 
     const t = localStorage.getItem(TAB_KEY);
@@ -504,7 +509,6 @@ function ChecklistGMUDTab({
       .trim()
       .toUpperCase();
     if (!tk) return;
-
     if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) return;
 
     const cache = {
@@ -522,6 +526,10 @@ function ChecklistGMUDTab({
       kanbanCfg,
       kanbanComment,
       unlockedStepIdx,
+
+      evidenceByStep,
+      evidenceCountsByStep,
+      evidenceStepKey,
     };
 
     localStorage.setItem(jiraCacheKey(tk), JSON.stringify(cache));
@@ -536,6 +544,9 @@ function ChecklistGMUDTab({
     kanbanCfg,
     kanbanComment,
     unlockedStepIdx,
+    evidenceByStep,
+    evidenceCountsByStep,
+    evidenceStepKey,
   ]);
 
   useEffect(() => {
@@ -574,8 +585,14 @@ function ChecklistGMUDTab({
       setKanbanComment({ id: null, originalText: "" });
       setUnlockedStepIdx(0);
 
+      setEvidenceByStep({});
+      setEvidenceCountsByStep({});
+      setEvidenceStepKey("");
+
       setJiraCommentsList([]);
       setNewJiraCommentText("");
+      setAttachments([]);
+      setPreviewFiles([]);
     }
   }, [ticketJira]); // intencional
 
@@ -587,81 +604,6 @@ function ChecklistGMUDTab({
       setVarsBanner(any);
       return next;
     });
-  }
-
-  // ===============================
-  // Helpers: transição do ticket pai
-  // ===============================
-  function normStr(v) {
-    return String(v || "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "");
-  }
-
-  function resolveTargetStatusByUnlock(toIdx) {
-    const wf = getWorkflow();
-    const isFinal = toIdx >= wf.length;
-
-    if (isFinal) return "Concluído";
-
-    const step = wf[toIdx];
-    const stepKey = normStr(step?.key);
-    const stepTitle = normStr(step?.title);
-
-    const isPosDeploy =
-      /(pos)/.test(stepKey) ||
-      /(pos)/.test(stepTitle) ||
-      /(p[oó]s)/.test(stepTitle);
-
-    // Step "homologação" -> Homologação
-    if (/(homolog)/.test(stepKey) || /(homolog)/.test(stepTitle)) {
-      return "Homologação";
-    }
-
-    // Step "deploy" -> Para Deploy (mas NÃO pos-deploy)
-    if (
-      !isPosDeploy &&
-      (/(deploy)/.test(stepKey) || /(deploy)/.test(stepTitle))
-    ) {
-      return "Para Deploy";
-    }
-
-    // Pós-Deploy mantém Para Deploy
-    if (isPosDeploy) return null;
-
-    return null;
-  }
-
-  function findDeployStepKey() {
-    const wf = getWorkflow();
-
-    // preferir key exata "deploy"
-    const byExact = wf.find((s) => normStr(s?.key) === "deploy");
-    if (byExact?.key) return byExact.key;
-
-    // fallback: título contém deploy, mas não contém pós
-    const byTitle = wf.find((s) => {
-      const t = normStr(s?.title);
-      return /deploy/.test(t) && !/(pos|p[oó]s)/.test(t);
-    });
-
-    return byTitle?.key || null;
-  }
-
-  async function transitionParentIssueTo(ticketKey, targetStatusName) {
-    const tk = String(ticketKey || "")
-      .trim()
-      .toUpperCase();
-    const target = String(targetStatusName || "").trim();
-
-    if (!tk) throw new Error("Ticket pai inválido.");
-    if (!target) throw new Error("Status alvo inválido.");
-
-    // ✅ agora quem resolve transição por nome + fallback é o lib/jira.js
-    await transitionToStatusName(tk, target);
-    return true;
   }
 
   function addChave() {
@@ -698,34 +640,77 @@ function ChecklistGMUDTab({
     if (rowsOverride) setChaves(next);
   }
 
-  /* ---------- Evidências ---------- */
-  async function listarAnexos() {
-    const data = await listAttachments(ticketJira);
-    setAttachments(data.attachments || []);
+  // ===============================
+  // Helpers: transição do ticket pai
+  // ===============================
+  function normStr(v) {
+    return String(v || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
   }
 
-  async function enviarArquivos() {
-    if (!ticketJira.trim()) {
-      alert("Informe o ticket.");
-      return;
-    }
-    if (!previewFiles.length) {
-      alert("Nenhum arquivo selecionado.");
-      return;
-    }
+  function resolveTargetStatusByUnlock(toIdx) {
+    const wf = getWorkflow();
+    const isFinal = toIdx >= wf.length;
 
-    setUploading(true);
-    try {
-      await uploadAttachments(ticketJira, previewFiles);
-      alert("Arquivos enviados com sucesso.");
-      setPreviewFiles([]);
-      await listarAnexos();
-    } catch (e) {
-      console.error(e);
-      alert("Erro ao enviar: " + e.message);
-    } finally {
-      setUploading(false);
-    }
+    if (isFinal) return "Concluído";
+
+    const step = wf[toIdx];
+    const stepKey = normStr(step?.key);
+    const stepTitle = normStr(step?.title);
+
+    const isPosDeploy =
+      /(pos)/.test(stepKey) ||
+      /(pos)/.test(stepTitle) ||
+      /(p[oó]s)/.test(stepTitle);
+
+    if (/(homolog)/.test(stepKey) || /(homolog)/.test(stepTitle))
+      return "Homologação";
+
+    if (
+      !isPosDeploy &&
+      (/(deploy)/.test(stepKey) || /(deploy)/.test(stepTitle))
+    )
+      return "Para Deploy";
+
+    if (isPosDeploy) return null;
+
+    return null;
+  }
+
+  function findDeployStepKey() {
+    const wf = getWorkflow();
+
+    const byExact = wf.find((s) => normStr(s?.key) === "deploy");
+    if (byExact?.key) return byExact.key;
+
+    const byTitle = wf.find((s) => {
+      const t = normStr(s?.title);
+      return /deploy/.test(t) && !/(pos|p[oó]s)/.test(t);
+    });
+
+    return byTitle?.key || null;
+  }
+
+  async function transitionParentIssueTo(ticketKey, targetStatusName) {
+    const tk = String(ticketKey || "")
+      .trim()
+      .toUpperCase();
+    const target = String(targetStatusName || "").trim();
+    if (!tk) throw new Error("Ticket pai inválido.");
+    if (!target) throw new Error("Status alvo inválido.");
+
+    await transitionToStatusName(tk, target);
+    return true;
+  }
+
+  /* ---------- Evidências / anexos ---------- */
+  async function listarAnexos() {
+    if (!String(ticketJira || "").trim()) return;
+    const data = await listAttachments(ticketJira);
+    setAttachments(data.attachments || []);
   }
 
   function limparPreview() {
@@ -748,11 +733,132 @@ function ChecklistGMUDTab({
     return "neutral";
   }
 
+  async function upsertEvidenceCommentForStep(stepKey, incomingFiles) {
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) throw new Error("Ticket inválido.");
+
+    const existing = evidenceByStep?.[stepKey];
+    const merged = mergeEvidenceFiles(
+      existing?.files || [],
+      incomingFiles || []
+    );
+
+    const stepTitle = getStepTitleByKey(stepKey);
+    const author = ticketSideInfo?.responsavel || "";
+    const updatedAt = new Date().toLocaleString("pt-BR");
+
+    const text = buildEvidenceCommentText({
+      stepTitle,
+      files: merged,
+      updatedAt,
+      author,
+    });
+
+    const tag = evidenceTag(stepKey);
+    const adf = adfFromTagAndText(tag, text);
+
+    if (existing?.commentId) {
+      const updated = await updateComment(tk, existing.commentId, adf);
+      return {
+        commentId: updated?.id || existing.commentId,
+        files: merged,
+        rawText: text,
+      };
+    }
+
+    const created = await createComment(tk, adf);
+    return { commentId: created?.id, files: merged, rawText: text };
+  }
+
+  async function enviarArquivosComEvidencia() {
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return notify.warning("Informe o ticket.");
+    if (!previewFiles.length)
+      return notify.warning("Nenhum arquivo selecionado.");
+
+    const stepKey = String(evidenceStepKey || "").trim();
+    if (!stepKey)
+      return notify.warning("Selecione o step para registrar evidência.");
+
+    setUploading(true);
+    const startedAt = Date.now();
+    try {
+      await uploadAttachments(tk, previewFiles);
+
+      // atualiza lista
+      const data = await listAttachments(tk);
+      const nextAtt = data.attachments || [];
+      setAttachments(nextAtt);
+
+      // tenta identificar recém enviados pelo nome + janela de tempo
+      const names = new Set(previewFiles.map((f) => f?.name).filter(Boolean));
+      const incoming = nextAtt
+        .filter((a) => {
+          const t = new Date(a?.created || 0).getTime();
+          const byName = names.has(a?.filename);
+          const byTime = t >= startedAt - 60 * 1000; // tolerância
+          return byName && byTime;
+        })
+        .map((a) => {
+          const links = buildDownloadLinks(a);
+          return {
+            filename: a.filename,
+            when: a?.created
+              ? fmtDateTimeBr(a.created)
+              : new Date().toLocaleString("pt-BR"),
+            url: links?.download || "",
+          };
+        });
+
+      // se não achou pelo filtro, registra pelo nome (sem url)
+      const fallbackIncoming =
+        incoming.length > 0
+          ? incoming
+          : previewFiles.map((f) => ({
+              filename: f?.name || "arquivo",
+              when: new Date().toLocaleString("pt-BR"),
+              url: "",
+            }));
+
+      setSavingEvidence(true);
+      const res = await upsertEvidenceCommentForStep(stepKey, fallbackIncoming);
+
+      // atualiza estados locais
+      setEvidenceByStep((prev) => ({
+        ...(prev || {}),
+        [stepKey]: {
+          commentId: res.commentId,
+          rawText: `${evidenceTag(stepKey)}\n${res.rawText}`,
+          textSemTag: res.rawText,
+          files: res.files,
+        },
+      }));
+
+      setEvidenceCountsByStep((prev) => ({
+        ...(prev || {}),
+        [stepKey]: (res.files || []).length,
+      }));
+
+      limparPreview();
+      notify.success("Arquivos enviados e evidência registrada.");
+    } catch (e) {
+      notify.error("Erro ao enviar/registrar evidência.", {
+        description: e?.message || String(e),
+      });
+    } finally {
+      setSavingEvidence(false);
+      setUploading(false);
+    }
+  }
+
   /* ---------- Step Gate ---------- */
   function openStepGate(fromIdx, toIdx) {
     setStepGate({ open: true, fromIdx, toIdx });
   }
-
   function closeStepGate() {
     setStepGate((prev) => ({ ...prev, open: false }));
     setAdvancingStep(false);
@@ -763,19 +869,18 @@ function ChecklistGMUDTab({
     if (toIdx == null) return closeStepGate();
 
     if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) {
-      alert("Sincronize com o Jira antes.");
+      notify.warning("Sincronize com o Jira antes.");
       return;
     }
-
     if (!kanbanCfg) {
-      alert("Crie a estrutura do Kanban primeiro.");
+      notify.warning("Crie a estrutura do Kanban primeiro.");
       return;
     }
 
     const wf = getWorkflow();
     const isFinalizing = toIdx >= wf.length;
 
-    // ✅ Regra: só pode ir para "Concluído" no FINAL se DEPLOY estiver 100%
+    // regra: só pode concluir no final se Deploy estiver 100%
     if (isFinalizing) {
       const deployKey = findDeployStepKey();
       if (deployKey) {
@@ -784,10 +889,9 @@ function ChecklistGMUDTab({
           deployKey,
           jiraCtx?.subtasksBySummary || {}
         );
-
         if (!deployStat?.complete) {
-          alert(
-            'Não é possível concluir o fluxo. O step "Deploy" precisa estar 100% concluído.'
+          notify.warning(
+            'Não é possível concluir. O step "Deploy" precisa estar 100% concluído.'
           );
           setAdvancingStep(false);
           return;
@@ -797,21 +901,15 @@ function ChecklistGMUDTab({
 
     setAdvancingStep(true);
 
-    // ✅ status alvo do ticket pai baseado no step liberado
-    // Homologação -> Homologação
-    // Deploy -> Para Deploy
-    // Pós-Deploy -> null (não transiciona)
-    // Final -> Concluído (se deploy 100%)
     const parentTargetStatus = resolveTargetStatusByUnlock(toIdx);
 
     try {
-      // libera step no config (persistido no comentário)
-      const cfg2 = structuredClone
-        ? structuredClone(kanbanCfg)
-        : JSON.parse(JSON.stringify(kanbanCfg));
+      const cfg2 =
+        typeof structuredClone === "function"
+          ? structuredClone(kanbanCfg)
+          : JSON.parse(JSON.stringify(kanbanCfg));
       cfg2.unlockedStepIdx = toIdx;
 
-      // cria subtarefas SOMENTE do step liberado (manual)
       const ensured = await ensureSubtasksForStep({
         cfg: cfg2,
         stepIdx: toIdx,
@@ -822,7 +920,6 @@ function ChecklistGMUDTab({
         onProgress: (p) => showSyncOverlay({ ...p }),
       });
 
-      // persiste comment com unlockedStepIdx + mappings (jiraKey/jiraId)
       const saved = await upsertKanbanConfigComment({
         ticketKey: jiraCtx.ticketKey,
         config: ensured.nextCfg,
@@ -837,12 +934,8 @@ function ChecklistGMUDTab({
       setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
       setUnlockedStepIdx(saved.savedConfig.unlockedStepIdx || 0);
 
-      setJiraCtx((prev) => ({
-        ...prev,
-        subtasksBySummary: ensured.nextMap,
-      }));
+      setJiraCtx((prev) => ({ ...prev, subtasksBySummary: ensured.nextMap }));
 
-      // ✅ Transição do ticket pai (conforme regras)
       let parentTransitionOk = false;
       let parentTransitionErr = "";
 
@@ -865,13 +958,10 @@ function ChecklistGMUDTab({
               parentTargetStatus
             );
             parentTransitionOk = true;
-
-            // Atualiza sidebar sem resync
             setTicketSideInfo((prev) =>
               prev ? { ...prev, status: parentTargetStatus } : prev
             );
           } catch (e) {
-            console.error(e);
             parentTransitionErr = e?.message ? String(e.message) : String(e);
           }
         }
@@ -879,7 +969,6 @@ function ChecklistGMUDTab({
 
       closeStepGate();
 
-      // Overlay final
       const baseMsg =
         ensured.created?.length > 0
           ? `Step "${getStepTitle(toIdx)}" liberado. Subtarefas criadas: ${
@@ -893,7 +982,7 @@ function ChecklistGMUDTab({
         parentTargetStatus && parentTransitionOk
           ? ` Status do ticket atualizado para "${parentTargetStatus}".`
           : parentTargetStatus && parentTransitionErr
-          ? ` Atenção: falha ao atualizar status do ticket para "${parentTargetStatus}": ${parentTransitionErr}`
+          ? ` Atenção: falha ao atualizar status para "${parentTargetStatus}": ${parentTransitionErr}`
           : "";
 
       showSyncOverlay({
@@ -904,7 +993,6 @@ function ChecklistGMUDTab({
         error: parentTransitionErr || "",
       });
     } catch (e) {
-      console.error(e);
       showSyncOverlay({
         title: "Erro",
         message: "Erro ao liberar o próximo step.",
@@ -918,19 +1006,16 @@ function ChecklistGMUDTab({
 
   /* ---------- Toggle subtask (Kanban) ---------- */
   async function onToggleKanbanSubtask(stepKey, cardId, subId) {
-    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) {
-      alert("Sincronize com o Jira antes.");
-      return;
-    }
-    if (!kanbanCfg) {
-      alert("Crie a estrutura do Kanban primeiro.");
-      return;
-    }
+    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId)
+      return notify.warning("Sincronize com o Jira antes.");
+    if (!kanbanCfg)
+      return notify.warning("Crie a estrutura do Kanban primeiro.");
 
     const stepIdx = getStepIdxByKey(stepKey);
     if (typeof stepIdx === "number" && stepIdx > unlockedStepIdx) {
-      alert(`"${getStepTitle(stepIdx)}" ainda não está liberada.`);
-      return;
+      return notify.warning(
+        `"${getStepTitle(stepIdx)}" ainda não está liberada.`
+      );
     }
 
     const col = kanbanCfg.columns?.[stepKey];
@@ -949,7 +1034,6 @@ function ChecklistGMUDTab({
     const isChecked = jira ? isDoneStatus(jira) : false;
 
     try {
-      // garante criação (on-demand) se faltar mapping
       let jiraKey = st.jiraKey || jira?.key || null;
 
       if (!jiraKey) {
@@ -960,9 +1044,10 @@ function ChecklistGMUDTab({
         );
         jiraKey = created.key;
 
-        const cfg2 = structuredClone
-          ? structuredClone(kanbanCfg)
-          : JSON.parse(JSON.stringify(kanbanCfg));
+        const cfg2 =
+          typeof structuredClone === "function"
+            ? structuredClone(kanbanCfg)
+            : JSON.parse(JSON.stringify(kanbanCfg));
         const c2 = cfg2.columns?.[stepKey]?.cards?.find((c) => c.id === cardId);
         const st2 = c2?.subtasks?.find((x) => x.id === subId);
         if (st2) {
@@ -1028,52 +1113,46 @@ function ChecklistGMUDTab({
         }));
       }
     } catch (e) {
-      console.error(e);
-      alert("Erro ao transicionar subtarefa no Jira: " + (e?.message || e));
+      notify.error("Erro ao transicionar subtarefa no Jira.", {
+        description: e?.message || String(e),
+      });
     }
   }
 
   /* ---------- Scripts ---------- */
   async function salvarScripts() {
-    if (!ticketJira.trim()) {
-      alert("Informe o ticket do Jira.");
-      return;
-    }
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return notify.warning("Informe o ticket do Jira.");
 
     const text = (scriptsAlterados || "").trim();
-    if (!text) {
-      alert("Campo vazio.");
-      return;
-    }
+    if (!text) return notify.warning("Campo de scripts vazio.");
 
     setSavingScripts(true);
-
     try {
       if (scriptsComment.id) {
-        if (text === scriptsComment.originalText) {
-          alert("Sem alterações.");
-          return;
-        }
-
+        if (text === scriptsComment.originalText)
+          return notify.info("Sem alterações.");
         const updated = await updateComment(
-          ticketJira,
+          tk,
           scriptsComment.id,
           adfFromTagAndText(SCRIPTS_TAG, text)
         );
-
         setScriptsComment({ id: updated.id, originalText: text });
-        alert("Comentário [Scripts alterados] atualizado.");
+        notify.success("Comentário [Scripts alterados] atualizado.");
       } else {
         const created = await createComment(
-          ticketJira,
+          tk,
           adfFromTagAndText(SCRIPTS_TAG, text)
         );
         setScriptsComment({ id: created.id, originalText: text });
-        alert("Comentário [Scripts alterados] criado.");
+        notify.success("Comentário [Scripts alterados] criado.");
       }
     } catch (e) {
-      console.error(e);
-      alert("Erro ao salvar [Scripts alterados]: " + e.message);
+      notify.error("Erro ao salvar [Scripts alterados].", {
+        description: e?.message || String(e),
+      });
     } finally {
       setSavingScripts(false);
     }
@@ -1081,60 +1160,51 @@ function ChecklistGMUDTab({
 
   /* ---------- Variáveis ---------- */
   async function salvarVariaveis() {
-    if (!ticketJira.trim()) {
-      alert("Informe o ticket.");
-      return;
-    }
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return notify.warning("Informe o ticket.");
 
     const text = buildVarsText(chaves);
-    if (!text) {
-      alert("Nenhuma variável preenchida.");
-      return;
-    }
+    if (!text) return notify.warning("Nenhuma variável preenchida.");
 
     setSavingVars(true);
-
     try {
       const normalized = text;
 
       if (varsComment.id) {
-        if (normalized === varsComment.originalText) {
-          alert("Sem alterações.");
-          return;
-        }
+        if (normalized === varsComment.originalText)
+          return notify.info("Sem alterações.");
 
         const updated = await updateComment(
-          ticketJira,
+          tk,
           varsComment.id,
           adfFromTagAndText(VARS_TAG, normalized)
         );
-
         varsBaselineRef.current = new Set(
           normalized.split("\n").filter(Boolean)
         );
         setChaves((prev) => prev.map((r) => ({ ...r, pendente: false })));
         setVarsBanner(false);
         setVarsComment({ id: updated.id, originalText: normalized });
-
-        alert("Variáveis atualizadas.");
+        notify.success("Variáveis atualizadas.");
       } else {
         const created = await createComment(
-          ticketJira,
+          tk,
           adfFromTagAndText(VARS_TAG, normalized)
         );
-
         varsBaselineRef.current = new Set(
           normalized.split("\n").filter(Boolean)
         );
         setChaves((prev) => prev.map((r) => ({ ...r, pendente: false })));
         setVarsBanner(false);
         setVarsComment({ id: created.id, originalText: normalized });
-
-        alert("Variáveis salvas.");
+        notify.success("Variáveis salvas.");
       }
     } catch (e) {
-      console.error(e);
-      alert("Erro ao salvar variáveis: " + e.message);
+      notify.error("Erro ao salvar variáveis.", {
+        description: e?.message || String(e),
+      });
     } finally {
       setSavingVars(false);
     }
@@ -1142,10 +1212,10 @@ function ChecklistGMUDTab({
 
   /* ---------- Jira: sincronização ---------- */
   async function sincronizarJira() {
-    if (!ticketJira.trim()) {
-      alert("Preencha o Ticket do Jira (ex: ICON-245).");
-      return;
-    }
+    const tk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+    if (!tk) return notify.warning("Preencha o Ticket do Jira (ex: ICON-245).");
 
     setSyncing(true);
     showSyncOverlay({
@@ -1163,7 +1233,7 @@ function ChecklistGMUDTab({
       setSideOpen(true);
 
       const issue = await getIssue(
-        ticketJira,
+        tk,
         [
           "summary",
           "subtasks",
@@ -1218,7 +1288,9 @@ function ChecklistGMUDTab({
           try {
             const stIssue = await getIssue(st0.key, "priority");
             prioridade = stIssue?.fields?.priority?.name || "";
-          } catch {}
+          } catch {
+            // ignore
+          }
         }
       }
 
@@ -1254,7 +1326,6 @@ function ChecklistGMUDTab({
       const projectId = issue.fields.project.id;
       const subtasks = issue.fields.subtasks || [];
 
-      // IMPORTANT: normaliza a chave do mapa (pra bater com o kanban)
       let subtasksBySummary = {};
       subtasks.forEach((st) => {
         const summary = (st.fields?.summary || "").trim();
@@ -1288,14 +1359,19 @@ function ChecklistGMUDTab({
 
       let payload = null;
       try {
-        payload = await getComments(ticketJira);
+        payload = await getComments(tk);
+        setJiraCommentsList(payload ? extractAllJiraComments(payload) : []);
         if (payload) {
-          setJiraCommentsList(extractAllJiraComments(payload));
+          const ev = extractEvidenceByStepFromCommentsPayload(payload);
+          setEvidenceByStep(ev);
+          setEvidenceCountsByStep(summarizeEvidenceCounts(ev));
         } else {
-          setJiraCommentsList([]);
+          setEvidenceByStep({});
+          setEvidenceCountsByStep({});
         }
       } catch (e) {
-        console.warn("Falha ao carregar comentários:", e);
+        // comentários são opcionais
+        setJiraCommentsList([]);
       }
 
       // ===== KANBAN CONFIG =====
@@ -1328,6 +1404,16 @@ function ChecklistGMUDTab({
           typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0
         );
 
+        // step default evidência
+        const wf = cfg?.workflow || DEFAULT_KANBAN_WORKFLOW;
+        const defEvStep =
+          wf?.[
+            typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0
+          ]?.key ||
+          wf?.[0]?.key ||
+          "";
+        setEvidenceStepKey((prev) => prev || defEvStep);
+
         // cria subtasks SOMENTE do step liberado atual
         const stepToEnsure =
           typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0;
@@ -1342,7 +1428,6 @@ function ChecklistGMUDTab({
           onProgress: (p) => showSyncOverlay({ ...p }),
         });
 
-        // persiste mappings (evita duplicar em sync futuro)
         const saved = await upsertKanbanConfigComment({
           ticketKey: issue.key,
           config: ensured.nextCfg,
@@ -1367,15 +1452,18 @@ function ChecklistGMUDTab({
 
         showSyncOverlay({
           title: "Concluído",
-          message: `Sincronização concluída para ${ticketJira}.`,
+          message: `Sincronização concluída para ${tk}.`,
           done: true,
           created: ensured.created || [],
         });
       } else if (!builderOpen) {
-        // não existe config => abre builder
         setKanbanCfg(null);
         setKanbanComment({ id: null, originalText: "" });
         setUnlockedStepIdx(0);
+
+        const wf = DEFAULT_KANBAN_WORKFLOW;
+        setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
+
         setBuilderOpen(true);
 
         showSyncOverlay({
@@ -1417,14 +1505,16 @@ function ChecklistGMUDTab({
             setVarsBanner(false);
           }
         }
-
-        try {
-          await listarAnexos();
-        } catch {}
       }
-    } catch (e) {
-      console.error(e);
 
+      try {
+        await listarAnexos();
+      } catch {
+        // ignore
+      }
+
+      notify.success("Sincronização concluída.");
+    } catch (e) {
       showSyncOverlay({
         title: "Erro",
         message: "Erro ao sincronizar com o Jira.",
@@ -1432,17 +1522,17 @@ function ChecklistGMUDTab({
         done: true,
       });
 
-      alert("Erro ao sincronizar com o Jira: " + (e?.message || e));
+      notify.error("Erro ao sincronizar com o Jira.", {
+        description: e?.message || String(e),
+      });
     } finally {
       setSyncing(false);
     }
   }
 
   async function handleSaveKanbanStructure(selectedByStepKey) {
-    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) {
-      alert("Sincronize com o Jira antes.");
-      return;
-    }
+    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId)
+      return notify.warning("Sincronize com o Jira antes.");
 
     setBuilderOpen(false);
 
@@ -1461,6 +1551,10 @@ function ChecklistGMUDTab({
         selectedByStepKey,
       });
 
+      // step default evidência
+      const wf = cfg?.workflow || DEFAULT_KANBAN_WORKFLOW;
+      setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
+
       // cria subtasks do step 0 (manual)
       const ensured = await ensureSubtasksForStep({
         cfg,
@@ -1474,7 +1568,6 @@ function ChecklistGMUDTab({
 
       cfg = ensured.nextCfg;
 
-      // persiste comentário
       const saved = await upsertKanbanConfigComment({
         ticketKey: jiraCtx.ticketKey,
         config: cfg,
@@ -1489,10 +1582,7 @@ function ChecklistGMUDTab({
       setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
       setUnlockedStepIdx(saved.savedConfig.unlockedStepIdx || 0);
 
-      setJiraCtx((prev) => ({
-        ...prev,
-        subtasksBySummary: ensured.nextMap,
-      }));
+      setJiraCtx((prev) => ({ ...prev, subtasksBySummary: ensured.nextMap }));
 
       showSyncOverlay({
         title: "Estrutura criada",
@@ -1500,45 +1590,63 @@ function ChecklistGMUDTab({
         done: true,
         created: ensured.created || [],
       });
+
+      notify.success("Estrutura do Kanban criada.");
     } catch (e) {
-      console.error(e);
       showSyncOverlay({
         title: "Erro",
         message: "Erro ao criar estrutura do Kanban.",
         done: true,
         error: e?.message ? String(e.message) : String(e),
       });
+
+      notify.error("Erro ao criar estrutura do Kanban.", {
+        description: e?.message || String(e),
+      });
     }
   }
 
+  const handleAddSubtaskField = () => {
+    setCustomTaskModal((prev) => {
+      const subs = Array.isArray(prev.subtasks) ? prev.subtasks : [""];
+      return { ...prev, subtasks: [...subs, ""] };
+    });
+  };
+
+  const handleUpdateSubtaskField = (index, value) => {
+    setCustomTaskModal((prev) => {
+      const subs = Array.isArray(prev.subtasks) ? [...prev.subtasks] : [""];
+      subs[index] = value;
+      return { ...prev, subtasks: subs };
+    });
+  };
+
+  const handleRemoveSubtaskField = (index) => {
+    setCustomTaskModal((prev) => {
+      const subs = Array.isArray(prev.subtasks) ? prev.subtasks : [""];
+      const next = subs.filter((_, i) => i !== index);
+      return { ...prev, subtasks: next.length ? next : [""] };
+    });
+  };
+
   async function handleCreateCustomTask() {
-    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId) {
-      alert("Sincronize com o Jira antes.");
-      return;
-    }
-    if (!kanbanCfg) {
-      alert("Crie a estrutura do Kanban primeiro.");
-      return;
-    }
+    if (!jiraCtx?.ticketKey || !jiraCtx?.projectId)
+      return notify.warning("Sincronize com o Jira antes.");
+    if (!kanbanCfg)
+      return notify.warning("Crie a estrutura do Kanban primeiro.");
 
     const stepKey = customTaskModal?.stepKey;
     const title = String(customTaskModal?.title || "").trim();
     const subsRaw = Array.isArray(customTaskModal?.subtasks)
       ? customTaskModal.subtasks
       : [];
-
     const validSubs = subsRaw
       .map((s) => String(s || "").trim())
       .filter(Boolean);
 
-    if (!stepKey) {
-      alert("Step inválido. Abra o modal a partir do step ativo.");
-      return;
-    }
-    if (!title || validSubs.length === 0) {
-      alert("Preencha o título e pelo menos uma subtarefa.");
-      return;
-    }
+    if (!stepKey) return notify.warning("Step inválido.");
+    if (!title || validSubs.length === 0)
+      return notify.warning("Preencha o título e pelo menos uma subtarefa.");
 
     const stepCol = kanbanCfg?.columns?.[stepKey];
     const stepTitle = stepCol?.title || getStepTitleByKey(stepKey) || stepKey;
@@ -1549,14 +1657,12 @@ function ChecklistGMUDTab({
       const createdJiraTasks = [];
       const nextMap = { ...(jiraCtx?.subtasksBySummary || {}) };
 
-      // 1) cria subtarefas no Jira + atualiza map local (evita re-criar onToggle)
       for (const subTitle of validSubs) {
         const summary = buildKanbanSummary({
           stepTitle,
           cardTitle: title,
           subTitle,
         });
-
         const res = await createSubtask(
           jiraCtx.projectId,
           jiraCtx.ticketKey,
@@ -1578,7 +1684,6 @@ function ChecklistGMUDTab({
         };
       }
 
-      // 2) atualiza cfg local
       const nextCfg =
         typeof structuredClone === "function"
           ? structuredClone(kanbanCfg)
@@ -1594,7 +1699,6 @@ function ChecklistGMUDTab({
       const cards = Array.isArray(nextCfg.columns[stepKey].cards)
         ? nextCfg.columns[stepKey].cards
         : [];
-
       nextCfg.columns[stepKey].cards = cards;
       nextCfg.columns[stepKey].cards.push({
         id: crypto.randomUUID(),
@@ -1602,7 +1706,6 @@ function ChecklistGMUDTab({
         subtasks: createdJiraTasks,
       });
 
-      // 3) persiste no comentário do Jira
       const saved = await upsertKanbanConfigComment({
         ticketKey: jiraCtx.ticketKey,
         config: nextCfg,
@@ -1611,36 +1714,84 @@ function ChecklistGMUDTab({
         updateComment,
       });
 
-      // 4) atualiza estados
       setKanbanCfg(applyJiraStatusesToConfig(saved.savedConfig, nextMap));
       setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
-
       setJiraCtx((prev) =>
         prev ? { ...prev, subtasksBySummary: nextMap } : prev
       );
 
-      // fecha e reseta modal
       setCustomTaskModal(makeCustomTaskModal());
-
-      alert("Tarefa adicionada com sucesso!");
+      notify.success("Tarefa adicionada com sucesso.");
     } catch (e) {
-      console.error(e);
-      alert("Erro ao criar tarefa: " + (e?.message || e));
+      notify.error("Erro ao criar tarefa.", {
+        description: e?.message || String(e),
+      });
     } finally {
       setCreatingCustomTask(false);
     }
   }
 
+  const handleCopyFinalSummary = useCallback(async () => {
+    const wf = getWorkflow();
+    const summary = buildGmudFinalSummary({
+      nomeProjeto,
+      numeroGMUD,
+      ticketJira,
+      dataLimite,
+      ticketSideInfo,
+      scriptsAlterados,
+      chaves,
+      attachmentsCount: attachments.length,
+      evidenceCountsByStep,
+      workflow: wf,
+    });
+
+    const text = String(summary || "").trim();
+    if (!text) return notify.warning("Resumo vazio.");
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      notify.success("Resumo final copiado.");
+    } catch (e) {
+      notify.error("Falha ao copiar resumo.", {
+        description: e?.message || String(e),
+      });
+    }
+  }, [
+    nomeProjeto,
+    numeroGMUD,
+    ticketJira,
+    dataLimite,
+    ticketSideInfo,
+    scriptsAlterados,
+    chaves,
+    attachments.length,
+    evidenceCountsByStep,
+    kanbanCfg,
+  ]);
+
   //#region HTML
   return (
     <motion.section
-      key="rdm"
+      key="gmud"
       initial={{ opacity: 0, x: -30 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 30 }}
       transition={{ duration: 0.4, ease: "easeInOut" }}
       className="rdm-wrap"
     >
+      {/* Step gate modal */}
       {stepGate.open && (
         <div
           style={{
@@ -1720,49 +1871,41 @@ function ChecklistGMUDTab({
                 gap: 8,
               }}
             >
-              <div
-                style={{
-                  marginTop: 14,
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: 8,
-                }}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeStepGate}
+                disabled={advancingStep}
+                className="!rounded-xl border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-60"
               >
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={closeStepGate}
-                  disabled={advancingStep}
-                  className="!rounded-xl border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-60"
-                >
-                  Agora não
-                </Button>
+                Agora não
+              </Button>
 
-                <Button
-                  type="button"
-                  onClick={unlockNextStep}
-                  disabled={advancingStep}
-                  aria-busy={advancingStep}
-                  className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-2.5"
-                >
-                  <RotateCw
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      advancingStep && "animate-spin"
-                    )}
-                  />
-                  {advancingStep
-                    ? "Liberando..."
-                    : stepGate.toIdx >= getWorkflow().length
-                    ? "Ok"
-                    : `Liberar: ${getStepTitle(stepGate.toIdx)}`}
-                </Button>
-              </div>
+              <Button
+                type="button"
+                onClick={unlockNextStep}
+                disabled={advancingStep}
+                aria-busy={advancingStep}
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-2.5"
+              >
+                <RotateCw
+                  className={cn(
+                    "mr-2 h-4 w-4",
+                    advancingStep && "animate-spin"
+                  )}
+                />
+                {advancingStep
+                  ? "Liberando..."
+                  : stepGate.toIdx >= getWorkflow().length
+                  ? "Ok"
+                  : `Liberar: ${getStepTitle(stepGate.toIdx)}`}
+              </Button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Sync overlay */}
       {syncOverlay.open && (
         <div
           style={{
@@ -1902,7 +2045,7 @@ function ChecklistGMUDTab({
         </div>
       )}
 
-      {/* 3. NOVO MODAL: ADICIONAR TAREFA A PARTE */}
+      {/* Custom task modal */}
       {customTaskModal.open && (
         <div
           style={{
@@ -2072,7 +2215,7 @@ function ChecklistGMUDTab({
       {/* ===== Layout: Conteúdo + Painel lateral ===== */}
       <div className="gmud-shell">
         <div className="gmud-main">
-          {/* Data limite (topo) */}
+          {/* Topbar */}
           <div className="gmud-topbar">
             <div className="gmud-deadline" title="Data limite do ticket">
               <svg
@@ -2092,29 +2235,60 @@ function ChecklistGMUDTab({
               </span>
             </div>
 
-            <button
-              type="button"
-              className={`gmud-side-toggle ${sideOpen ? "is-open" : ""}`}
-              onClick={toggleSide}
-              disabled={!canToggleSide}
-              aria-expanded={sideOpen}
-              aria-controls="gmud-sidebar"
-              title={
-                !ticketJira?.trim() && !sideOpen
-                  ? "Informe o ticket do Jira"
-                  : sideOpen
-                  ? "Fechar detalhes"
-                  : "Abrir detalhes"
-              }
-            >
-              <i
-                className={`fa-solid ${
-                  sideOpen ? "fa-xmark" : "fa-circle-info"
-                }`}
-                aria-hidden="true"
-              />
-              <span>{sideOpen ? "Fechar detalhes" : "Detalhes do ticket"}</span>
-            </button>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCopyFinalSummary}
+                disabled={!String(ticketJira || "").trim()}
+                className="rounded-xl"
+                title={
+                  !String(ticketJira || "").trim()
+                    ? "Informe o ticket do Jira"
+                    : "Copiar resumo final"
+                }
+              >
+                <ClipboardCopy className="mr-2 h-4 w-4" />
+                Copiar resumo final
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.print()}
+                className="rounded-xl"
+                title="Imprimir (PDF)"
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Imprimir
+              </Button>
+
+              <button
+                type="button"
+                className={`gmud-side-toggle ${sideOpen ? "is-open" : ""}`}
+                onClick={toggleSide}
+                disabled={!canToggleSide}
+                aria-expanded={sideOpen}
+                aria-controls="gmud-sidebar"
+                title={
+                  !ticketJira?.trim() && !sideOpen
+                    ? "Informe o ticket do Jira"
+                    : sideOpen
+                    ? "Fechar detalhes"
+                    : "Abrir detalhes"
+                }
+              >
+                <i
+                  className={`fa-solid ${
+                    sideOpen ? "fa-xmark" : "fa-circle-info"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span>
+                  {sideOpen ? "Fechar detalhes" : "Detalhes do ticket"}
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Infos projeto */}
@@ -2202,7 +2376,7 @@ function ChecklistGMUDTab({
               paddingBottom: 10,
               display: "flex",
               gap: 16,
-              scrollbarWidth: "thin", // Para Firefox
+              scrollbarWidth: "thin",
             }}
           >
             {!kanbanCfg ? (
@@ -2240,13 +2414,13 @@ function ChecklistGMUDTab({
                   stepKey,
                   jiraCtx?.subtasksBySummary || {}
                 );
+                const evCount = Number(evidenceCountsByStep?.[stepKey] || 0);
 
                 const isDone = idx < unlockedStepIdx;
                 const isActive = idx === unlockedStepIdx;
                 const isLocked = idx > unlockedStepIdx;
                 const hasNext = idx + 1 < getWorkflow().length;
 
-                // Definição da cor lateral baseada no status do Step
                 const statusColor = isDone
                   ? "#28a745"
                   : isActive
@@ -2257,13 +2431,12 @@ function ChecklistGMUDTab({
                   <div
                     key={stepKey}
                     style={{
-                      flex: "0 0 280px", // Largura fixa para permitir o scroll horizontal
+                      flex: "0 0 280px",
                       display: "flex",
                       flexDirection: "column",
                       opacity: isLocked ? 0.6 : 1,
                     }}
                   >
-                    {/* Header do Step - Super Clean */}
                     <div
                       style={{
                         padding: "0 4px 12px 4px",
@@ -2278,6 +2451,7 @@ function ChecklistGMUDTab({
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
+                          gap: 10,
                         }}
                       >
                         <div
@@ -2302,18 +2476,41 @@ function ChecklistGMUDTab({
                             {step.title}
                           </span>
                         </div>
-                        <span
+
+                        <div
                           style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            color: statusColor,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
                           }}
                         >
-                          {isDone ? "CONCLUÍDO" : `${stat.pct}%`}
-                        </span>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#666",
+                            }}
+                            title={`Evidências registradas no step: ${evCount}`}
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                            {evCount}
+                          </span>
+
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: statusColor,
+                            }}
+                          >
+                            {isDone ? "CONCLUÍDO" : `${stat.pct}%`}
+                          </span>
+                        </div>
                       </div>
 
-                      {/* Botão de Ação Minimalista */}
                       {isActive && stat.complete && (
                         <button
                           type="button"
@@ -2338,7 +2535,6 @@ function ChecklistGMUDTab({
                       )}
                     </div>
 
-                    {/* Lista de Cards */}
                     <div style={{ display: "grid", gap: 10 }}>
                       {(col?.cards || []).map((card) => (
                         <div
@@ -2346,7 +2542,7 @@ function ChecklistGMUDTab({
                           style={{
                             background: "#fff",
                             border: "1px solid #e1e1e1",
-                            borderLeft: `4px solid ${statusColor}`, // Borda lateral solicitada
+                            borderLeft: `4px solid ${statusColor}`,
                             borderRadius: "4px 8px 8px 4px",
                             padding: "10px 12px",
                             transition: "transform 0.2s",
@@ -2432,6 +2628,7 @@ function ChecklistGMUDTab({
                         </div>
                       )}
                     </div>
+
                     {isActive && (
                       <button
                         type="button"
@@ -2462,7 +2659,7 @@ function ChecklistGMUDTab({
             )}
           </div>
 
-          {/* ===== Navegação por Tabs (Estilo Moderno) ===== */}
+          {/* ===== Tabs ===== */}
           <div
             style={{
               display: "flex",
@@ -2517,25 +2714,23 @@ function ChecklistGMUDTab({
             {/* Tab: Scripts */}
             {activeTab === "scripts" && (
               <div className="animate-fade-in">
-                <div style={{ position: "relative" }}>
-                  <textarea
-                    style={{
-                      width: "100%",
-                      height: 180,
-                      padding: 14,
-                      borderRadius: 12,
-                      border: "1px solid #e1e1e1",
-                      fontFamily: "'Fira Code', monospace",
-                      fontSize: 13,
-                      lineHeight: "1.5",
-                      outline: "none",
-                      backgroundColor: "#fcfcfc",
-                    }}
-                    value={scriptsAlterados}
-                    onChange={(e) => setScriptsAlterados(e.target.value)}
-                    placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV..."
-                  />
-                </div>
+                <textarea
+                  style={{
+                    width: "100%",
+                    height: 180,
+                    padding: 14,
+                    borderRadius: 12,
+                    border: "1px solid #e1e1e1",
+                    fontFamily: "'Fira Code', monospace",
+                    fontSize: 13,
+                    lineHeight: "1.5",
+                    outline: "none",
+                    backgroundColor: "#fcfcfc",
+                  }}
+                  value={scriptsAlterados}
+                  onChange={(e) => setScriptsAlterados(e.target.value)}
+                  placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV..."
+                />
                 <div
                   style={{
                     display: "flex",
@@ -2566,25 +2761,14 @@ function ChecklistGMUDTab({
             {/* Tab: Variáveis */}
             {activeTab === "vars" && (
               <div className="animate-fade-in">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 16,
-                    padding: "12px",
-                    background: "#f8f9fa",
-                    borderRadius: 8,
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: "#666" }}>
-                    <i
-                      className="fas fa-info-circle"
-                      style={{ marginRight: 6 }}
-                    />
+                {/* Header da seção */}
+                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <span className="text-[13px] text-zinc-600">
+                    <i className="fas fa-info-circle mr-1" />
                     Gerencie chaves de ambiente para este projeto.
                   </span>
-                  <div style={{ display: "flex", gap: 8 }}>
+
+                  <div className="flex gap-2">
                     <button
                       className="secondary"
                       onClick={addChave}
@@ -2592,6 +2776,7 @@ function ChecklistGMUDTab({
                     >
                       + Adicionar
                     </button>
+
                     <Button
                       onClick={salvarVariaveis}
                       disabled={savingVars}
@@ -2609,94 +2794,96 @@ function ChecklistGMUDTab({
                   </div>
                 </div>
 
+                {/* Banner pendente */}
                 {varsBanner && (
-                  <div
-                    style={{
-                      background: "#fff3cd",
-                      color: "#856404",
-                      padding: "10px 14px",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      marginBottom: 16,
-                      borderLeft: "4px solid #ffeeba",
-                    }}
-                  >
+                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
                     <b>Atenção:</b> Você possui alterações não enviadas ao Jira.
                   </div>
                 )}
 
-                <div style={{ display: "grid", gap: 10 }}>
-                  {chaves.map((row) => (
-                    <div
-                      key={row.id}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr 1fr 40px",
-                        gap: 12,
-                        padding: 10,
-                        background: "#fff",
-                        border: `1px solid ${
-                          row.pendente ? "#ffeeba" : "#eee"
-                        }`,
-                        borderLeft: row.pendente
-                          ? "4px solid #ffc107"
-                          : "1px solid #eee",
-                        borderRadius: 8,
-                        alignItems: "center",
-                      }}
-                    >
-                      <input
-                        style={{
-                          border: "none",
-                          fontSize: 13,
-                          fontWeight: 600,
-                          outline: "none",
-                        }}
-                        placeholder="Ambiente"
-                        value={row.ambiente}
-                        onChange={(e) =>
-                          updChave(row.id, { ambiente: e.target.value })
-                        }
-                      />
-                      <input
-                        style={{
-                          border: "none",
-                          fontSize: 13,
-                          color: "#ee0000",
-                          outline: "none",
-                        }}
-                        placeholder="Nome da chave"
-                        value={row.nome}
-                        onChange={(e) =>
-                          updChave(row.id, { nome: e.target.value })
-                        }
-                      />
-                      <input
-                        style={{
-                          border: "none",
-                          fontSize: 13,
-                          color: "#666",
-                          outline: "none",
-                        }}
-                        placeholder="Valor"
-                        value={row.valor}
-                        onChange={(e) =>
-                          updChave(row.id, { valor: e.target.value })
-                        }
-                      />
-                      <button
-                        onClick={() => rmChave(row.id)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#ccc",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <i className="fas fa-trash-alt" />
-                      </button>
+                {/* Cabeçalho das colunas */}
+                <div className="mb-2 grid grid-cols-[1fr_1.3fr_1fr_44px] gap-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  <span>Ambiente</span>
+                  <span>Nome da chave</span>
+                  <span>Valor</span>
+                  <span className="text-right"> </span>
+                </div>
+
+                {/* Lista */}
+                <div className="grid gap-2">
+                  {!chaves.length ? (
+                    <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+                      Nenhuma chave adicionada ainda.
                     </div>
-                  ))}
+                  ) : (
+                    chaves.map((row) => (
+                      <div
+                        key={row.id}
+                        className={cn(
+                          "relative grid grid-cols-[1fr_1.3fr_1fr_44px] items-center gap-3 rounded-xl border bg-white p-3",
+                          row.pendente ? "border-amber-200" : "border-zinc-200"
+                        )}
+                      >
+                        {/* barra lateral (pendente) */}
+                        <div
+                          className={cn(
+                            "absolute left-0 top-0 h-full w-1 rounded-l-xl",
+                            row.pendente ? "bg-amber-400" : "bg-zinc-200"
+                          )}
+                        />
+
+                        {/* Ambiente */}
+                        <div className="pl-1">
+                          <input
+                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 outline-none
+                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
+                            placeholder="Ex: PROD"
+                            value={row.ambiente}
+                            onChange={(e) =>
+                              updChave(row.id, { ambiente: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        {/* Nome */}
+                        <div>
+                          <input
+                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none
+                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
+                            placeholder="Ex: API_URL"
+                            value={row.nome}
+                            onChange={(e) =>
+                              updChave(row.id, { nome: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        {/* Valor */}
+                        <div>
+                          <input
+                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 outline-none
+                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
+                            placeholder="Ex: https://..."
+                            value={row.valor}
+                            onChange={(e) =>
+                              updChave(row.id, { valor: e.target.value })
+                            }
+                          />
+                        </div>
+
+                        {/* Remover */}
+                        <button
+                          type="button"
+                          onClick={() => rmChave(row.id)}
+                          title="Remover"
+                          className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400
+                         hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -2704,6 +2891,68 @@ function ChecklistGMUDTab({
             {/* Tab: Evidências */}
             {activeTab === "evidencias" && (
               <div className="animate-fade-in">
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    marginBottom: 14,
+                    padding: 12,
+                    background: "#f8f9fa",
+                    borderRadius: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "#444",
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Registrar evidência no step:
+                  </div>
+
+                  <select
+                    value={evidenceStepKey}
+                    onChange={(e) => setEvidenceStepKey(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: "10px",
+                      borderRadius: 10,
+                      border: "1px solid #e1e1e1",
+                      outline: "none",
+                      background: "#fff",
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="">Selecione...</option>
+                    {getWorkflow().map((s, idx) => (
+                      <option key={s.key} value={s.key}>
+                        {idx + 1}. {s.title}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "#666",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Contagem de evidências do step selecionado"
+                  >
+                    {evidenceStepKey
+                      ? `Total: ${Number(
+                          evidenceCountsByStep?.[evidenceStepKey] || 0
+                        )}`
+                      : "—"}
+                  </div>
+                </div>
+
                 {/* Upload Zone */}
                 <div
                   style={{
@@ -2712,7 +2961,7 @@ function ChecklistGMUDTab({
                     borderRadius: 12,
                     textAlign: "center",
                     background: "#fafafa",
-                    marginBottom: 20,
+                    marginBottom: 16,
                   }}
                 >
                   <input
@@ -2739,21 +2988,40 @@ function ChecklistGMUDTab({
                   </label>
                 </div>
 
-                <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    marginBottom: 18,
+                    alignItems: "center",
+                  }}
+                >
                   <Button
                     type="button"
-                    onClick={enviarArquivos}
-                    disabled={uploading || !previewFiles.length}
-                    aria-busy={uploading}
+                    onClick={enviarArquivosComEvidencia}
+                    disabled={
+                      uploading ||
+                      savingEvidence ||
+                      !previewFiles.length ||
+                      !String(ticketJira || "").trim()
+                    }
+                    aria-busy={uploading || savingEvidence}
                     className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                    title={
+                      !String(ticketJira || "").trim()
+                        ? "Informe o ticket do Jira"
+                        : ""
+                    }
                   >
                     <UploadCloud
                       className={cn(
                         "mr-2 h-4 w-4",
-                        uploading && "animate-spin"
+                        (uploading || savingEvidence) && "animate-spin"
                       )}
                     />
-                    {uploading ? "Enviando..." : "Enviar Selecionados"}
+                    {uploading || savingEvidence
+                      ? "Processando..."
+                      : "Enviar + Registrar evidência"}
                   </Button>
 
                   <button
@@ -2763,18 +3031,32 @@ function ChecklistGMUDTab({
                   >
                     Limpar
                   </button>
+
                   <button
                     className="secondary"
                     onClick={listarAnexos}
                     style={{ marginLeft: "auto" }}
+                    title="Atualizar anexos"
                   >
                     <i className="fas fa-sync" />
+                  </button>
+
+                  <button
+                    className="secondary"
+                    onClick={refreshJiraComments}
+                    disabled={
+                      loadingJiraComments || !String(ticketJira || "").trim()
+                    }
+                    title="Atualizar evidências a partir dos comentários"
+                  >
+                    <i className="fas fa-rotate" style={{ marginRight: 8 }} />
+                    Evidências
                   </button>
                 </div>
 
                 {/* Grid de Previews Locais */}
                 {previewFiles.length > 0 && (
-                  <div style={{ marginBottom: 30 }}>
+                  <div style={{ marginBottom: 22 }}>
                     <h4
                       style={{
                         fontSize: 13,
@@ -2811,6 +3093,7 @@ function ChecklistGMUDTab({
                                 display: "flex",
                                 justifyContent: "space-between",
                                 marginBottom: 6,
+                                gap: 8,
                               }}
                             >
                               <span
@@ -2820,7 +3103,7 @@ function ChecklistGMUDTab({
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                   whiteSpace: "nowrap",
-                                  maxWidth: "140px",
+                                  maxWidth: "160px",
                                 }}
                               >
                                 {f.name}
@@ -2833,6 +3116,7 @@ function ChecklistGMUDTab({
                                   )
                                 }
                                 style={{ cursor: "pointer", color: "#ccc" }}
+                                title="Remover"
                               />
                             </div>
                             {isImg && (
@@ -2844,6 +3128,7 @@ function ChecklistGMUDTab({
                                   objectFit: "cover",
                                   borderRadius: 6,
                                 }}
+                                alt=""
                               />
                             )}
                           </div>
@@ -2852,6 +3137,80 @@ function ChecklistGMUDTab({
                     </div>
                   </div>
                 )}
+
+                {/* Resumo evidências por step (rápido) */}
+                <div
+                  style={{
+                    border: "1px solid #eee",
+                    borderRadius: 12,
+                    background: "#fff",
+                    padding: 12,
+                    marginBottom: 18,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "baseline",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontWeight: 800,
+                        fontSize: 12,
+                        color: "#333",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Evidências por step
+                    </div>
+                    <div style={{ fontSize: 12, color: "#666" }}>
+                      Total anexos no Jira: <b>{attachments.length}</b>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                    {getWorkflow().map((s) => {
+                      const n = Number(evidenceCountsByStep?.[s.key] || 0);
+                      return (
+                        <div
+                          key={s.key}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "8px 10px",
+                            borderRadius: 10,
+                            border: "1px solid #f1f1f1",
+                            background: n ? "#fff" : "#fafafa",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                            }}
+                          >
+                            <Paperclip className="h-4 w-4" />
+                            <span style={{ fontSize: 13, fontWeight: 700 }}>
+                              {s.title}
+                            </span>
+                          </div>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              color: n ? "#111" : "#777",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {n}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
 
                 {/* Lista de Anexos no Jira */}
                 <h4
@@ -2906,12 +3265,15 @@ function ChecklistGMUDTab({
                             </div>
                             <div style={{ fontSize: 11, color: "#999" }}>
                               {(a.size / 1024).toFixed(1)} KB •{" "}
-                              {new Date(a.created).toLocaleDateString()}
+                              {a.created
+                                ? new Date(a.created).toLocaleDateString()
+                                : "—"}
                             </div>
                           </div>
                           <a
                             href={links.download}
                             target="_blank"
+                            rel="noreferrer"
                             style={{
                               fontSize: 12,
                               color: "#ee0000",
@@ -2928,6 +3290,7 @@ function ChecklistGMUDTab({
                 </div>
               </div>
             )}
+
             {/* Tab: Comentários */}
             {activeTab === "comentarios" && (
               <div className="animate-fade-in">
@@ -2950,16 +3313,21 @@ function ChecklistGMUDTab({
                   <button
                     className="secondary"
                     onClick={refreshJiraComments}
-                    disabled={loadingJiraComments || !ticketJira.trim()}
+                    disabled={
+                      loadingJiraComments || !String(ticketJira || "").trim()
+                    }
                     style={{ padding: "8px 14px" }}
-                    title={!ticketJira.trim() ? "Informe o ticket do Jira" : ""}
+                    title={
+                      !String(ticketJira || "").trim()
+                        ? "Informe o ticket do Jira"
+                        : ""
+                    }
                   >
                     <i className="fas fa-sync" style={{ marginRight: 8 }} />
                     {loadingJiraComments ? "Atualizando..." : "Atualizar"}
                   </button>
                 </div>
 
-                {/* Novo comentário */}
                 <div
                   style={{
                     background: "#fff",
@@ -3029,12 +3397,14 @@ function ChecklistGMUDTab({
                       onClick={addJiraComment}
                       disabled={
                         postingJiraComment ||
-                        !ticketJira.trim() ||
+                        !String(ticketJira || "").trim() ||
                         !newJiraCommentText.trim()
                       }
                       aria-busy={postingJiraComment}
                       title={
-                        !ticketJira.trim() ? "Informe o ticket do Jira" : ""
+                        !String(ticketJira || "").trim()
+                          ? "Informe o ticket do Jira"
+                          : ""
                       }
                       className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                     >
@@ -3055,7 +3425,6 @@ function ChecklistGMUDTab({
                   </div>
                 </div>
 
-                {/* Lista */}
                 <div style={{ display: "grid", gap: 10 }}>
                   {!jiraCommentsList.length ? (
                     <div
@@ -3130,17 +3499,47 @@ function ChecklistGMUDTab({
           </div>
 
           {/* Rodapé */}
-          <div className="botoes-finais">
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-5 py-3 text-sm font-semibold text-white shadow-md transition
-               hover:from-red-700 hover:to-red-800 hover:shadow-lg
-               active:scale-[0.98]
-               focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-            >
-              GERAR PDF (Imprimir)
-            </button>
+          <div
+            className="botoes-finais"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <div style={{ fontSize: 12, color: "#666" }}>
+              Progresso final: <b>{geralPct}%</b>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setBuilderOpen(true)}
+                disabled={!String(ticketJira || "").trim()}
+                className="rounded-xl"
+                title={
+                  !String(ticketJira || "").trim()
+                    ? "Informe o ticket do Jira"
+                    : "Abrir builder do Kanban"
+                }
+              >
+                <Layers3 className="mr-2 h-4 w-4" />
+                Kanban
+              </Button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-5 py-3 text-sm font-semibold text-white shadow-md transition
+                hover:from-red-700 hover:to-red-800 hover:shadow-lg
+                active:scale-[0.98]
+                focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                GERAR PDF (Imprimir)
+              </button>
+            </div>
           </div>
         </div>
 

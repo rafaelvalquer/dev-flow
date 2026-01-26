@@ -6,6 +6,7 @@ import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
 import { CONFIG_KEY } from "./utils/gmudUtils";
 import "react-day-picker/dist/style.css";
+import { Toaster } from "sonner";
 
 const TAB_TITLES = {
   gmud: "Checklist GMUD",
