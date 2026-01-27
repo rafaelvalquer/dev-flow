@@ -10,7 +10,7 @@ import "react-day-picker/dist/style.css";
 import { Toaster } from "sonner";
 
 const TAB_TITLES = {
-  gmud: "Checklist GMUD",
+  gmud: "Central do Desenvolvedor",
   rdm: "RDM – Requisição de Mudança",
   am: "Painel de Acompanhamento (PO)",
   tools: "Ferramentas",
@@ -69,7 +69,7 @@ export default function App() {
           className={`main-tab ${mainTab === "gmud" ? "active" : ""}`}
           onClick={() => setMainTab("gmud")}
         >
-          Checklist GMUD
+          Central do Desenvolvedor
         </button>
 
         <button

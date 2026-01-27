@@ -7,8 +7,10 @@ import shutil
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from faster_whisper import WhisperModel
-from pydantic import BaseModel
 import edge_tts
+from typing import Union
+from pydantic import BaseModel, field_validator
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -183,8 +185,26 @@ def convert_audio(file: UploadFile = File(...)):
 class TTSRequest(BaseModel):
     text: str
     voice: str = "pt-BR-AntonioNeural"
-    rate: str = "+0%"     # ex: "-10%" / "+10%"
-    volume: str = "+0%"   # ex: "-10%" / "+10%"
+    rate: Union[str, int, float] = "+0%"
+    volume: Union[str, int, float] = "+0%"
+
+    @field_validator("rate", "volume", mode="before")
+    @classmethod
+    def normalize_pct(cls, v):
+        # Se vier número, interpreta como percentual
+        # ex: 10 -> "+10%", -5 -> "-5%"
+        if isinstance(v, (int, float)):
+            sign = "+" if v >= 0 else ""
+            return f"{sign}{v}%"
+        # Se vier string sem %, adiciona
+        if isinstance(v, str):
+            s = v.strip()
+            if s == "":
+                return "+0%"
+            if s.lstrip("+-").replace(".", "", 1).isdigit() and not s.endswith("%"):
+                return f"{s}%"
+            return s
+        return "+0%"
 
 @app.post("/tts")
 async def tts(req: TTSRequest):

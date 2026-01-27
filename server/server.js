@@ -218,6 +218,77 @@ app.post("/api/stt/tts_ulaw", async (req, res) => {
   }
 });
 
+// Verificação de serviço - Serviço Python
+app.get("/api/stt/health", async (req, res) => {
+  const timeoutMs = Number(req.query.timeoutMs || 3000);
+  const startedAt = Date.now();
+
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    // Preferência: /health (recomendado no FastAPI)
+    let url = `${STT_PY_BASE}/health`;
+    let r = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json, text/plain, */*" },
+      signal: controller.signal,
+    });
+
+    // Fallback: se o Python não tiver /health, tenta a raiz
+    if (!r.ok && r.status === 404) {
+      url = `${STT_PY_BASE}/`;
+      r = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json, text/plain, */*" },
+        signal: controller.signal,
+      });
+    }
+
+    const latencyMs = Date.now() - startedAt;
+
+    // Tenta capturar um pouco do body para debug (sem estourar payload)
+    const ct = (r.headers.get("content-type") || "").toLowerCase();
+    let upstreamBody = null;
+
+    if (ct.includes("application/json")) {
+      upstreamBody = await r.json().catch(() => null);
+    } else {
+      upstreamBody = await r
+        .text()
+        .then((t) => (t ? t.slice(0, 500) : null))
+        .catch(() => null);
+    }
+
+    return res.status(r.ok ? 200 : 503).json({
+      ok: !!r.ok,
+      base: STT_PY_BASE,
+      urlChecked: url,
+      upstreamStatus: r.status,
+      latencyMs,
+      checkedAt: new Date().toISOString(),
+      upstreamBody,
+    });
+  } catch (err) {
+    const latencyMs = Date.now() - startedAt;
+    const isTimeout = err?.name === "AbortError";
+
+    return res.status(503).json({
+      ok: false,
+      base: STT_PY_BASE,
+      urlChecked: `${STT_PY_BASE}/health`,
+      upstreamStatus: null,
+      latencyMs,
+      checkedAt: new Date().toISOString(),
+      error: isTimeout
+        ? `Timeout after ${timeoutMs}ms`
+        : String(err?.message || err),
+    });
+  } finally {
+    clearTimeout(t);
+  }
+});
+
 // =====================================================
 // Jira Proxy
 // =====================================================
