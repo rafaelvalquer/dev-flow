@@ -1,4 +1,4 @@
-import { adfSafeToText } from "../utils/gmudUtils";
+import { adfSafeToText } from "./gmudUtils";
 
 const EVIDENCE_TAG_RE = /\[GMUD\s*Evid[eê]ncia\s*-\s*([^\]]+)\]/i;
 

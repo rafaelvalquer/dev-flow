@@ -37,6 +37,44 @@ const upload = multer({
 registerRdmCopilotRoutes(app, upload, process.env);
 
 // =====================================================
+// STT (Python Whisper) Proxy
+// =====================================================
+const STT_PY_BASE = process.env.STT_PY_BASE || "http://127.0.0.1:8000";
+
+app.post("/api/stt/transcribe", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ error: "Nenhum arquivo enviado (campo 'file')" });
+    }
+
+    const form = new FormData();
+    const blob = new Blob([req.file.buffer], {
+      type: req.file.mimetype || "application/octet-stream",
+    });
+
+    // O FastAPI espera o campo "file"
+    form.append("file", blob, req.file.originalname);
+
+    const r = await fetch(`${STT_PY_BASE}/transcribe`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: form,
+    });
+
+    // Repasse o retorno do Python (status + body)
+    return sendUpstream(res, r);
+  } catch (err) {
+    console.error("STT proxy error:", err);
+    return res.status(500).json({
+      error: "Proxy error on STT transcribe",
+      details: String(err),
+    });
+  }
+});
+
+// =====================================================
 // Jira Proxy
 // =====================================================
 const JIRA_BASE =

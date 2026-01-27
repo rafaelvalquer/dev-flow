@@ -4,6 +4,7 @@ import "./App.css";
 import ChecklistGMUDTab from "./components/ChecklistGMUDTab";
 import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
+import ToolsTab from "./components/ToolsTab"; // ✅ NOVO
 import { CONFIG_KEY } from "./utils/gmudUtils";
 import "react-day-picker/dist/style.css";
 import { Toaster } from "sonner";
@@ -11,7 +12,8 @@ import { Toaster } from "sonner";
 const TAB_TITLES = {
   gmud: "Checklist GMUD",
   rdm: "RDM – Requisição de Mudança",
-  am: "Painel de Acompanhamento (PO)", // Sugestão de nome (troque se quiser)
+  am: "Painel de Acompanhamento (PO)",
+  tools: "Ferramentas",
 };
 
 export default function App() {
@@ -48,6 +50,7 @@ export default function App() {
   function toggleSettings(force) {
     setSettingsOpen((v) => (typeof force === "boolean" ? force : !v));
   }
+
   function salvarConfiguracoes() {
     localStorage.setItem(
       CONFIG_KEY,
@@ -78,7 +81,6 @@ export default function App() {
           RDM – Requisição de Mudança
         </button>
 
-        {/* NOVO: Aba do Painel */}
         <button
           role="tab"
           aria-selected={mainTab === "am"}
@@ -86,6 +88,16 @@ export default function App() {
           onClick={() => setMainTab("am")}
         >
           Painel de Acompanhamento (PO)
+        </button>
+
+        {/* ✅ Aba Ferramentas */}
+        <button
+          role="tab"
+          aria-selected={mainTab === "tools"}
+          className={`main-tab ${mainTab === "tools" ? "active" : ""}`}
+          onClick={() => setMainTab("tools")}
+        >
+          Ferramentas
         </button>
       </div>
 
@@ -133,11 +145,13 @@ export default function App() {
 
         {mainTab === "am" && (
           <AMPanelTab
-            // opcional: você pode passar settingsEmail/settingsToken se for usar em chamadas futuras
             settingsEmail={settingsEmail}
             settingsToken={settingsToken}
           />
         )}
+
+        {/* ✅ NOVO: Ferramentas */}
+        {mainTab === "tools" && <ToolsTab />}
 
         {/* Painel de Configurações */}
         <div
