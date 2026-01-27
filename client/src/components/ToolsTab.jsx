@@ -1,5 +1,5 @@
 // src/components/ToolsTab.jsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
+  Download,
+  Repeat2,
 } from "lucide-react";
+
+import JSZip from "jszip";
 
 const TOOL_DEFS = [
   {
@@ -66,6 +70,8 @@ const TOOL_DEFS = [
   },
 ];
 
+const TARGET_AUDIO_LABEL = "U-law, 8000hz, 64kbps, mono";
+
 function toolButtonClasses(active) {
   return cn(
     "rounded-xl border px-3 py-2 text-sm font-medium transition",
@@ -83,30 +89,89 @@ function fmtKB(bytes = 0) {
   return `${mb} MB`;
 }
 
-// ID simples sem libs
 function uid() {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function norm(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function isTargetAudio(audio) {
+  if (!audio) return null;
+  if (typeof audio.matches_target === "boolean") return audio.matches_target;
+
+  // fallback caso matches_target não venha
+  const codecOk = norm(audio.codec) === "ulaw" || norm(audio.codec) === "mulaw";
+  const srOk = Number(audio.sample_rate_hz) === 8000;
+  const brOk = Number(audio.bit_rate_kbps) === 64;
+  const chOk = norm(audio.channel_layout) === "mono";
+  return codecOk && srOk && brOk && chOk;
+}
+
+function safeRevokeObjectUrl(u) {
+  try {
+    if (u) URL.revokeObjectURL(u);
+  } catch {}
+}
+
+function parseFilenameFromContentDisposition(cd) {
+  // ex: attachment; filename="audio.wav"
+  if (!cd) return null;
+  const m = /filename\*?=(?:UTF-8''|")?([^;"\n]+)"?/i.exec(cd);
+  if (!m?.[1]) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return m[1];
+  }
+}
+
+function baseName(fileName = "audio") {
+  return String(fileName).replace(/\.[^/.]+$/i, ""); // remove extensão
+}
+
+function buildConvertedFilename(originalName) {
+  // conversão geralmente gera WAV; mantém o "nome" do original
+  return `${baseName(originalName)}.wav`;
+}
+
 /**
- * Itens de upload/transcrição
- * status:
- *  - queued: aguardando
- *  - uploading: enviando/transcrevendo
- *  - done: concluído
- *  - error: erro
+ * Item:
+ * {
+ *  id, file,
+ *  status: queued|uploading|done|error,
+ *  progress,
+ *  result, error,
+ *  convertStatus: idle|converting|converted|error,
+ *  convertProgress,
+ *  convertError,
+ *  convertedUrl,
+ *  convertedFileName,
+ *  convertedSummary,
+ *  convertedMatchesTarget
+ * }
  */
 export default function ToolsTab() {
   const [activeTool, setActiveTool] = useState("transcricao");
-
   const fileInputRef = useRef(null);
 
-  // Multi-audio queue
-  const [audios, setAudios] = useState([]); // [{id,file,status,progress,result,error}]
+  const [audios, setAudios] = useState([]);
+  const audiosRef = useRef([]);
+  useEffect(() => {
+    audiosRef.current = audios;
+  }, [audios]);
+
+  // (mantido para futuro; hoje não envia ao backend)
   const [language, setLanguage] = useState("pt-BR");
 
-  // Busy geral
-  const [busy, setBusy] = useState(false);
+  // Overlay / progresso (transcrição e conversão)
+  const [running, setRunning] = useState(false);
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [busyMode, setBusyMode] = useState(null); // "transcribe" | "convert"
+  const [busyScope, setBusyScope] = useState([]); // ids envolvidos
   const [busyPct, setBusyPct] = useState(0);
 
   const active = useMemo(
@@ -120,7 +185,43 @@ export default function ToolsTab() {
     const err = audios.filter((a) => a.status === "error").length;
     const uploading = audios.filter((a) => a.status === "uploading").length;
     const queued = audios.filter((a) => a.status === "queued").length;
-    return { total, done, err, uploading, queued };
+
+    const convConverting = audios.filter(
+      (a) => a.convertStatus === "converting"
+    ).length;
+    const convConverted = audios.filter(
+      (a) => a.convertStatus === "converted"
+    ).length;
+    const convErr = audios.filter((a) => a.convertStatus === "error").length;
+
+    return {
+      total,
+      done,
+      err,
+      uploading,
+      queued,
+      convConverting,
+      convConverted,
+      convErr,
+    };
+  }, [audios]);
+
+  const outOfSpecCount = useMemo(() => {
+    return audios.filter((a) => {
+      if (a.status !== "done") return false;
+      const match = isTargetAudio(a?.result?.audio);
+      return match === false;
+    }).length;
+  }, [audios]);
+
+  const convertCandidates = useMemo(() => {
+    return audios.filter((a) => {
+      if (a.status !== "done") return false;
+      const match = isTargetAudio(a?.result?.audio);
+      if (match !== false) return false;
+      // já convertido? ainda pode reconverter, mas aqui tratamos como candidato se não convertido
+      return a.convertStatus !== "converting";
+    });
   }, [audios]);
 
   const allTranscriptText = useMemo(() => {
@@ -132,20 +233,105 @@ export default function ToolsTab() {
         const dur =
           typeof a?.result?.duration === "number" ? a.result.duration : null;
         const durStr = dur != null ? ` (${dur.toFixed(2)}s)` : "";
-        return `### ${name} [${lang}]${durStr}\n${a.result.text}`;
+        const audioSum = a?.result?.audio?.summary
+          ? `\n> Áudio: ${a.result.audio.summary}`
+          : "";
+        const audioTarget = a?.result?.audio?.target
+          ? `\n> Target: ${a.result.audio.target}`
+          : "";
+        return `### ${name} [${lang}]${durStr}\n${a.result.text}${audioSum}${audioTarget}`;
       });
     return parts.join("\n\n");
   }, [audios]);
 
-  function recalcBusyPct(nextAudios) {
-    // progresso geral: média dos progressos (queued=0, done=100, error=100, uploading=progress)
-    if (!nextAudios.length) return 0;
-    const sum = nextAudios.reduce((acc, a) => {
+  function calcBusyPct(scopeIds, mode, items) {
+    if (!scopeIds?.length) return 0;
+    const setIds = new Set(scopeIds);
+    const scoped = items.filter((a) => setIds.has(a.id));
+    if (!scoped.length) return 0;
+
+    const sum = scoped.reduce((acc, a) => {
+      if (mode === "convert") {
+        if (a.convertStatus === "converted" || a.convertStatus === "error")
+          return acc + 100;
+        if (a.convertStatus === "converting")
+          return acc + (Number(a.convertProgress) || 0);
+        return acc + 0;
+      }
+      // transcribe
       if (a.status === "done" || a.status === "error") return acc + 100;
-      if (a.status === "queued") return acc + 0;
-      return acc + (Number(a.progress) || 0);
+      if (a.status === "uploading") return acc + (Number(a.progress) || 0);
+      return acc + 0;
     }, 0);
-    return Math.round(sum / nextAudios.length);
+
+    return Math.round(sum / scoped.length);
+  }
+
+  function ensureUniqueFilename(name, used) {
+    let final = name || "audio.wav";
+    let i = 1;
+
+    while (used.has(final)) {
+      const m = final.match(/(\.[^/.]+)$/);
+      const ext = m ? m[1] : "";
+      const b = ext ? final.slice(0, -ext.length) : final;
+      final = `${b} (${i})${ext}`;
+      i += 1;
+    }
+
+    used.add(final);
+    return final;
+  }
+
+  const convertedItems = useMemo(() => {
+    return audios.filter(
+      (a) => a.convertStatus === "converted" && a.convertedUrl
+    );
+  }, [audios]);
+
+  async function downloadConvertedZip() {
+    const items = convertedItems;
+    if (!items.length) return;
+
+    const zip = new JSZip();
+    const used = new Set();
+
+    for (const a of items) {
+      const name =
+        a.convertedFileName || buildConvertedFilename(a.file?.name || "audio");
+
+      const uniqueName = ensureUniqueFilename(name, used);
+
+      // preferir blob já guardado; fallback para fetch no objectURL
+      const blob =
+        a.convertedBlob ||
+        (a.convertedUrl ? await (await fetch(a.convertedUrl)).blob() : null);
+
+      if (blob) zip.file(uniqueName, blob);
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const zipUrl = URL.createObjectURL(zipBlob);
+
+    const a = document.createElement("a");
+    a.href = zipUrl;
+    a.download = `audios_convertidos_${new Date()
+      .toISOString()
+      .slice(0, 10)}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.setTimeout(() => URL.revokeObjectURL(zipUrl), 60_000);
+  }
+
+  function setItem(id, patch) {
+    setAudios((prev) => {
+      const next = prev.map((a) => (a.id === id ? { ...a, ...patch } : a));
+      if (running && busyMode)
+        setBusyPct(calcBusyPct(busyScope, busyMode, next));
+      return next;
+    });
   }
 
   function onPickFiles(e) {
@@ -159,27 +345,40 @@ export default function ToolsTab() {
       progress: 0,
       result: null,
       error: null,
+
+      convertStatus: "idle",
+      convertProgress: 0,
+      convertError: null,
+      convertedUrl: null,
+      convertedFileName: null,
+      convertedSummary: null,
+      convertedMatchesTarget: null,
+
+      convertedBlob: null,
     }));
 
-    setAudios((prev) => {
-      const next = [...newItems, ...prev];
-      setBusyPct(recalcBusyPct(next));
-      return next;
-    });
+    setAudios((prev) => [...newItems, ...prev]);
   }
 
   function clearAll() {
+    // revoke URLs
+    audios.forEach((a) => safeRevokeObjectUrl(a.convertedUrl));
+
     setAudios([]);
-    setBusy(false);
+    setRunning(false);
+    setOverlayOpen(false);
+    setBusyMode(null);
+    setBusyScope([]);
     setBusyPct(0);
+
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeOne(id) {
     setAudios((prev) => {
-      const next = prev.filter((a) => a.id !== id);
-      setBusyPct(recalcBusyPct(next));
-      return next;
+      const item = prev.find((a) => a.id === id);
+      if (item?.convertedUrl) safeRevokeObjectUrl(item.convertedUrl);
+      return prev.filter((a) => a.id !== id);
     });
   }
 
@@ -197,17 +396,9 @@ export default function ToolsTab() {
 
   async function transcribeOne(itemId) {
     // marca uploading
-    setAudios((prev) => {
-      const next = prev.map((a) =>
-        a.id === itemId
-          ? { ...a, status: "uploading", progress: 5, error: null }
-          : a
-      );
-      setBusyPct(recalcBusyPct(next));
-      return next;
-    });
+    setItem(itemId, { status: "uploading", progress: 5, error: null });
 
-    // "fake progress" enquanto o backend processa (não há progress real)
+    // progress fake
     let tick = null;
     const startTick = () => {
       tick = window.setInterval(() => {
@@ -216,7 +407,6 @@ export default function ToolsTab() {
           if (!cur || cur.status !== "uploading") return prev;
 
           const p = Number(cur.progress) || 0;
-          // sobe até 92%
           const nextP = Math.min(
             92,
             p + Math.max(1, Math.round((92 - p) * 0.07))
@@ -224,12 +414,12 @@ export default function ToolsTab() {
           const next = prev.map((a) =>
             a.id === itemId ? { ...a, progress: nextP } : a
           );
-          setBusyPct(recalcBusyPct(next));
+          if (running && busyMode === "transcribe")
+            setBusyPct(calcBusyPct(busyScope, "transcribe", next));
           return next;
         });
       }, 450);
     };
-
     const stopTick = () => {
       if (tick) window.clearInterval(tick);
       tick = null;
@@ -238,7 +428,7 @@ export default function ToolsTab() {
     startTick();
 
     try {
-      const curItem = audios.find((a) => a.id === itemId);
+      const curItem = audiosRef.current.find((a) => a.id === itemId);
       const file = curItem?.file;
       if (!file) throw new Error("Arquivo não encontrado na fila.");
 
@@ -259,35 +449,21 @@ export default function ToolsTab() {
         throw new Error(msg);
       }
 
-      const data = await r.json(); // {language, duration, text, file_saved_as}
-
+      const data = await r.json(); // inclui audio{...}
       stopTick();
 
-      setAudios((prev) => {
-        const next = prev.map((a) =>
-          a.id === itemId
-            ? { ...a, status: "done", progress: 100, result: data, error: null }
-            : a
-        );
-        setBusyPct(recalcBusyPct(next));
-        return next;
+      setItem(itemId, {
+        status: "done",
+        progress: 100,
+        result: data,
+        error: null,
       });
     } catch (err) {
       stopTick();
-
-      setAudios((prev) => {
-        const next = prev.map((a) =>
-          a.id === itemId
-            ? {
-                ...a,
-                status: "error",
-                progress: 100,
-                error: String(err?.message || err),
-              }
-            : a
-        );
-        setBusyPct(recalcBusyPct(next));
-        return next;
+      setItem(itemId, {
+        status: "error",
+        progress: 100,
+        error: String(err?.message || err),
       });
     }
   }
@@ -296,27 +472,144 @@ export default function ToolsTab() {
     const queued = audios.filter((a) => a.status === "queued");
     if (!queued.length) return;
 
-    setBusy(true);
+    const scope = queued.map((a) => a.id);
+    setBusyMode("transcribe");
+    setBusyScope(scope);
+    setBusyPct(calcBusyPct(scope, "transcribe", audios));
+    setRunning(true);
+    setOverlayOpen(true);
 
-    // processamento sequencial (mais estável p/ STT e evita estourar memória/CPU)
     for (const item of queued) {
       // eslint-disable-next-line no-await-in-loop
       await transcribeOne(item.id);
     }
 
-    setBusy(false);
+    setRunning(false);
   }
 
   function resetFailedToQueued() {
-    setAudios((prev) => {
-      const next = prev.map((a) =>
+    setAudios((prev) =>
+      prev.map((a) =>
         a.status === "error"
           ? { ...a, status: "queued", progress: 0, error: null, result: null }
           : a
-      );
-      setBusyPct(recalcBusyPct(next));
-      return next;
+      )
+    );
+  }
+
+  async function convertOne(itemId) {
+    // marca converting
+    setItem(itemId, {
+      convertStatus: "converting",
+      convertProgress: 5,
+      convertError: null,
     });
+
+    // fake progress
+    let tick = null;
+    const startTick = () => {
+      tick = window.setInterval(() => {
+        setAudios((prev) => {
+          const cur = prev.find((a) => a.id === itemId);
+          if (!cur || cur.convertStatus !== "converting") return prev;
+
+          const p = Number(cur.convertProgress) || 0;
+          const nextP = Math.min(
+            92,
+            p + Math.max(1, Math.round((92 - p) * 0.07))
+          );
+          const next = prev.map((a) =>
+            a.id === itemId ? { ...a, convertProgress: nextP } : a
+          );
+          if (running && busyMode === "convert")
+            setBusyPct(calcBusyPct(busyScope, "convert", next));
+          return next;
+        });
+      }, 450);
+    };
+    const stopTick = () => {
+      if (tick) window.clearInterval(tick);
+      tick = null;
+    };
+
+    startTick();
+
+    try {
+      const curItem = audiosRef.current.find((a) => a.id === itemId);
+      const file = curItem?.file;
+      if (!file) throw new Error("Arquivo não encontrado na fila.");
+
+      // se já tinha URL anterior, revoga
+      if (curItem?.convertedUrl) safeRevokeObjectUrl(curItem.convertedUrl);
+
+      const form = new FormData();
+      form.append("file", file);
+
+      const r = await fetch("/api/stt/convert", { method: "POST", body: form });
+
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try {
+          const t = await r.text();
+          msg = t || msg;
+        } catch {}
+        throw new Error(msg);
+      }
+
+      const cd = r.headers.get("content-disposition");
+      const filename = buildConvertedFilename(file.name || "audio");
+
+      const xSummary = r.headers.get("x-audio-summary");
+      const xMatch = r.headers.get("x-audio-matches-target");
+
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+
+      stopTick();
+
+      setItem(itemId, {
+        convertStatus: "converted",
+        convertProgress: 100,
+        convertError: null,
+        convertedUrl: url,
+        convertedBlob: blob,
+        convertedFileName: filename,
+        convertedSummary: xSummary || null,
+        convertedMatchesTarget:
+          xMatch === "true" ? true : xMatch === "false" ? false : null,
+      });
+    } catch (err) {
+      stopTick();
+      setItem(itemId, {
+        convertStatus: "error",
+        convertProgress: 100,
+        convertError: String(err?.message || err),
+      });
+    }
+  }
+
+  async function convertAllOutOfSpec() {
+    const candidates = audios.filter((a) => {
+      if (a.status !== "done") return false;
+      const match = isTargetAudio(a?.result?.audio);
+      return match === false;
+    });
+
+    if (!candidates.length) return;
+
+    const scope = candidates.map((a) => a.id);
+    setBusyMode("convert");
+    setBusyScope(scope);
+    setBusyPct(calcBusyPct(scope, "convert", audios));
+    setRunning(true);
+    setOverlayOpen(true);
+
+    for (const item of candidates) {
+      // eslint-disable-next-line no-await-in-loop
+      await convertOne(item.id);
+    }
+
+    setRunning(false);
   }
 
   return (
@@ -393,7 +686,6 @@ export default function ToolsTab() {
             </div>
           </div>
 
-          {/* Conteúdo */}
           <div className="grid gap-4">
             <Card className="rounded-2xl border-zinc-200">
               <CardHeader className="pb-3">
@@ -418,24 +710,27 @@ export default function ToolsTab() {
               <CardContent>
                 {activeTool === "transcricao" ? (
                   <div className="grid gap-4">
-                    {/* BUSY OVERLAY */}
-                    {busy && (
+                    {/* OVERLAY PROGRESS */}
+                    {overlayOpen && running && (
                       <div className="fixed inset-0 z-[80] grid place-items-center bg-black/30 p-4">
                         <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-4 shadow-xl">
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <div className="text-sm font-semibold text-zinc-900">
-                                Transcrevendo áudios…
+                                {busyMode === "convert"
+                                  ? "Convertendo áudios…"
+                                  : "Transcrevendo áudios…"}
                               </div>
                               <div className="text-xs text-zinc-600">
-                                Processando {totals.done + totals.err} de{" "}
-                                {totals.total} itens
+                                {busyMode === "convert"
+                                  ? `Convertendo ${busyScope.length} itens`
+                                  : `Transcrevendo ${busyScope.length} itens`}
                               </div>
                             </div>
                             <button
                               type="button"
                               className="rounded-lg p-1 text-zinc-500 hover:bg-zinc-100"
-                              onClick={() => setBusy(false)}
+                              onClick={() => setOverlayOpen(false)}
                               title="Ocultar"
                             >
                               <X className="h-4 w-4" />
@@ -459,26 +754,39 @@ export default function ToolsTab() {
 
                           <div className="mt-4 flex items-center justify-between gap-2 text-xs text-zinc-600">
                             <span>
-                              <span className="font-semibold text-zinc-900">
-                                {totals.uploading}
-                              </span>{" "}
-                              em andamento •{" "}
-                              <span className="font-semibold text-zinc-900">
-                                {totals.queued}
-                              </span>{" "}
-                              na fila
+                              {busyMode === "convert" ? (
+                                <>
+                                  <span className="font-semibold text-zinc-900">
+                                    {totals.convConverting}
+                                  </span>{" "}
+                                  em andamento •{" "}
+                                  <span className="font-semibold text-zinc-900">
+                                    {totals.convConverted}
+                                  </span>{" "}
+                                  convertidos
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-semibold text-zinc-900">
+                                    {totals.uploading}
+                                  </span>{" "}
+                                  em andamento •{" "}
+                                  <span className="font-semibold text-zinc-900">
+                                    {totals.queued}
+                                  </span>{" "}
+                                  na fila
+                                </>
+                              )}
                             </span>
 
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="rounded-xl"
-                                onClick={() => setBusy(false)}
-                              >
-                                Continuar em segundo plano
-                              </Button>
-                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="rounded-xl"
+                              onClick={() => setOverlayOpen(false)}
+                            >
+                              Continuar em segundo plano
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -493,8 +801,8 @@ export default function ToolsTab() {
                               Áudios (múltiplos)
                             </div>
                             <div className="text-xs text-zinc-600">
-                              Selecione vários arquivos (.mp3, .wav, .m4a). A
-                              transcrição será feita em lote.
+                              Selecione vários arquivos (.mp3, .wav, .m4a).
+                              Validação NICE: <b>{TARGET_AUDIO_LABEL}</b>.
                             </div>
                           </div>
 
@@ -527,7 +835,7 @@ export default function ToolsTab() {
                               variant="outline"
                               className="rounded-xl"
                               onClick={clearAll}
-                              disabled={!audios.length || busy}
+                              disabled={!audios.length || running}
                             >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Limpar
@@ -535,63 +843,99 @@ export default function ToolsTab() {
                           </div>
                         </div>
 
-                        {/* Lista compacta da fila */}
                         <div className="mt-3 grid gap-2">
                           {audios.length === 0 ? (
                             <div className="rounded-xl border border-zinc-200 bg-white p-3 text-sm text-zinc-600">
                               Nenhum áudio na fila.
                             </div>
                           ) : (
-                            audios.slice(0, 6).map((a) => (
-                              <div
-                                key={a.id}
-                                className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-3"
-                              >
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <div className="grid h-10 w-10 place-items-center rounded-xl bg-zinc-100 text-zinc-700">
-                                    <FileAudio className="h-5 w-5" />
+                            audios.slice(0, 6).map((a) => {
+                              const match = isTargetAudio(a?.result?.audio);
+                              const needsConv =
+                                a.status === "done" && match === false;
+
+                              return (
+                                <div
+                                  key={a.id}
+                                  className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white p-3"
+                                >
+                                  <div className="flex min-w-0 items-center gap-3">
+                                    <div className="grid h-10 w-10 place-items-center rounded-xl bg-zinc-100 text-zinc-700">
+                                      <FileAudio className="h-5 w-5" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-semibold text-zinc-900">
+                                        {a.file?.name || "audio"}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-600">
+                                        <span>{fmtKB(a.file?.size || 0)}</span>
+                                        <span>•</span>
+                                        <span>
+                                          {a.status === "queued" && "Na fila"}
+                                          {a.status === "uploading" &&
+                                            `Transcrevendo… ${Math.round(
+                                              a.progress || 0
+                                            )}%`}
+                                          {a.status === "done" && "Concluído"}
+                                          {a.status === "error" && "Erro"}
+                                        </span>
+
+                                        {a.status === "done" && (
+                                          <>
+                                            <span>•</span>
+                                            <span
+                                              className={cn(
+                                                "rounded-full border px-2 py-0.5",
+                                                match === true
+                                                  ? "border-green-200 bg-green-50 text-green-700"
+                                                  : match === false
+                                                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                                                  : "border-zinc-200 bg-zinc-50 text-zinc-700"
+                                              )}
+                                            >
+                                              {match === true
+                                                ? "OK NICE"
+                                                : match === false
+                                                ? "Fora do padrão"
+                                                : "Sem validação"}
+                                            </span>
+
+                                            {needsConv && (
+                                              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-800">
+                                                Converter
+                                              </span>
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold text-zinc-900">
-                                      {a.file?.name || "audio"}
-                                    </div>
-                                    <div className="text-xs text-zinc-600">
-                                      {fmtKB(a.file?.size || 0)} •{" "}
-                                      {a.status === "queued" && "Na fila"}
-                                      {a.status === "uploading" &&
-                                        `Transcrevendo… ${Math.round(
-                                          a.progress || 0
-                                        )}%`}
-                                      {a.status === "done" && "Concluído"}
-                                      {a.status === "error" && "Erro"}
-                                    </div>
+
+                                  <div className="flex items-center gap-2">
+                                    {a.status === "done" && (
+                                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                    )}
+                                    {a.status === "error" && (
+                                      <AlertTriangle className="h-5 w-5 text-amber-600" />
+                                    )}
+                                    {a.status === "uploading" && (
+                                      <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
+                                    )}
+
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="rounded-xl"
+                                      onClick={() => removeOne(a.id)}
+                                      disabled={running}
+                                      title="Remover da fila"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
                                   </div>
                                 </div>
-
-                                <div className="flex items-center gap-2">
-                                  {a.status === "done" && (
-                                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                                  )}
-                                  {a.status === "error" && (
-                                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                                  )}
-                                  {a.status === "uploading" && (
-                                    <Loader2 className="h-5 w-5 animate-spin text-zinc-500" />
-                                  )}
-
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="rounded-xl"
-                                    onClick={() => removeOne(a.id)}
-                                    disabled={busy}
-                                    title="Remover da fila"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            ))
+                              );
+                            })
                           )}
 
                           {audios.length > 6 && (
@@ -605,7 +949,7 @@ export default function ToolsTab() {
 
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                         <div className="text-sm font-semibold text-zinc-900">
-                          Opções
+                          Ações
                         </div>
 
                         <div className="mt-2 grid gap-2">
@@ -629,13 +973,32 @@ export default function ToolsTab() {
                               className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                               onClick={transcribeAll}
                               disabled={
-                                busy ||
+                                running ||
                                 audios.filter((a) => a.status === "queued")
                                   .length === 0
                               }
                             >
                               <Mic className="mr-2 h-4 w-4" />
-                              {busy ? "Transcrevendo…" : "Transcrever em lote"}
+                              {running && busyMode === "transcribe"
+                                ? "Transcrevendo…"
+                                : "Transcrever em lote"}
+                            </Button>
+
+                            <Button
+                              type="button"
+                              className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
+                              onClick={convertAllOutOfSpec}
+                              disabled={
+                                running || convertCandidates.length === 0
+                              }
+                              title={
+                                convertCandidates.length
+                                  ? `Converter ${convertCandidates.length} áudios fora do padrão`
+                                  : "Nenhum áudio fora do padrão após transcrição"
+                              }
+                            >
+                              <Repeat2 className="mr-2 h-4 w-4" />
+                              Converter fora do padrão (massa)
                             </Button>
 
                             <div className="flex flex-wrap gap-2">
@@ -645,7 +1008,7 @@ export default function ToolsTab() {
                                 className="rounded-xl"
                                 onClick={resetFailedToQueued}
                                 disabled={
-                                  busy ||
+                                  running ||
                                   audios.filter((a) => a.status === "error")
                                     .length === 0
                                 }
@@ -657,8 +1020,8 @@ export default function ToolsTab() {
                                 type="button"
                                 variant="outline"
                                 className="rounded-xl"
-                                onClick={() => setBusy(true)}
-                                disabled={!busy && totals.uploading === 0}
+                                onClick={() => setOverlayOpen(true)}
+                                disabled={!running}
                                 title="Abrir tela de progresso"
                               >
                                 Ver progresso
@@ -666,13 +1029,32 @@ export default function ToolsTab() {
                             </div>
 
                             <div className="text-xs text-zinc-500">
-                              Dica: processamento é sequencial para estabilidade
-                              e evitar sobrecarga no STT.
+                              Observação: sem “progresso real” do backend, o % é
+                              estimado até a resposta.
                             </div>
                           </div>
                         </div>
                       </div>
                     </div>
+
+                    {/* Banner: fora do padrão */}
+                    {outOfSpecCount > 0 && (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="mt-0.5 h-4 w-4" />
+                          <div className="min-w-0">
+                            <div className="font-semibold">
+                              Áudios fora do padrão NICE
+                            </div>
+                            <div className="text-xs opacity-90">
+                              {outOfSpecCount} item(ns) não estão em{" "}
+                              <b>{TARGET_AUDIO_LABEL}</b>. Use “Converter” por
+                              item ou “Converter fora do padrão (massa)”.
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* RESULTADOS */}
                     <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -682,8 +1064,8 @@ export default function ToolsTab() {
                             Resultados
                           </div>
                           <div className="text-xs text-zinc-600">
-                            Itens concluídos aparecem com transcrição; falhas
-                            exibem o motivo.
+                            Após transcrever, validamos automaticamente o padrão
+                            NICE e liberamos a conversão quando necessário.
                           </div>
                         </div>
 
@@ -699,12 +1081,29 @@ export default function ToolsTab() {
                             Copiar tudo
                           </Button>
 
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl"
+                            onClick={downloadConvertedZip}
+                            disabled={running || convertedItems.length === 0}
+                            title={
+                              convertedItems.length
+                                ? `Baixar ${convertedItems.length} áudio(s) convertidos em ZIP`
+                                : "Nenhum áudio convertido disponível"
+                            }
+                          >
+                            <Download className="mr-2 h-4 w-4" />
+                            Baixar convertidos (massa)
+                          </Button>
+
                           <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-                            {totals.done}/{totals.total} concluídos
+                            {totals.done}/{totals.total} transcritos
                           </Badge>
-                          {totals.err > 0 && (
-                            <Badge className="border border-amber-200 bg-amber-50 text-amber-700">
-                              {totals.err} falhas
+
+                          {outOfSpecCount > 0 && (
+                            <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
+                              {outOfSpecCount} fora do padrão
                             </Badge>
                           )}
                         </div>
@@ -716,168 +1115,302 @@ export default function ToolsTab() {
                         </div>
                       ) : (
                         <div className="grid gap-3">
-                          {audios.map((a) => (
-                            <div
-                              key={a.id}
-                              className={cn(
-                                "rounded-2xl border p-4",
-                                a.status === "done" &&
-                                  "border-green-200 bg-green-50/40",
-                                a.status === "error" &&
-                                  "border-amber-200 bg-amber-50/40",
-                                (a.status === "queued" ||
-                                  a.status === "uploading") &&
-                                  "border-zinc-200 bg-white"
-                              )}
-                            >
-                              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <div className="truncate text-sm font-semibold text-zinc-900">
-                                      {a.file?.name || "audio"}
+                          {audios.map((a) => {
+                            const audioInfo = a?.result?.audio;
+                            const match = isTargetAudio(audioInfo);
+                            const needsConv =
+                              a.status === "done" && match === false;
+
+                            return (
+                              <div
+                                key={a.id}
+                                className={cn(
+                                  "rounded-2xl border p-4",
+                                  a.status === "done" &&
+                                    "border-green-200 bg-green-50/40",
+                                  a.status === "error" &&
+                                    "border-amber-200 bg-amber-50/40",
+                                  (a.status === "queued" ||
+                                    a.status === "uploading") &&
+                                    "border-zinc-200 bg-white"
+                                )}
+                              >
+                                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="truncate text-sm font-semibold text-zinc-900">
+                                        {a.file?.name || "audio"}
+                                      </div>
+
+                                      {a.status === "done" && (
+                                        <Badge className="border border-green-200 bg-green-50 text-green-700">
+                                          Transcrito
+                                        </Badge>
+                                      )}
+                                      {a.status === "error" && (
+                                        <Badge className="border border-amber-200 bg-amber-50 text-amber-700">
+                                          Falha
+                                        </Badge>
+                                      )}
+                                      {a.status === "uploading" && (
+                                        <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                                          Em andamento
+                                        </Badge>
+                                      )}
+                                      {a.status === "queued" && (
+                                        <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                                          Na fila
+                                        </Badge>
+                                      )}
+
+                                      {a.status === "done" && (
+                                        <span
+                                          className={cn(
+                                            "rounded-full border px-2 py-0.5 text-[11px]",
+                                            match === true
+                                              ? "border-green-200 bg-green-50 text-green-700"
+                                              : match === false
+                                              ? "border-amber-200 bg-amber-50 text-amber-800"
+                                              : "border-zinc-200 bg-zinc-50 text-zinc-700"
+                                          )}
+                                        >
+                                          {match === true
+                                            ? `OK NICE: ${
+                                                audioInfo?.summary ||
+                                                TARGET_AUDIO_LABEL
+                                              }`
+                                            : match === false
+                                            ? `Fora do padrão: ${
+                                                audioInfo?.summary || "-"
+                                              }`
+                                            : "Sem validação"}
+                                        </span>
+                                      )}
                                     </div>
 
+                                    <div className="mt-1 text-xs text-zinc-600">
+                                      {fmtKB(a.file?.size || 0)}
+                                      {a?.result?.duration != null &&
+                                        ` • ${Number(a.result.duration).toFixed(
+                                          2
+                                        )}s`}
+                                      {a?.result?.language &&
+                                        ` • ${a.result.language}`}
+                                      {a?.result?.file_saved_as &&
+                                        ` • salvo: ${a.result.file_saved_as}`}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center gap-2">
                                     {a.status === "done" && (
-                                      <Badge className="border border-green-200 bg-green-50 text-green-700">
-                                        Concluído
-                                      </Badge>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="rounded-xl"
+                                        onClick={() =>
+                                          copySingle(a.result?.text)
+                                        }
+                                        disabled={
+                                          !String(a?.result?.text || "").trim()
+                                        }
+                                      >
+                                        <Copy className="mr-2 h-4 w-4" />
+                                        Copiar
+                                      </Button>
                                     )}
-                                    {a.status === "error" && (
-                                      <Badge className="border border-amber-200 bg-amber-50 text-amber-700">
-                                        Falha
-                                      </Badge>
-                                    )}
-                                    {a.status === "uploading" && (
-                                      <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-                                        Em andamento
-                                      </Badge>
-                                    )}
-                                    {a.status === "queued" && (
-                                      <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-                                        Na fila
-                                      </Badge>
-                                    )}
-                                  </div>
 
-                                  <div className="mt-1 text-xs text-zinc-600">
-                                    {fmtKB(a.file?.size || 0)}
-                                    {a?.result?.duration != null &&
-                                      ` • ${Number(a.result.duration).toFixed(
-                                        2
-                                      )}s`}
-                                    {a?.result?.language &&
-                                      ` • ${a.result.language}`}
-                                    {a?.result?.file_saved_as &&
-                                      ` • salvo: ${a.result.file_saved_as}`}
-                                  </div>
-                                </div>
+                                    {needsConv && (
+                                      <Button
+                                        type="button"
+                                        className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
+                                        onClick={() => convertOne(a.id)}
+                                        disabled={
+                                          running ||
+                                          a.convertStatus === "converting"
+                                        }
+                                      >
+                                        {a.convertStatus === "converting" ? (
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Repeat2 className="mr-2 h-4 w-4" />
+                                        )}
+                                        Converter
+                                      </Button>
+                                    )}
 
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {a.status === "done" && (
+                                    {a.convertStatus === "converted" &&
+                                      a.convertedUrl && (
+                                        <a
+                                          href={a.convertedUrl}
+                                          download={
+                                            a.convertedFileName || undefined
+                                          }
+                                        >
+                                          <Button
+                                            type="button"
+                                            variant="outline"
+                                            className="rounded-xl"
+                                          >
+                                            <Download className="mr-2 h-4 w-4" />
+                                            Baixar convertido
+                                          </Button>
+                                        </a>
+                                      )}
+
                                     <Button
                                       type="button"
                                       variant="outline"
                                       className="rounded-xl"
-                                      onClick={() => copySingle(a.result?.text)}
-                                      disabled={
-                                        !String(a?.result?.text || "").trim()
-                                      }
+                                      onClick={() => removeOne(a.id)}
+                                      disabled={running}
                                     >
-                                      <Copy className="mr-2 h-4 w-4" />
-                                      Copiar
+                                      Remover
                                     </Button>
-                                  )}
-
-                                  {a.status === "error" && (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      className="rounded-xl"
-                                      onClick={() =>
-                                        setAudios((prev) => {
-                                          const next = prev.map((x) =>
-                                            x.id === a.id
-                                              ? {
-                                                  ...x,
-                                                  status: "queued",
-                                                  progress: 0,
-                                                  error: null,
-                                                  result: null,
-                                                }
-                                              : x
-                                          );
-                                          setBusyPct(recalcBusyPct(next));
-                                          return next;
-                                        })
-                                      }
-                                      disabled={busy}
-                                    >
-                                      Tentar este
-                                    </Button>
-                                  )}
-
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="rounded-xl"
-                                    onClick={() => removeOne(a.id)}
-                                    disabled={busy}
-                                  >
-                                    Remover
-                                  </Button>
-                                </div>
-                              </div>
-
-                              {(a.status === "uploading" ||
-                                a.status === "queued") && (
-                                <div className="mt-3">
-                                  <div className="mb-1 flex items-center justify-between text-xs text-zinc-600">
-                                    <span>
-                                      {a.status === "queued"
-                                        ? "Aguardando…"
-                                        : "Processando…"}
-                                    </span>
-                                    <span className="font-semibold text-zinc-900">
-                                      {Math.round(a.progress || 0)}%
-                                    </span>
-                                  </div>
-                                  <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
-                                    <div
-                                      className="h-2 rounded-full bg-red-600 transition-all"
-                                      style={{ width: `${a.progress || 0}%` }}
-                                    />
                                   </div>
                                 </div>
-                              )}
 
-                              {a.status === "error" && (
-                                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                                  <div className="flex items-start gap-2">
-                                    <AlertTriangle className="mt-0.5 h-4 w-4" />
-                                    <div className="min-w-0">
-                                      <div className="font-semibold">
-                                        Erro na transcrição
-                                      </div>
-                                      <div className="text-xs opacity-90">
-                                        {a.error || "Erro desconhecido"}
+                                {(a.status === "uploading" ||
+                                  a.status === "queued") && (
+                                  <div className="mt-3">
+                                    <div className="mb-1 flex items-center justify-between text-xs text-zinc-600">
+                                      <span>
+                                        {a.status === "queued"
+                                          ? "Aguardando…"
+                                          : "Transcrevendo…"}
+                                      </span>
+                                      <span className="font-semibold text-zinc-900">
+                                        {Math.round(a.progress || 0)}%
+                                      </span>
+                                    </div>
+                                    <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
+                                      <div
+                                        className="h-2 rounded-full bg-red-600 transition-all"
+                                        style={{ width: `${a.progress || 0}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* ALERT: fora do padrão NICE */}
+                                {needsConv && (
+                                  <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                    <div className="flex items-start gap-2">
+                                      <AlertTriangle className="mt-0.5 h-4 w-4" />
+                                      <div className="min-w-0">
+                                        <div className="font-semibold">
+                                          Fora do padrão NICE
+                                        </div>
+                                        <div className="text-xs opacity-90">
+                                          Detectado:{" "}
+                                          <b>{audioInfo?.summary || "-"}</b>
+                                          <br />
+                                          Esperado:{" "}
+                                          <b>
+                                            {audioInfo?.target ||
+                                              TARGET_AUDIO_LABEL}
+                                          </b>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
-                                </div>
-                              )}
+                                )}
 
-                              {a.status === "done" && (
-                                <textarea
-                                  readOnly
-                                  value={a.result?.text || ""}
-                                  className={cn(
-                                    "mt-3 min-h-[110px] w-full resize-y rounded-xl border border-zinc-200 bg-white p-3",
-                                    "text-sm leading-relaxed text-zinc-900 outline-none"
-                                  )}
-                                />
-                              )}
-                            </div>
-                          ))}
+                                {/* Progresso da conversão */}
+                                {a.convertStatus === "converting" && (
+                                  <div className="mt-3">
+                                    <div className="mb-1 flex items-center justify-between text-xs text-zinc-600">
+                                      <span>Convertendo…</span>
+                                      <span className="font-semibold text-zinc-900">
+                                        {Math.round(a.convertProgress || 0)}%
+                                      </span>
+                                    </div>
+                                    <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-100">
+                                      <div
+                                        className="h-2 rounded-full bg-zinc-900 transition-all"
+                                        style={{
+                                          width: `${a.convertProgress || 0}%`,
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                {a.convertStatus === "error" && (
+                                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                    <div className="flex items-start gap-2">
+                                      <AlertTriangle className="mt-0.5 h-4 w-4" />
+                                      <div className="min-w-0">
+                                        <div className="font-semibold">
+                                          Erro na conversão
+                                        </div>
+                                        <div className="text-xs opacity-90">
+                                          {a.convertError ||
+                                            "Erro desconhecido"}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {a.convertStatus === "converted" && (
+                                  <div className="mt-3 rounded-xl border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+                                    <div className="flex items-start gap-2">
+                                      <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                                      <div className="min-w-0">
+                                        <div className="font-semibold">
+                                          Convertido
+                                        </div>
+                                        <div className="opacity-90">
+                                          {a.convertedSummary
+                                            ? `Áudio: ${a.convertedSummary}`
+                                            : "Arquivo convertido disponível para download."}
+                                          {typeof a.convertedMatchesTarget ===
+                                            "boolean" && (
+                                            <>
+                                              {" "}
+                                              •{" "}
+                                              {a.convertedMatchesTarget
+                                                ? "OK NICE"
+                                                : "Ainda fora do padrão"}
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Erro de transcrição */}
+                                {a.status === "error" && (
+                                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                    <div className="flex items-start gap-2">
+                                      <AlertTriangle className="mt-0.5 h-4 w-4" />
+                                      <div className="min-w-0">
+                                        <div className="font-semibold">
+                                          Erro na transcrição
+                                        </div>
+                                        <div className="text-xs opacity-90">
+                                          {a.error || "Erro desconhecido"}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Texto transcrito */}
+                                {a.status === "done" && (
+                                  <textarea
+                                    readOnly
+                                    value={a.result?.text || ""}
+                                    className={cn(
+                                      "mt-3 min-h-[110px] w-full resize-y rounded-xl border border-zinc-200 bg-white p-3",
+                                      "text-sm leading-relaxed text-zinc-900 outline-none"
+                                    )}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -890,7 +1423,8 @@ export default function ToolsTab() {
                             Texto consolidado
                           </div>
                           <div className="text-xs text-zinc-600">
-                            Útil para colar no Jira/Confluence como evidência.
+                            Útil para colar no Jira/Confluence como evidência
+                            (inclui summary/target quando disponível).
                           </div>
                         </div>
                         <Button

@@ -75,6 +75,150 @@ app.post("/api/stt/transcribe", upload.single("file"), async (req, res) => {
 });
 
 // =====================================================
+// STT (Python Whisper) Proxy - CONVERT
+// =====================================================
+
+app.post("/api/stt/convert", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ error: "Nenhum arquivo enviado (campo 'file')" });
+    }
+
+    const form = new FormData();
+    const blob = new Blob([req.file.buffer], {
+      type: req.file.mimetype || "application/octet-stream",
+    });
+
+    // O FastAPI espera o campo "file"
+    form.append("file", blob, req.file.originalname);
+
+    const r = await fetch(`${STT_PY_BASE}/convert`, {
+      method: "POST",
+      // NÃO setar Content-Type manualmente (boundary)
+      headers: { Accept: "*/*" },
+      body: form,
+    });
+
+    // Se deu erro no Python, repassa como texto/json (igual seu sendUpstream)
+    if (!r.ok) return sendUpstream(res, r, "text/plain");
+
+    // Retornar o WAV convertido como download/stream
+    res.status(r.status);
+
+    // content-type e headers úteis
+    res.setHeader("Content-Type", r.headers.get("content-type") || "audio/wav");
+
+    const cd = r.headers.get("content-disposition");
+    if (cd) res.setHeader("Content-Disposition", cd);
+
+    // headers opcionais que você setou no Python
+    const xSummary = r.headers.get("x-audio-summary");
+    if (xSummary) res.setHeader("X-Audio-Summary", xSummary);
+
+    const xMatch = r.headers.get("x-audio-matches-target");
+    if (xMatch) res.setHeader("X-Audio-Matches-Target", xMatch);
+
+    // stream do Python -> client
+    if (r.body) {
+      return Readable.fromWeb(r.body).pipe(res);
+    }
+
+    // fallback (raríssimo)
+    const buf = Buffer.from(await r.arrayBuffer());
+    return res.send(buf);
+  } catch (err) {
+    console.error("STT convert proxy error:", err);
+    return res.status(500).json({
+      error: "Proxy error on STT convert",
+      details: String(err),
+    });
+  }
+});
+
+// =====================================================
+// TTS (Python) Proxy
+// - /tts      -> retorna MP3
+// - /tts_ulaw -> retorna WAV μ-law 8k mono
+// =====================================================
+
+// JSON -> MP3
+app.post("/api/stt/tts", async (req, res) => {
+  try {
+    const { text, voice, rate, volume } = req.body || {};
+    if (!String(text || "").trim()) {
+      return res.status(400).json({ error: "Campo 'text' é obrigatório" });
+    }
+
+    const r = await fetch(`${STT_PY_BASE}/tts`, {
+      method: "POST",
+      headers: {
+        Accept: "*/*",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text, voice, rate, volume }),
+    });
+
+    if (!r.ok) return sendUpstream(res, r, "text/plain");
+
+    res.status(r.status);
+    res.setHeader(
+      "Content-Type",
+      r.headers.get("content-type") || "audio/mpeg"
+    );
+
+    const cd = r.headers.get("content-disposition");
+    if (cd) res.setHeader("Content-Disposition", cd);
+
+    // stream Python -> client
+    return Readable.fromWeb(r.body).pipe(res);
+  } catch (err) {
+    console.error("TTS proxy error:", err);
+    return res.status(500).json({
+      error: "Proxy error on TTS",
+      details: String(err),
+    });
+  }
+});
+
+// JSON -> WAV μ-law 8k mono
+app.post("/api/stt/tts_ulaw", async (req, res) => {
+  try {
+    const { text, voice, rate, volume } = req.body || {};
+    if (!String(text || "").trim()) {
+      return res.status(400).json({ error: "Campo 'text' é obrigatório" });
+    }
+
+    const r = await fetch(`${STT_PY_BASE}/tts_ulaw`, {
+      method: "POST",
+      headers: {
+        Accept: "*/*",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text, voice, rate, volume }),
+    });
+
+    if (!r.ok) return sendUpstream(res, r, "text/plain");
+
+    res.status(r.status);
+    res.setHeader("Content-Type", r.headers.get("content-type") || "audio/wav");
+
+    const cd = r.headers.get("content-disposition");
+    if (cd) res.setHeader("Content-Disposition", cd);
+
+    // stream Python -> client
+    return Readable.fromWeb(r.body).pipe(res);
+  } catch (err) {
+    console.error("TTS_ULAW proxy error:", err);
+    return res.status(500).json({
+      error: "Proxy error on TTS ULAW",
+      details: String(err),
+    });
+  }
+});
+
+// =====================================================
 // Jira Proxy
 // =====================================================
 const JIRA_BASE =
