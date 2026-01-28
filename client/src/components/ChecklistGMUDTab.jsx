@@ -48,13 +48,16 @@ import {
 import {
   normalizeKey,
   extractKanbanConfigFromCommentsPayload,
-  upsertKanbanConfigComment,
+  getKanbanConfigFromDb,
+  upsertKanbanConfigDb,
   ensureSubtasksForStep,
   applyJiraStatusesToConfig,
   computeOverallPct,
   computeStepPct,
   isDoneStatus,
   buildKanbanSummary,
+  isValidKanbanConfig,
+  upsertKanbanConfigComment,
 } from "../utils/kanbanSync";
 
 import {
@@ -920,13 +923,19 @@ function ChecklistGMUDTab({
         onProgress: (p) => showSyncOverlay({ ...p }),
       });
 
-      const saved = await upsertKanbanConfigComment({
+      const saved = await upsertKanbanConfigDb({
         ticketKey: jiraCtx.ticketKey,
-        config: ensured.nextCfg,
-        existingCommentId: kanbanComment.id,
-        createComment,
-        updateComment,
+        config: cfg2,
+        data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
+        jira: { projectId: jiraCtx.projectId },
       });
+      setKanbanComment((prev) => ({
+        ...prev,
+        id: saved.ticketId,
+        originalText: saved.savedText,
+      }));
+
+      setKanbanComment({ id: saved.ticketId, originalText: saved.savedText });
 
       setKanbanCfg(
         applyJiraStatusesToConfig(saved.savedConfig, ensured.nextMap)
@@ -1055,13 +1064,17 @@ function ChecklistGMUDTab({
           st2.jiraId = created.id;
         }
 
-        const saved = await upsertKanbanConfigComment({
+        const saved = await upsertKanbanConfigDb({
           ticketKey: jiraCtx.ticketKey,
           config: cfg2,
-          existingCommentId: kanbanComment.id,
-          createComment,
-          updateComment,
+          data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
+          jira: { projectId: jiraCtx.projectId },
         });
+        setKanbanComment((prev) => ({
+          ...prev,
+          id: saved.ticketId,
+          originalText: saved.savedText,
+        }));
 
         setKanbanCfg(saved.savedConfig);
         setKanbanComment({
@@ -1375,95 +1388,115 @@ function ChecklistGMUDTab({
       }
 
       // ===== KANBAN CONFIG =====
-      let cfg = null;
-      let cfgCommentId = null;
+      let cfgLoaded = null;
 
-      if (payload) {
-        const k = extractKanbanConfigFromCommentsPayload(payload);
-        if (k.found && k.config) {
-          cfg = k.config;
-          cfgCommentId = k.commentId;
-        } else if (k.found && !k.config) {
-          showSyncOverlay({
-            title: "Config inválida",
-            message:
-              "Foi encontrado um comentário de config do Kanban, mas o JSON está inválido. Refaça no modal.",
-            done: true,
-            error: k.error || "JSON inválido.",
+      // 1) tenta buscar do Mongo
+      try {
+        const db = await getKanbanConfigFromDb(tk);
+        if (db?.found && db.config) {
+          cfgLoaded = db.config;
+          setKanbanComment({
+            id: db.ticketId || tk,
+            originalText: JSON.stringify(db.config, null, 2),
           });
-          setKanbanCfg(null);
-          setKanbanComment({ id: k.commentId, originalText: "" });
-          setBuilderOpen(true);
+        }
+      } catch {
+        // ignore: fallback para Jira comment
+      }
+
+      // 2) retrocompat: se não tem no Mongo, tenta ler do comentário do Jira e migra p/ Mongo
+      if (!cfgLoaded && payload) {
+        const cfgFound = extractKanbanConfigFromCommentsPayload(payload);
+
+        if (cfgFound.found && cfgFound.config) {
+          cfgLoaded = cfgFound.config;
+
+          // migra para o Mongo (uma vez)
+          try {
+            const saved = await upsertKanbanConfigDb({
+              ticketKey: tk,
+              config: cfgLoaded,
+              data: { nomeProjeto, numeroGMUD, ticketJira: tk },
+              jira: {
+                id: issue?.id,
+                projectId,
+                summary: issue?.fields?.summary,
+                status: issue?.fields?.status?.name,
+                priority: issue?.fields?.priority?.name,
+                updatedAt: issue?.fields?.updated,
+              },
+            });
+
+            setKanbanComment({
+              id: saved.ticketId || tk,
+              originalText: saved.savedText,
+            });
+          } catch {
+            // se falhar, ainda dá para seguir usando cfgLoaded em memória
+            setKanbanComment({ id: null, originalText: "" });
+          }
+        } else {
+          setKanbanComment({ id: null, originalText: "" });
         }
       }
 
-      if (cfg) {
-        setKanbanCfg(cfg);
-        setKanbanComment({ id: cfgCommentId, originalText: "" });
-        setUnlockedStepIdx(
-          typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0
-        );
+      if (cfgLoaded) {
+        // aplica status atuais do Jira na UI
+        setKanbanCfg(applyJiraStatusesToConfig(cfgLoaded, subtasksBySummary));
+        setUnlockedStepIdx(cfgLoaded.unlockedStepIdx || 0);
 
         // step default evidência
-        const wf = cfg?.workflow || DEFAULT_KANBAN_WORKFLOW;
-        const defEvStep =
-          wf?.[
-            typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0
-          ]?.key ||
-          wf?.[0]?.key ||
-          "";
-        setEvidenceStepKey((prev) => prev || defEvStep);
+        const wf = cfgLoaded?.workflow || DEFAULT_KANBAN_WORKFLOW;
+        setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
 
-        // cria subtasks SOMENTE do step liberado atual
-        const stepToEnsure =
-          typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0;
-
+        // garante subtasks do step liberado (igual você já faz hoje)
         const ensured = await ensureSubtasksForStep({
-          cfg,
-          stepIdx: stepToEnsure,
-          ticketKey: issue.key,
+          cfg: cfgLoaded,
+          stepIdx: cfgLoaded.unlockedStepIdx || 0,
+          ticketKey: tk,
           projectId,
           subtasksBySummary,
           createSubtask,
-          onProgress: (p) => showSyncOverlay({ ...p }),
+          onProgress: (p) =>
+            showSyncOverlay({ ...p, created: p.created || [] }),
         });
 
-        const saved = await upsertKanbanConfigComment({
-          ticketKey: issue.key,
-          config: ensured.nextCfg,
-          existingCommentId: cfgCommentId,
-          createComment,
-          updateComment,
-        });
+        // se criou subtasks novas, persiste o mapping atualizado no Mongo
+        if (ensured?.created?.length) {
+          const saved = await upsertKanbanConfigDb({
+            ticketKey: tk,
+            config: ensured.nextCfg,
+            data: { nomeProjeto, numeroGMUD, ticketJira: tk },
+            jira: { id: issue?.id, projectId },
+          });
 
-        cfg = saved.savedConfig;
-        subtasksBySummary = ensured.nextMap;
+          setKanbanCfg(
+            applyJiraStatusesToConfig(saved.savedConfig, ensured.nextMap)
+          );
+          setKanbanComment((prev) => ({
+            ...prev,
+            id: saved.ticketId || prev.id || tk,
+            originalText: saved.savedText,
+          }));
+        }
 
-        setKanbanCfg(applyJiraStatusesToConfig(cfg, subtasksBySummary));
-        setKanbanComment({
-          id: saved.commentId,
-          originalText: saved.savedText,
-        });
-        setUnlockedStepIdx(
-          typeof cfg.unlockedStepIdx === "number" ? cfg.unlockedStepIdx : 0
-        );
-
-        setJiraCtx({ ticketKey: issue.key, projectId, subtasksBySummary });
+        setJiraCtx((prev) => ({ ...prev, subtasksBySummary: ensured.nextMap }));
 
         showSyncOverlay({
-          title: "Concluído",
-          message: `Sincronização concluída para ${tk}.`,
+          title: "Sincronização concluída",
+          message: `Step liberado: ${
+            (cfgLoaded.workflow || DEFAULT_KANBAN_WORKFLOW)[
+              cfgLoaded.unlockedStepIdx || 0
+            ]?.title ||
+            (cfgLoaded.workflow || DEFAULT_KANBAN_WORKFLOW)[0]?.title ||
+            "—"
+          }`,
           done: true,
           created: ensured.created || [],
         });
-      } else if (!builderOpen) {
+      } else {
         setKanbanCfg(null);
-        setKanbanComment({ id: null, originalText: "" });
         setUnlockedStepIdx(0);
-
-        const wf = DEFAULT_KANBAN_WORKFLOW;
-        setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
-
         setBuilderOpen(true);
 
         showSyncOverlay({
@@ -1706,13 +1739,17 @@ function ChecklistGMUDTab({
         subtasks: createdJiraTasks,
       });
 
-      const saved = await upsertKanbanConfigComment({
+      const saved = await upsertKanbanConfigDb({
         ticketKey: jiraCtx.ticketKey,
         config: nextCfg,
-        existingCommentId: kanbanComment.id,
-        createComment,
-        updateComment,
+        data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
+        jira: { projectId: jiraCtx.projectId },
       });
+      setKanbanComment((prev) => ({
+        ...prev,
+        id: saved.ticketId,
+        originalText: saved.savedText,
+      }));
 
       setKanbanCfg(applyJiraStatusesToConfig(saved.savedConfig, nextMap));
       setKanbanComment({ id: saved.commentId, originalText: saved.savedText });

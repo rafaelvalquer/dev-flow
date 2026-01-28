@@ -10,6 +10,7 @@ import { createUpload } from "./middlewares/upload.js";
 import sttRoutes from "./routes/stt.routes.js";
 import jiraRoutes from "./routes/jira.routes.js";
 import dbRoutes from "./routes/db.routes.js";
+import ticketsRouter from "./routes/tickets.js";
 
 import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
 
@@ -31,6 +32,7 @@ export default function createApp() {
   app.use("/api/stt", sttRoutes({ upload, env }));
   app.use("/api/jira", jiraRoutes({ upload, env }));
   app.use("/api/db", dbRoutes);
+  app.use("/api/tickets", ticketsRouter);
 
   // Produção: servir build do Vite
   const clientDist = path.join(__dirname, "..", "client", "dist");

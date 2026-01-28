@@ -1,27 +1,34 @@
 // server/models/Ticket.js
 import mongoose from "mongoose";
 
-const TicketSchema = new mongoose.Schema(
-  {
-    title: { type: String, trim: true, required: true },
-    description: { type: String, default: "" },
-    status: { type: String, trim: true, default: "Backlog", index: true },
-    priority: { type: String, trim: true, default: "Medium", index: true },
+const { Schema } = mongoose;
 
-    // vínculo com usuário interno (opcional)
-    assigneeId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      index: true,
+const TicketSchema = new Schema(
+  {
+    ticketKey: { type: String, required: true, unique: true, index: true },
+
+    // Snapshot opcional do Jira (não quebra nada se você não usar agora)
+    jira: {
+      id: String,
+      projectId: String,
+      summary: String,
+      status: String,
+      priority: String,
+      updatedAt: Date,
+      raw: Schema.Types.Mixed,
     },
 
-    // se você quiser ligar com Jira
-    jiraKey: { type: String, trim: true, index: true },
+    // Campos livres da sua aplicação (variáveis que você quiser persistir)
+    data: { type: Schema.Types.Mixed },
 
-    dueDate: { type: Date },
-    tags: [{ type: String, trim: true }],
+    // Kanban
+    kanban: {
+      config: { type: Schema.Types.Mixed },
+      updatedAt: Date,
+      version: { type: Number, default: 1 },
+    },
   },
   { timestamps: true }
 );
 
-export default mongoose.models.Ticket || mongoose.model("Ticket", TicketSchema);
+export default mongoose.model("Ticket", TicketSchema);

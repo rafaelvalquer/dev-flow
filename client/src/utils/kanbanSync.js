@@ -301,6 +301,79 @@ export async function ensureSubtasksForStep({
   return { nextCfg, nextMap, created };
 }
 
+/* =========================
+   MongoDB (tickets) storage
+========================= */
+
+async function apiJson(url, options = {}) {
+  const r = await fetch(url, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  const text = await r.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+
+  if (!r.ok) {
+    const msg =
+      (data && (data.error || data.message)) || text || `HTTP ${r.status}`;
+    const err = new Error(msg);
+    err.status = r.status;
+    err.payload = data;
+    throw err;
+  }
+
+  return data;
+}
+
+export async function getKanbanConfigFromDb(ticketKey) {
+  const tk = String(ticketKey || "")
+    .trim()
+    .toUpperCase();
+  if (!tk) return { found: false, config: null, ticketId: null };
+
+  return apiJson(`/api/tickets/${encodeURIComponent(tk)}/kanban`, {
+    method: "GET",
+  });
+}
+
+export async function upsertKanbanConfigDb({ ticketKey, config, data, jira }) {
+  const tk = String(ticketKey || "")
+    .trim()
+    .toUpperCase();
+  if (!tk) throw new Error("ticketKey inválido");
+
+  const cfg = {
+    ...(config || {}),
+    ticketKey: tk,
+    updatedAt: nowIso(),
+  };
+
+  const payload = { config: cfg };
+  if (data && typeof data === "object") payload.data = data;
+  if (jira && typeof jira === "object") payload.jira = jira;
+
+  const saved = await apiJson(`/api/tickets/${encodeURIComponent(tk)}/kanban`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  return {
+    ticketId: saved.ticketId || null,
+    savedText: serializeConfig(cfg),
+    savedConfig: saved.config || cfg,
+  };
+}
+
 export function findTaggedComment(payload, tag) {
   const comments = payload?.comments || [];
   for (const c of comments) {
