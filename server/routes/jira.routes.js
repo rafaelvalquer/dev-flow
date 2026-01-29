@@ -4,6 +4,233 @@ import { Readable } from "node:stream";
 import { sendUpstream } from "../utils/sendUpstream.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
 
+/* =========================================================
+   JIRA CLIENT (SERVER-SIDE) — use em Jobs/Services internos
+   ========================================================= */
+export function createJiraClient(env = process.env) {
+  const JIRA_BASE =
+    env.JIRA_BASE || "https://clarobr-jsw-tecnologia.atlassian.net";
+  const JIRA_EMAIL = env.JIRA_EMAIL;
+  const JIRA_TOKEN = env.JIRA_API_TOKEN;
+
+  if (!JIRA_EMAIL || !JIRA_TOKEN) {
+    console.warn("[WARN] Defina JIRA_EMAIL e JIRA_API_TOKEN no .env");
+  }
+
+  const jiraHeaders = (extra = {}) =>
+    makeJiraHeaders({ email: JIRA_EMAIL, token: JIRA_TOKEN }, extra);
+
+  async function jiraFetch(
+    path,
+    { method = "GET", headers = {}, body, raw = false } = {}
+  ) {
+    const url = `${JIRA_BASE}${path}`;
+    const r = await fetch(url, {
+      method,
+      headers: jiraHeaders({
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...headers,
+      }),
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (raw) return r;
+
+    const text = await r.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = { raw: text };
+    }
+
+    if (!r.ok) {
+      const msg =
+        json?.errorMessages?.[0] ||
+        json?.errors?.[Object.keys(json?.errors || {})?.[0]] ||
+        json?.message ||
+        `Jira error ${r.status}`;
+      const e = new Error(msg);
+      e.status = r.status;
+      e.payload = json;
+      throw e;
+    }
+
+    return json;
+  }
+
+  // --------- helpers ADF (comentário) ----------
+  function adfFromPlainText(text) {
+    return {
+      type: "doc",
+      version: 1,
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: String(text || "") }],
+        },
+      ],
+    };
+  }
+
+  // --------- endpoints principais ----------
+  function getIssue(key, fields = "summary,subtasks,status,project") {
+    const f = Array.isArray(fields) ? fields.join(",") : String(fields || "");
+    return jiraFetch(
+      `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${encodeURIComponent(
+        f
+      )}`
+    );
+  }
+
+  function searchJql(body) {
+    return jiraFetch(`/rest/api/3/search/jql`, { method: "POST", body });
+  }
+
+  function createIssue(body) {
+    return jiraFetch(`/rest/api/3/issue`, { method: "POST", body });
+  }
+
+  function updateIssue(key, body) {
+    return jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body,
+    });
+  }
+
+  function getTransitions(key, queryObj = null) {
+    const qs = queryObj ? `?${new URLSearchParams(queryObj).toString()}` : "";
+    return jiraFetch(
+      `/rest/api/3/issue/${encodeURIComponent(key)}/transitions${qs}`
+    );
+  }
+
+  // equivalente ao jiraClient.transitionIssue do seu jiraTransitions.js antigo
+  async function transitionIssue(issueKey, transitionId) {
+    await postTransition(issueKey, {
+      transition: { id: String(transitionId) },
+    });
+    return { transitionId: String(transitionId) };
+  }
+
+  function postTransition(key, body) {
+    return jiraFetch(
+      `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`,
+      {
+        method: "POST",
+        body,
+      }
+    );
+  }
+
+  async function transitionToStatusName(issueKey, statusName) {
+    const payload = await getTransitions(issueKey);
+    const list = payload?.transitions || [];
+
+    const norm = (s) =>
+      String(s || "")
+        .trim()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+
+    const target = norm(statusName);
+    const found = list.find((t) => norm(t?.to?.name) === target);
+
+    if (!found?.id) {
+      throw new Error(`Transition não encontrada para status "${statusName}".`);
+    }
+
+    await postTransition(issueKey, { transition: { id: String(found.id) } });
+    return { transitionId: found.id, to: found.to?.name || statusName };
+  }
+
+  function getComments(key) {
+    return jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`);
+  }
+
+  function addCommentADF(key, adfBody) {
+    return jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`, {
+      method: "POST",
+      body: { body: adfBody },
+    });
+  }
+
+  function addCommentText(key, text) {
+    return addCommentADF(key, adfFromPlainText(text));
+  }
+
+  function updateComment(key, commentId, body) {
+    return jiraFetch(
+      `/rest/api/3/issue/${encodeURIComponent(
+        key
+      )}/comment/${encodeURIComponent(commentId)}`,
+      { method: "PUT", body }
+    );
+  }
+
+  // attachments (meta + download raw)
+  function getAttachmentMeta(id) {
+    return jiraFetch(`/rest/api/3/attachment/${encodeURIComponent(id)}`);
+  }
+
+  async function downloadAttachment(id) {
+    const meta = await getAttachmentMeta(id);
+    const jiraContentUrl = meta?.content;
+    if (!jiraContentUrl) throw new Error("Attachment meta sem content URL.");
+
+    // Jira pode responder redirect; siga se necessário
+    const first = await fetch(jiraContentUrl, {
+      headers: jiraHeaders({ Accept: "*/*" }),
+      redirect: "manual",
+    });
+
+    if ([301, 302, 303, 307, 308].includes(first.status)) {
+      const loc = first.headers.get("location");
+      if (!loc) throw new Error("Redirect sem Location no download do Jira.");
+      const final = await fetch(loc, { headers: { Accept: "*/*" } });
+      if (!final.ok)
+        throw new Error(`Falha ao baixar attachment (${final.status}).`);
+      return { meta, response: final };
+    }
+
+    if (!first.ok)
+      throw new Error(`Falha ao baixar attachment (${first.status}).`);
+    return { meta, response: first };
+  }
+
+  return {
+    JIRA_BASE,
+    getIssue,
+    searchJql,
+    createIssue,
+    updateIssue,
+    getTransitions,
+    postTransition,
+    transitionIssue,
+    transitionToStatusName,
+    getComments,
+    addCommentADF,
+    addCommentText,
+    updateComment,
+    getAttachmentMeta,
+    downloadAttachment,
+    adfFromPlainText,
+    jiraFetch, // use com cuidado
+  };
+}
+
+function norm(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+/* =========================================================
+   ROUTES (PROXY) — usado pelo Frontend via /api/jira/*
+   ========================================================= */
 export default function jiraRoutes({ upload, env }) {
   const router = Router();
 
@@ -51,12 +278,10 @@ export default function jiraRoutes({ upload, env }) {
       return sendUpstream(res, r);
     } catch (err) {
       console.error("GET users/search error:", err);
-      return res
-        .status(500)
-        .json({
-          error: "Proxy error on GET users/search",
-          details: String(err),
-        });
+      return res.status(500).json({
+        error: "Proxy error on GET users/search",
+        details: String(err),
+      });
     }
   });
 
@@ -117,12 +342,10 @@ export default function jiraRoutes({ upload, env }) {
       return sendUpstream(res, r);
     } catch (err) {
       console.error("GET transitions error:", err);
-      return res
-        .status(500)
-        .json({
-          error: "Proxy error on GET transitions",
-          details: String(err),
-        });
+      return res.status(500).json({
+        error: "Proxy error on GET transitions",
+        details: String(err),
+      });
     }
   });
 
@@ -141,12 +364,10 @@ export default function jiraRoutes({ upload, env }) {
       return sendUpstream(res, r);
     } catch (err) {
       console.error("POST transitions error:", err);
-      return res
-        .status(500)
-        .json({
-          error: "Proxy error on POST transitions",
-          details: String(err),
-        });
+      return res.status(500).json({
+        error: "Proxy error on POST transitions",
+        details: String(err),
+      });
     }
   });
 
@@ -360,12 +581,10 @@ export default function jiraRoutes({ upload, env }) {
       return sendUpstream(res, r);
     } catch (err) {
       console.error("POST search/jql error:", err);
-      return res
-        .status(500)
-        .json({
-          error: "Proxy error on POST search/jql",
-          details: String(err),
-        });
+      return res.status(500).json({
+        error: "Proxy error on POST search/jql",
+        details: String(err),
+      });
     }
   });
 

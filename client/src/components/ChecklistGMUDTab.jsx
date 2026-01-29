@@ -56,8 +56,7 @@ import {
   computeStepPct,
   isDoneStatus,
   buildKanbanSummary,
-  isValidKanbanConfig,
-  upsertKanbanConfigComment,
+  syncKanbanConfigWithJira,
 } from "../utils/kanbanSync";
 
 import {
@@ -931,7 +930,7 @@ function ChecklistGMUDTab({
       });
       setKanbanComment((prev) => ({
         ...prev,
-        id: saved.ticketId,
+        id: saved.ticketId || prev.id || jiraCtx.ticketKey,
         originalText: saved.savedText,
       }));
 
@@ -1039,11 +1038,20 @@ function ChecklistGMUDTab({
     });
 
     const mapKey = normalizeKey(summary);
-    const jira = jiraCtx.subtasksBySummary?.[mapKey];
-    const isChecked = jira ? isDoneStatus(jira) : false;
+    const jira0 = jiraCtx.subtasksBySummary?.[mapKey];
+    const isChecked = jira0 ? isDoneStatus(jira0) : false;
 
     try {
-      let jiraKey = st.jiraKey || jira?.key || null;
+      // Trabalhe com variáveis locais (fonte única p/ persistência)
+      let cfgWork =
+        typeof structuredClone === "function"
+          ? structuredClone(kanbanCfg)
+          : JSON.parse(JSON.stringify(kanbanCfg));
+
+      let nextMap = { ...(jiraCtx?.subtasksBySummary || {}) };
+
+      // garante jiraKey/jiraId (se não existir, cria e já persiste o vínculo)
+      let jiraKey = st.jiraKey || jira0?.key || null;
 
       if (!jiraKey) {
         const created = await createSubtask(
@@ -1053,76 +1061,104 @@ function ChecklistGMUDTab({
         );
         jiraKey = created.key;
 
-        const cfg2 =
-          typeof structuredClone === "function"
-            ? structuredClone(kanbanCfg)
-            : JSON.parse(JSON.stringify(kanbanCfg));
-        const c2 = cfg2.columns?.[stepKey]?.cards?.find((c) => c.id === cardId);
+        // grava vínculo no cfgWork
+        const c2 = cfgWork.columns?.[stepKey]?.cards?.find(
+          (c) => c.id === cardId
+        );
         const st2 = c2?.subtasks?.find((x) => x.id === subId);
         if (st2) {
           st2.jiraKey = created.key;
           st2.jiraId = created.id;
         }
 
-        const saved = await upsertKanbanConfigDb({
+        // e no map
+        nextMap[mapKey] = {
+          key: created.key,
+          id: created.id,
+          status: "",
+          statusCategory: "",
+        };
+
+        // persiste vínculo criado
+        const savedLink = await upsertKanbanConfigDb({
           ticketKey: jiraCtx.ticketKey,
-          config: cfg2,
+          config: cfgWork,
           data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
           jira: { projectId: jiraCtx.projectId },
         });
+
+        cfgWork = savedLink.savedConfig || cfgWork;
         setKanbanComment((prev) => ({
           ...prev,
-          id: saved.ticketId,
-          originalText: saved.savedText,
-        }));
-
-        setKanbanCfg(saved.savedConfig);
-        setKanbanComment({
-          id: saved.commentId,
-          originalText: saved.savedText,
-        });
-
-        setJiraCtx((prev) => ({
-          ...prev,
-          subtasksBySummary: {
-            ...(prev?.subtasksBySummary || {}),
-            [mapKey]: {
-              key: created.key,
-              id: created.id,
-              status: "",
-              statusCategory: "",
-            },
-          },
+          id: savedLink.ticketId || prev.id || jiraCtx.ticketKey,
+          originalText: savedLink.savedText,
         }));
       }
 
-      if (isChecked) {
-        const backPayload = await transitionToBacklog(jiraKey);
-        setJiraCtx((prev) => ({
+      // Transição no Jira
+      const payload = isChecked
+        ? await transitionToBacklog(jiraKey)
+        : await transitionToDone(jiraKey);
+
+      const nextStatus = payload?.status || (isChecked ? "Backlog" : "Done");
+      const nextCat = payload?.statusCategory || (isChecked ? "new" : "done");
+
+      // atualiza map (fonte para UI + para sync/persistência)
+      nextMap = {
+        ...nextMap,
+        [mapKey]: {
+          ...(nextMap[mapKey] || {}),
+          key: jiraKey,
+          status: nextStatus,
+          statusCategory: nextCat,
+        },
+      };
+
+      // atualiza cfgWork (isso é o que vai para o Mongo)
+      {
+        const c2 = cfgWork.columns?.[stepKey]?.cards?.find(
+          (c) => c.id === cardId
+        );
+        const st2 = c2?.subtasks?.find((x) => x.id === subId);
+        if (st2) {
+          st2.jiraKey = jiraKey;
+          st2.jiraStatus = nextStatus;
+          st2.jiraStatusCategory = nextCat;
+          st2.done =
+            nextCat === "done" ||
+            isDoneStatus({ status: nextStatus, statusCategory: nextCat });
+        }
+      }
+
+      // Persistir done/status no Mongo
+      let saved = null;
+      try {
+        saved = await upsertKanbanConfigDb({
+          ticketKey: jiraCtx.ticketKey,
+          config: cfgWork,
+          data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
+          jira: { projectId: jiraCtx.projectId },
+        });
+      } catch (e) {
+        // se o Mongo falhar, Jira/UI ainda ficam corretos; apenas avisa
+        notify.warning("Jira atualizado, mas falha ao salvar no banco.", {
+          description: e?.message || String(e),
+        });
+      }
+
+      // Atualiza estados (UI consistente com Jira + DB)
+      setJiraCtx((prev) =>
+        prev ? { ...prev, subtasksBySummary: nextMap } : prev
+      );
+
+      const cfgFinal = saved?.savedConfig || cfgWork;
+      setKanbanCfg(applyJiraStatusesToConfig(cfgFinal, nextMap));
+
+      if (saved?.savedText) {
+        setKanbanComment((prev) => ({
           ...prev,
-          subtasksBySummary: {
-            ...(prev?.subtasksBySummary || {}),
-            [mapKey]: {
-              ...(prev?.subtasksBySummary?.[mapKey] || {}),
-              key: jiraKey,
-              status: backPayload?.status || "Backlog",
-              statusCategory: backPayload?.statusCategory || "new",
-            },
-          },
-        }));
-      } else {
-        const donePayload = await transitionToDone(jiraKey);
-        setJiraCtx((prev) => ({
-          ...prev,
-          subtasksBySummary: {
-            ...(prev?.subtasksBySummary || {}),
-            [mapKey]: {
-              ...(prev?.subtasksBySummary?.[mapKey] || {}),
-              key: jiraKey,
-              status: donePayload?.status || "Done",
-              statusCategory: donePayload?.statusCategory || "done",
-            },
-          },
+          id: saved.ticketId || prev.id || jiraCtx.ticketKey,
+          originalText: saved.savedText,
         }));
       }
     } catch (e) {
@@ -1441,18 +1477,18 @@ function ChecklistGMUDTab({
       }
 
       if (cfgLoaded) {
-        // aplica status atuais do Jira na UI
-        setKanbanCfg(applyJiraStatusesToConfig(cfgLoaded, subtasksBySummary));
-        setUnlockedStepIdx(cfgLoaded.unlockedStepIdx || 0);
+        // 1) sempre reconciliar Jira -> cfg (inclui done/status/vínculos)
+        const syncRes = syncKanbanConfigWithJira(cfgLoaded, subtasksBySummary);
+        let cfgBase = syncRes.nextCfg;
 
         // step default evidência
-        const wf = cfgLoaded?.workflow || DEFAULT_KANBAN_WORKFLOW;
+        const wf = cfgBase?.workflow || DEFAULT_KANBAN_WORKFLOW;
         setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
 
-        // garante subtasks do step liberado (igual você já faz hoje)
+        // 2) garante subtasks do step liberado
         const ensured = await ensureSubtasksForStep({
-          cfg: cfgLoaded,
-          stepIdx: cfgLoaded.unlockedStepIdx || 0,
+          cfg: cfgBase,
+          stepIdx: cfgBase.unlockedStepIdx || 0,
           ticketKey: tk,
           projectId,
           subtasksBySummary,
@@ -1461,18 +1497,23 @@ function ChecklistGMUDTab({
             showSyncOverlay({ ...p, created: p.created || [] }),
         });
 
-        // se criou subtasks novas, persiste o mapping atualizado no Mongo
-        if (ensured?.created?.length) {
+        cfgBase = ensured.nextCfg;
+        const nextMap = ensured.nextMap;
+
+        // 3) se houve divergência (Jira != Mongo) OU criou novas subtasks, persiste no Mongo
+        const mustPersist =
+          syncRes.changed || (ensured?.created?.length || 0) > 0;
+
+        if (mustPersist) {
           const saved = await upsertKanbanConfigDb({
             ticketKey: tk,
-            config: ensured.nextCfg,
+            config: cfgBase,
             data: { nomeProjeto, numeroGMUD, ticketJira: tk },
             jira: { id: issue?.id, projectId },
           });
 
-          setKanbanCfg(
-            applyJiraStatusesToConfig(saved.savedConfig, ensured.nextMap)
-          );
+          cfgBase = saved.savedConfig || cfgBase;
+
           setKanbanComment((prev) => ({
             ...prev,
             id: saved.ticketId || prev.id || tk,
@@ -1480,15 +1521,19 @@ function ChecklistGMUDTab({
           }));
         }
 
-        setJiraCtx((prev) => ({ ...prev, subtasksBySummary: ensured.nextMap }));
+        // 4) UI final
+        setKanbanCfg(applyJiraStatusesToConfig(cfgBase, nextMap));
+        setUnlockedStepIdx(cfgBase.unlockedStepIdx || 0);
+
+        setJiraCtx((prev) => ({ ...prev, subtasksBySummary: nextMap }));
 
         showSyncOverlay({
           title: "Sincronização concluída",
           message: `Step liberado: ${
-            (cfgLoaded.workflow || DEFAULT_KANBAN_WORKFLOW)[
-              cfgLoaded.unlockedStepIdx || 0
+            (cfgBase.workflow || DEFAULT_KANBAN_WORKFLOW)[
+              cfgBase.unlockedStepIdx || 0
             ]?.title ||
-            (cfgLoaded.workflow || DEFAULT_KANBAN_WORKFLOW)[0]?.title ||
+            (cfgBase.workflow || DEFAULT_KANBAN_WORKFLOW)[0]?.title ||
             "—"
           }`,
           done: true,
@@ -1601,12 +1646,11 @@ function ChecklistGMUDTab({
 
       cfg = ensured.nextCfg;
 
-      const saved = await upsertKanbanConfigComment({
+      const saved = await upsertKanbanConfigDb({
         ticketKey: jiraCtx.ticketKey,
         config: cfg,
-        existingCommentId: kanbanComment.id,
-        createComment,
-        updateComment,
+        data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
+        jira: { projectId: jiraCtx.projectId },
       });
 
       setKanbanCfg(

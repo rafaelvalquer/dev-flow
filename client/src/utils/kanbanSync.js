@@ -147,6 +147,81 @@ export function applyJiraStatusesToConfig(cfg, subtasksBySummary) {
   return next;
 }
 
+export function syncKanbanConfigWithJira(cfg, subtasksBySummary) {
+  if (!cfg) return { nextCfg: cfg, changed: false };
+
+  const map = subtasksBySummary || {};
+
+  // Reverse index para lidar com renomeio no Jira (summary muda, mas jiraKey/jiraId continuam)
+  const byKey = {};
+  const byId = {};
+  for (const k of Object.keys(map)) {
+    const v = map[k];
+    if (v?.key) byKey[String(v.key).toUpperCase()] = v;
+    if (v?.id) byId[String(v.id)] = v;
+  }
+
+  const next = structuredClone
+    ? structuredClone(cfg)
+    : JSON.parse(JSON.stringify(cfg));
+  let changed = false;
+
+  for (const stepKey of Object.keys(next.columns || {})) {
+    const col = next.columns[stepKey];
+    for (const card of col.cards || []) {
+      for (const st of card.subtasks || []) {
+        const summary = buildKanbanSummary({
+          stepTitle: col.title,
+          cardTitle: card.title,
+          subTitle: st.title,
+        });
+
+        let jira = map[normalizeKey(summary)];
+
+        // fallback: se o summary foi renomeado no Jira, tenta casar por jiraKey/jiraId
+        if (!jira) {
+          const jk = st?.jiraKey ? String(st.jiraKey).toUpperCase() : "";
+          if (jk && byKey[jk]) jira = byKey[jk];
+          else if (st?.jiraId && byId[String(st.jiraId)])
+            jira = byId[String(st.jiraId)];
+        }
+
+        if (!jira) continue;
+
+        // vínculo (somente preenche se estiver faltando)
+        if (!st.jiraKey && jira.key) {
+          st.jiraKey = jira.key;
+          changed = true;
+        }
+        if (!st.jiraId && jira.id) {
+          st.jiraId = jira.id;
+          changed = true;
+        }
+
+        // derivados de status
+        const nextStatus = jira.status || "";
+        const nextCat = jira.statusCategory || "";
+        const nextDone = isDoneStatus(jira);
+
+        if (st.jiraStatus !== nextStatus) {
+          st.jiraStatus = nextStatus;
+          changed = true;
+        }
+        if (st.jiraStatusCategory !== nextCat) {
+          st.jiraStatusCategory = nextCat;
+          changed = true;
+        }
+        if (st.done !== nextDone) {
+          st.done = nextDone;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return { nextCfg: next, changed };
+}
+
 export function buildKanbanSummary({ stepTitle, cardTitle, subTitle }) {
   // padrão estável (fonte da verdade)
   return `[GMUD] ${stepTitle} - ${cardTitle} - ${subTitle}`.trim();
@@ -345,33 +420,17 @@ export async function getKanbanConfigFromDb(ticketKey) {
   });
 }
 
-export async function upsertKanbanConfigDb({ ticketKey, config, data, jira }) {
+export async function upsertKanbanConfigDb({ ticketKey, config }) {
   const tk = String(ticketKey || "")
     .trim()
     .toUpperCase();
-  if (!tk) throw new Error("ticketKey inválido");
+  if (!tk) throw new Error("ticketKey é obrigatório.");
 
-  const cfg = {
-    ...(config || {}),
-    ticketKey: tk,
-    updatedAt: nowIso(),
-  };
-
-  const payload = { config: cfg };
-  if (data && typeof data === "object") payload.data = data;
-  if (jira && typeof jira === "object") payload.jira = jira;
-
-  const saved = await apiJson(`/api/tickets/${encodeURIComponent(tk)}/kanban`, {
-    method: "PUT",
+  return apiJson(`/api/tickets/${encodeURIComponent(tk)}/kanban`, {
+    method: "PUT", // ou "POST" dependendo do seu backend
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ config }),
   });
-
-  return {
-    ticketId: saved.ticketId || null,
-    savedText: serializeConfig(cfg),
-    savedConfig: saved.config || cfg,
-  };
 }
 
 export function findTaggedComment(payload, tag) {
@@ -447,31 +506,6 @@ export function normalizeKey(s) {
     .replace(/\s+/g, " ");
 }
 
-export async function upsertKanbanConfigComment({
-  ticketKey,
-  config,
-  existingCommentId,
-  createComment,
-  updateComment,
-}) {
-  const cfg = { ...config, updatedAt: nowIso() };
-  const text = serializeConfig(cfg);
-
-  if (existingCommentId) {
-    const updated = await updateComment(
-      ticketKey,
-      existingCommentId,
-      adfFromTagAndText(KANBAN_TAG, text)
-    );
-    return { commentId: updated.id, savedText: text, savedConfig: cfg };
-  }
-
-  const created = await createComment(
-    ticketKey,
-    adfFromTagAndText(KANBAN_TAG, text)
-  );
-  return { commentId: created.id, savedText: text, savedConfig: cfg };
-}
 /**
  * Validação leve (para evitar quebrar UI por config incompleto).
  */

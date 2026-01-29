@@ -1,8 +1,11 @@
 // server/routes/tickets.js
 import express from "express";
 import Ticket from "../models/Ticket.js";
+import { createJiraClient } from "./jira.routes.js";
+import { parseCronogramaADF } from "../utils/cronogramaParser.js";
 
 const router = express.Router();
+const jira = createJiraClient(process.env);
 
 function normKey(key) {
   return String(key || "")
@@ -10,7 +13,38 @@ function normKey(key) {
     .toUpperCase();
 }
 
-// GET /api/tickets/:key
+/**
+ * GET /api/tickets?q=
+ * Lista tickets (para sidebar da Automação / filtros)
+ */
+router.get("/", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const where = {};
+    if (q) where.ticketKey = { $regex: q.toUpperCase(), $options: "i" };
+
+    const docs = await Ticket.find(where)
+      .sort({ updatedAt: -1 })
+      .limit(400)
+      .lean();
+
+    res.json({
+      tickets: docs.map((d) => ({
+        ticketKey: d.ticketKey,
+        summary: d.summary || d.jira?.summary || "",
+        status: d.status || d.jira?.status || "",
+        assignee: d.assignee || d.jira?.assignee || "",
+      })),
+    });
+  } catch (err) {
+    console.error("GET /api/tickets error:", err);
+    res.status(500).json({ error: "Erro ao listar tickets." });
+  }
+});
+
+/**
+ * GET /api/tickets/:key
+ */
 router.get("/:key", async (req, res) => {
   const ticketKey = normKey(req.params.key);
   const doc = await Ticket.findOne({ ticketKey }).lean();
@@ -18,13 +52,15 @@ router.get("/:key", async (req, res) => {
   res.json(doc);
 });
 
-// PUT /api/tickets/:key  (upsert genérico)
+/**
+ * PUT /api/tickets/:key  (upsert genérico)
+ */
 router.put("/:key", async (req, res) => {
   const ticketKey = normKey(req.params.key);
-  const { jira, data } = req.body || {};
+  const { jira: jiraBody, data } = req.body || {};
 
   const update = { ticketKey };
-  if (jira && typeof jira === "object") update.jira = jira;
+  if (jiraBody && typeof jiraBody === "object") update.jira = jiraBody;
   if (data && typeof data === "object") update.data = data;
 
   const doc = await Ticket.findOneAndUpdate(
@@ -36,7 +72,9 @@ router.put("/:key", async (req, res) => {
   res.json({ ticketId: doc._id, ticketKey: doc.ticketKey });
 });
 
-// GET /api/tickets/:key/kanban  (retorna found=false se não existir)
+/**
+ * GET /api/tickets/:key/kanban  (retorna found=false se não existir)
+ */
 router.get("/:key/kanban", async (req, res) => {
   const ticketKey = normKey(req.params.key);
   const doc = await Ticket.findOne({ ticketKey }).select({ kanban: 1 }).lean();
@@ -58,10 +96,12 @@ router.get("/:key/kanban", async (req, res) => {
   });
 });
 
-// PUT /api/tickets/:key/kanban
+/**
+ * PUT /api/tickets/:key/kanban
+ */
 router.put("/:key/kanban", async (req, res) => {
   const ticketKey = normKey(req.params.key);
-  const { config, jira, data } = req.body || {};
+  const { config, jira: jiraBody, data } = req.body || {};
 
   if (!config || typeof config !== "object") {
     return res
@@ -82,7 +122,7 @@ router.put("/:key/kanban", async (req, res) => {
     "kanban.version": Number(cfg.version || 1),
   };
 
-  if (jira && typeof jira === "object") update.jira = jira;
+  if (jiraBody && typeof jiraBody === "object") update.jira = jiraBody;
   if (data && typeof data === "object") update.data = data;
 
   const doc = await Ticket.findOneAndUpdate(
@@ -97,6 +137,115 @@ router.put("/:key/kanban", async (req, res) => {
     config: doc.kanban.config,
     updatedAt: doc.kanban.updatedAt,
   });
+});
+
+/**
+ * GET /api/tickets/:ticketKey/automation
+ * Retorna config de automação armazenada no ticket (data.automation)
+ */
+router.get("/:ticketKey/automation", async (req, res) => {
+  try {
+    const tk = normKey(req.params.ticketKey);
+    const doc = await Ticket.findOne({ ticketKey: tk }).lean();
+    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+
+    const a = doc.data?.automation || {
+      enabled: true,
+      version: 1,
+      updatedAt: null,
+      graph: {},
+      rules: [],
+      executions: [],
+      logs: [],
+    };
+
+    res.json(a);
+  } catch (err) {
+    console.error("GET /api/tickets/:ticketKey/automation error:", err);
+    res.status(500).json({ error: "Erro ao carregar automação." });
+  }
+});
+
+/**
+ * PUT /api/tickets/:ticketKey/automation
+ * Salva config de automação no ticket (preserva logs/execuções existentes)
+ */
+router.put("/:ticketKey/automation", async (req, res) => {
+  try {
+    const tk = normKey(req.params.ticketKey);
+    const payload = req.body || {};
+
+    const doc = await Ticket.findOne({ ticketKey: tk });
+    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+
+    // compatível com schema atual (sem depender de método no model)
+    if (typeof doc.ensureAutomation === "function") doc.ensureAutomation();
+    doc.data = doc.data && typeof doc.data === "object" ? doc.data : {};
+    doc.data.automation =
+      doc.data.automation && typeof doc.data.automation === "object"
+        ? doc.data.automation
+        : {};
+
+    const existing = doc.data.automation;
+
+    doc.data.automation = {
+      ...existing, // mantém executions/logs
+      enabled: payload.enabled !== false,
+      version: 1,
+      updatedAt: new Date(),
+      graph: payload.graph || existing.graph || {},
+      rules: Array.isArray(payload.rules)
+        ? payload.rules
+        : existing.rules || [],
+    };
+
+    await doc.save();
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("PUT /api/tickets/:ticketKey/automation error:", err);
+    res.status(500).json({ error: "Erro ao salvar automação." });
+  }
+});
+
+/**
+ * GET /api/tickets/:ticketKey/cronograma
+ * Busca ADF no Jira e retorna atividades normalizadas
+ */
+router.get("/:ticketKey/cronograma", async (req, res) => {
+  try {
+    const tk = normKey(req.params.ticketKey);
+    const fieldId =
+      process.env.JIRA_CRONOGRAMA_FIELD_ID?.trim() || "customfield_14017";
+
+    const issue = await jira.getIssue(tk, [
+      "summary",
+      "status",
+      fieldId,
+      "subtasks",
+    ]);
+    const adf = issue?.fields?.[fieldId] || null;
+    const atividades = adf ? parseCronogramaADF(adf) : [];
+
+    res.json({ ticketKey: tk, fieldId, atividades });
+  } catch (err) {
+    console.error("GET /api/tickets/:ticketKey/cronograma error:", err);
+    res.status(500).json({ error: "Erro ao carregar cronograma." });
+  }
+});
+
+/**
+ * GET /api/tickets/:ticketKey/transitions
+ * Retorna transitions disponíveis no Jira (para UI escolher status alvo)
+ */
+router.get("/:ticketKey/transitions", async (req, res) => {
+  try {
+    const tk = normKey(req.params.ticketKey);
+    const payload = await jira.getTransitions(tk);
+    res.json({ transitions: payload?.transitions || [] });
+  } catch (err) {
+    console.error("GET /api/tickets/:ticketKey/transitions error:", err);
+    res.status(500).json({ error: "Erro ao carregar transitions." });
+  }
 });
 
 export default router;
