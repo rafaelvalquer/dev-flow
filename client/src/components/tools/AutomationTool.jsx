@@ -67,6 +67,68 @@ const nodeTypes = {
   actionNode: ActionNode,
 };
 
+function indexRuleExecutions(executions) {
+  const out = {}; // { [ruleId]: { status, executedAt, eventKey, ts } }
+
+  for (const e of executions || []) {
+    const ruleId = String(e?.ruleId || "").trim();
+    if (!ruleId) continue;
+
+    const status = String(e?.status || "").trim(); // "success" | "error" ...
+    const executedAt = e?.executedAt || e?.at || e?.createdAt || null;
+    const ts = executedAt ? new Date(executedAt).getTime() : 0;
+
+    const prev = out[ruleId];
+    if (!prev || ts >= (prev.ts || 0)) {
+      out[ruleId] = {
+        status,
+        executedAt,
+        eventKey: e?.eventKey || "",
+        ts,
+      };
+    }
+  }
+
+  return out;
+}
+
+function applyExecToNodes(nodes, execIndex) {
+  const idx = execIndex || {};
+  return (nodes || []).map((n) => {
+    if (n?.type !== "triggerNode" && n?.type !== "actionNode") return n;
+
+    const ruleId = String(n?.data?.ruleId || "").trim();
+    const info = ruleId ? idx[ruleId] : null;
+
+    const execStatus = info?.status || ""; // "success" | "error" | ""
+    const executed = execStatus === "success";
+    const execAt = info?.executedAt || "";
+    const lastEventKey = info?.eventKey || "";
+
+    // evita recriar objeto se não mudou
+    const prev = n?.data || {};
+    if (
+      prev.executed === executed &&
+      prev.execStatus === execStatus &&
+      prev.execAt === execAt &&
+      prev.lastEventKey === lastEventKey
+    ) {
+      return n;
+    }
+
+    return {
+      ...n,
+      data: {
+        ...prev,
+        executed,
+        execStatus,
+        execAt,
+        lastEventKey,
+      },
+    };
+  });
+}
+
 function FlowCanvas({
   nodes,
   edges,
@@ -174,6 +236,8 @@ export default function AutomationTool() {
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 0.9 });
 
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+
+  const execIndexRef = useRef({});
 
   // NOTE: Evita "stale selectedNode".
   // Fonte de verdade é o array `nodes`; o Inspector deriva o node atual via selectedNodeId.
@@ -327,11 +391,15 @@ export default function AutomationTool() {
         showActivities,
       });
 
+      const execIndex = indexRuleExecutions(autoCfg?.executions || []);
+      execIndexRef.current = execIndex;
+
       const merged = mergeGraph({
         savedGraph: autoCfg?.graph || {},
         entityNodes,
       });
-      setNodes(merged.nodes);
+
+      setNodes(applyExecToNodes(merged.nodes, execIndex));
       setEdges(merged.edges);
       setViewport(merged.viewport || { x: 0, y: 0, zoom: 0.9 });
     } finally {
@@ -358,7 +426,7 @@ export default function AutomationTool() {
 
       const saved = { nodes: prev, edges, viewport };
       const merged = mergeGraph({ savedGraph: saved, entityNodes });
-      return merged.nodes;
+      return applyExecToNodes(merged.nodes, execIndexRef.current);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSubtasks, showActivities]);
@@ -395,6 +463,10 @@ export default function AutomationTool() {
           trigger: preset.trigger,
           conditions: {},
           hint: "Conecte em uma ação (e opcionalmente ao node alvo).",
+          executed: false,
+          execStatus: "",
+          execAt: "",
+          lastEventKey: "",
         },
       };
 
@@ -403,7 +475,7 @@ export default function AutomationTool() {
         type: "actionNode",
         position: { x: baseX + 320, y: baseY + 140 },
         data: {
-          ruleId,
+          ruleId, // <- importante
           name: preset.title.split("→")[1]?.trim() || "Ação",
           action: preset.action,
           preview:
@@ -412,6 +484,10 @@ export default function AutomationTool() {
               : `Transicionar → ${
                   preset.action.params?.toStatus || "(selecionar)"
                 }`,
+          executed: false,
+          execStatus: "",
+          execAt: "",
+          lastEventKey: "",
         },
       };
 
