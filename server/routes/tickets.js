@@ -173,37 +173,50 @@ router.get("/:ticketKey/automation", async (req, res) => {
 router.put("/:ticketKey/automation", async (req, res) => {
   try {
     const tk = normKey(req.params.ticketKey);
-    const payload = req.body || {};
+    const body = req.body && typeof req.body === "object" ? req.body : {};
 
-    const doc = await Ticket.findOne({ ticketKey: tk });
-    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+    // Se você preferir exigir que exista, troque para Ticket.findOne e 404.
+    // Aqui faço upsert para não quebrar caso ainda não exista.
+    const doc = await Ticket.findOneAndUpdate(
+      { ticketKey: tk },
+      { $setOnInsert: { ticketKey: tk } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
-    // compatível com schema atual (sem depender de método no model)
-    if (typeof doc.ensureAutomation === "function") doc.ensureAutomation();
+    // Garante estrutura
     doc.data = doc.data && typeof doc.data === "object" ? doc.data : {};
     doc.data.automation =
       doc.data.automation && typeof doc.data.automation === "object"
         ? doc.data.automation
         : {};
 
-    const existing = doc.data.automation;
+    const current = doc.data.automation;
 
-    doc.data.automation = {
-      ...existing, // mantém executions/logs
-      enabled: payload.enabled !== false,
-      version: 1,
+    const nextAutomation = {
+      ...current, // preserva: state, executions, errors, logs, etc.
+      enabled:
+        body.enabled === undefined ? current.enabled !== false : !!body.enabled,
+      rules: Array.isArray(body.rules) ? body.rules : current.rules || [],
+      graph:
+        body.graph && typeof body.graph === "object"
+          ? body.graph
+          : current.graph || {},
+      version: Number(
+        body.version !== undefined ? body.version : current.version || 1
+      ),
       updatedAt: new Date(),
-      graph: payload.graph || existing.graph || {},
-      rules: Array.isArray(payload.rules)
-        ? payload.rules
-        : existing.rules || [],
     };
 
+    // Persistência segura (data costuma ser Mixed)
+    doc.set("data.automation", nextAutomation);
+    doc.markModified("data");
+
     await doc.save();
-    res.json({ ok: true });
+
+    return res.json({ ok: true, automation: doc.data.automation });
   } catch (err) {
     console.error("PUT /api/tickets/:ticketKey/automation error:", err);
-    res.status(500).json({ error: "Erro ao salvar automação." });
+    return res.status(500).json({ error: "Erro ao salvar automação." });
   }
 });
 
