@@ -70,6 +70,7 @@ const nodeTypes = {
 function FlowCanvas({
   nodes,
   edges,
+  nodeTypes,
   setNodes,
   onNodesChange,
   onEdgesChange,
@@ -83,42 +84,51 @@ function FlowCanvas({
 
   const onConnect = useCallback(
     (params) => {
+      // Quando o connect é "trigger -> entity", o hook centraliza consistência (params + edge única).
+      const handled = onConnectHook?.(params);
+      if (handled) return;
+
       setEdges((eds) => addEdge({ ...params, id: uid("edge") }, eds));
-      onConnectHook?.(params);
     },
     [setEdges, onConnectHook]
   );
 
-  const onDragOver = useCallback((event) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-  }, []);
-
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
-      const raw = event.dataTransfer.getData("application/automation-template");
-      if (!raw) return;
 
-      const tpl = JSON.parse(raw);
       const bounds = wrapperRef.current?.getBoundingClientRect();
+      const type = event.dataTransfer.getData("application/reactflow");
+      const raw = event.dataTransfer.getData("application/json");
+      if (!type) return;
+
+      const tpl = raw ? JSON.parse(raw) : null;
+
       const position = project({
         x: event.clientX - (bounds?.left || 0),
         y: event.clientY - (bounds?.top || 0),
       });
 
-      onDropTemplate?.(tpl, position);
+      onDropTemplate?.({ type, position, template: tpl });
     },
     [project, onDropTemplate]
   );
 
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const handleSelectionChange = useCallback(
+    (payload) => {
+      // Fonte de verdade fica no AutomationTool: aqui só repassamos o payload.
+      onSelectionChange?.(payload || { nodes: [], edges: [] });
+    },
+    [onSelectionChange]
+  );
+
   return (
-    <div
-      ref={wrapperRef}
-      className="h-[68vh] w-full"
-      onDrop={onDrop}
-      onDragOver={onDragOver}
-    >
+    <div ref={wrapperRef} className="h-full w-full">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -126,14 +136,15 @@ function FlowCanvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        onSelectionChange={(sel) =>
-          onSelectionChange?.(sel?.nodes?.[0] || null)
-        }
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onSelectionChange={handleSelectionChange}
+        onPaneClick={() => handleSelectionChange({ nodes: [], edges: [] })}
+        deleteKeyCode={["Backspace", "Delete"]}
         fitView
       >
         <Background />
         <Controls />
-        <MiniMap pannable zoomable />
       </ReactFlow>
     </div>
   );
@@ -162,15 +173,77 @@ export default function AutomationTool() {
   const [edges, _setEdges] = useState([]);
   const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 0.9 });
 
-  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+
+  // NOTE: Evita "stale selectedNode".
+  // Fonte de verdade é o array `nodes`; o Inspector deriva o node atual via selectedNodeId.
+  const selectedNode = useMemo(
+    () => nodes.find((n) => n.id === selectedNodeId) || null,
+    [nodes, selectedNodeId]
+  );
+
   const [validationErrors, setValidationErrors] = useState([]);
   const [saving, setSaving] = useState(false);
   const [dryRunning, setDryRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState(null);
 
-  const onNodesChange = useCallback((changes) => {
-    _setNodes((nds) => applyNodeChanges(changes, nds));
-  }, []);
+  const onNodesChange = useCallback(
+    (changes) => {
+      const removeIds = (changes || [])
+        .filter((c) => c.type === "remove")
+        .map((c) => c.id);
+
+      if (removeIds.length) {
+        const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+
+        // Permite deletar apenas Trigger/Action. Entidades não são deletáveis.
+        const allowedRemove = removeIds.filter((id) => {
+          const n = byId[id];
+          return isTriggerNode(n?.id) || isActionNode(n?.id);
+        });
+
+        const removeSet = new Set(allowedRemove);
+
+        // Cascata: deletou Trigger => deleta ActionNodes do mesmo ruleId
+        const ruleIds = allowedRemove
+          .map((id) => byId[id])
+          .filter((n) => isTriggerNode(n?.id))
+          .map((n) => n?.data?.ruleId)
+          .filter(Boolean);
+
+        if (ruleIds.length) {
+          for (const n of nodes) {
+            if (isActionNode(n?.id) && ruleIds.includes(n.data?.ruleId)) {
+              removeSet.add(n.id);
+            }
+          }
+        }
+
+        if (selectedNodeId && removeSet.has(selectedNodeId)) {
+          setSelectedNodeId(null);
+        }
+
+        const nonRemove = (changes || []).filter((c) => c.type !== "remove");
+
+        _setNodes((prev) => {
+          let next = applyNodeChanges(nonRemove, prev);
+          next = next.filter((n) => !removeSet.has(n.id));
+          return next;
+        });
+
+        _setEdges((prev) =>
+          prev.filter(
+            (e) => !removeSet.has(e.source) && !removeSet.has(e.target)
+          )
+        );
+
+        return;
+      }
+
+      _setNodes((nds) => applyNodeChanges(changes, nds));
+    },
+    [nodes, selectedNodeId, _setNodes, _setEdges]
+  );
 
   const onEdgesChange = useCallback((changes) => {
     _setEdges((eds) => applyEdgeChanges(changes, eds));
@@ -211,7 +284,7 @@ export default function AutomationTool() {
 
   async function selectTicket(t) {
     setSelectedTicket(t);
-    setSelectedNode(null);
+    setSelectedNodeId(null);
     setDryRunResult(null);
     setValidationErrors([]);
     if (!t?.ticketKey && !t?.key) return;
@@ -330,6 +403,7 @@ export default function AutomationTool() {
         type: "actionNode",
         position: { x: baseX + 320, y: baseY + 140 },
         data: {
+          ruleId,
           name: preset.title.split("→")[1]?.trim() || "Ação",
           action: preset.action,
           preview:
@@ -345,8 +419,9 @@ export default function AutomationTool() {
 
       setNodes((ns) => [...ns, triggerNode, actionNode]);
       setEdges((es) => [...es, edge]);
+      setSelectedNodeId(triggerId);
     },
-    [setNodes, setEdges, ticketKey]
+    [setNodes, setEdges, ticketKey, setSelectedNodeId]
   );
 
   const onDropTemplate = useCallback(
@@ -354,35 +429,138 @@ export default function AutomationTool() {
     [onPickTemplate]
   );
 
+  const isEntityId = useCallback((id) => {
+    const s = String(id || "");
+    return s.startsWith("subtask:") || s.startsWith("activity:");
+  }, []);
+
   // Conexões: trigger->action; trigger->entity (seta target no trigger)
+  const linkTriggerToEntity = useCallback(
+    ({ triggerId, entityId }) => {
+      const trgId = String(triggerId || "");
+      const entId = String(entityId || "");
+
+      // 1) Atualiza params do Trigger (mantém como está)
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== trgId) return n;
+          if (!isTriggerNode(n?.id)) return n;
+
+          const prevTrig = n.data?.trigger || {};
+          const prevParams = prevTrig.params || {};
+          const nextParams = { ...prevParams };
+
+          delete nextParams.subtaskKey;
+          delete nextParams.activityId;
+
+          if (entId.startsWith("subtask:")) {
+            nextParams.subtaskKey = entId.slice("subtask:".length);
+          } else if (entId.startsWith("activity:")) {
+            nextParams.activityId = entId.slice("activity:".length);
+          }
+
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              trigger: { ...prevTrig, params: nextParams },
+            },
+          };
+        })
+      );
+
+      // 2) Edge única: Entity -> Trigger (para cair no handle de ENTRADA do Trigger)
+      setEdges((prev) => {
+        const entityEdgeId = `edge:triggerEntity:${trgId}`;
+
+        // remove edge antigo (Trigger->Entity) e o novo (Entity->Trigger) deste trigger
+        let next = prev.filter(
+          (e) =>
+            !(
+              (
+                (e.source === trgId && isEntityId(e.target)) || // antigo
+                (e.target === trgId && isEntityId(e.source))
+              ) // novo
+            ) && e.id !== entityEdgeId
+        );
+
+        if (!entId) return next;
+
+        const exists = nodes.some((n) => n.id === entId);
+        if (!exists) return next;
+
+        next.push({
+          id: entityEdgeId,
+          source: entId, // <- entity sai
+          target: trgId, // <- trigger entra
+        });
+
+        return next;
+      });
+    },
+    [setNodes, setEdges, nodes, isEntityId]
+  );
+
+  const unlinkTriggerEntity = useCallback(
+    (triggerId) => linkTriggerToEntity({ triggerId, entityId: "" }),
+    [linkTriggerToEntity]
+  );
+
+  const deleteNodesById = useCallback(
+    (ids) => {
+      const removeSet = new Set((ids || []).map(String).filter(Boolean));
+      if (!removeSet.size) return;
+
+      // Regra: ao deletar Trigger, deletar ActionNodes do mesmo ruleId
+      const triggerRuleIds = [];
+      for (const n of nodes) {
+        if (removeSet.has(n.id) && isTriggerNode(n.id)) {
+          if (n.data?.ruleId) triggerRuleIds.push(n.data.ruleId);
+        }
+      }
+      if (triggerRuleIds.length) {
+        for (const n of nodes) {
+          if (isActionNode(n.id) && triggerRuleIds.includes(n.data?.ruleId)) {
+            removeSet.add(n.id);
+          }
+        }
+      }
+
+      if (selectedNodeId && removeSet.has(selectedNodeId)) {
+        setSelectedNodeId(null);
+      }
+
+      setNodes((prev) => prev.filter((n) => !removeSet.has(n.id)));
+      setEdges((prev) =>
+        prev.filter((e) => !removeSet.has(e.source) && !removeSet.has(e.target))
+      );
+    },
+    [nodes, selectedNodeId, setNodes, setEdges]
+  );
+
+  // Conexões: trigger->action; trigger->entity (params+edge única)
   const onConnectHook = useCallback(
     (params) => {
-      const src = params?.source;
-      const tgt = params?.target;
-      if (!src || !tgt) return;
+      const sourceId = params?.source;
+      const targetId = params?.target;
+      if (!sourceId || !targetId) return false;
 
-      if (isTriggerNode(src) && isEntityNode(tgt)) {
-        setNodes((prev) =>
-          prev.map((n) => {
-            if (n.id !== src) return n;
-            const triggerType =
-              n.data?.trigger?.type || "ticket.status.changed";
-            const p = { ...(n.data?.trigger?.params || {}) };
+      const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
+      const sourceNode = byId[sourceId];
+      const targetNode = byId[targetId];
 
-            if (tgt.startsWith("subtask:"))
-              p.subtaskKey = tgt.replace("subtask:", "");
-            if (tgt.startsWith("activity:"))
-              p.activityId = tgt.replace("activity:", "");
-
-            return {
-              ...n,
-              data: { ...n.data, trigger: { type: triggerType, params: p } },
-            };
-          })
-        );
+      if (isTriggerNode(sourceId) && isEntityNode(targetId)) {
+        linkTriggerToEntity({ triggerId: sourceId, entityId: targetId });
+        return true;
       }
+      if (isEntityNode(sourceId) && isTriggerNode(targetId)) {
+        linkTriggerToEntity({ triggerId: targetId, entityId: sourceId });
+        return true;
+      }
+
+      return false;
     },
-    [setNodes]
+    [nodes, linkTriggerToEntity]
   );
 
   const rules = useMemo(() => buildRulesFromFlow(nodes, edges), [nodes, edges]);
@@ -618,7 +796,7 @@ export default function AutomationTool() {
                 ) : null}
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="h-[70vh] min-h-[520px]">
               {!ticketKey ? (
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
                   Selecione um ticket na esquerda para carregar
@@ -628,11 +806,14 @@ export default function AutomationTool() {
                 <FlowCanvas
                   nodes={nodes}
                   edges={edges}
+                  nodeTypes={nodeTypes}
                   setNodes={setNodes}
                   setEdges={setEdges}
                   onNodesChange={onNodesChange}
                   onEdgesChange={onEdgesChange}
-                  onSelectionChange={(n) => setSelectedNode(n)}
+                  onSelectionChange={({ nodes: selNodes } = {}) =>
+                    setSelectedNodeId(selNodes?.[0]?.id || null)
+                  }
                   onDropTemplate={onDropTemplate}
                   onConnectHook={onConnectHook}
                 />
@@ -670,6 +851,11 @@ export default function AutomationTool() {
                 activities={cronogramaAtividades}
                 transitions={transitions}
                 ticketKey={ticketKey}
+                onLinkEntity={(triggerId, entityId) =>
+                  linkTriggerToEntity({ triggerId, entityId })
+                }
+                onUnlinkEntity={(triggerId) => unlinkTriggerEntity(triggerId)}
+                onDeleteNode={(nodeId) => deleteNodesById([nodeId])}
               />
             </div>
 

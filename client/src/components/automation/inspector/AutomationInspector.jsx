@@ -9,13 +9,18 @@ function labelOf(list, key) {
 export default function AutomationInspector({
   selectedNode,
   setNodes,
+  ticketKey,
+  transitions,
   subtasks,
   activities,
-  transitions,
-  ticketKey,
+  onLinkEntity,
+  onUnlinkEntity,
+  onDeleteNode,
 }) {
-  const isTrigger = isTriggerNode(selectedNode?.id);
-  const isAction = isActionNode(selectedNode?.id);
+  const isTrigger =
+    isTriggerNode(selectedNode?.id) || selectedNode?.type === "triggerNode";
+  const isAction =
+    isActionNode(selectedNode?.id) || selectedNode?.type === "actionNode";
 
   const subtaskOptions = useMemo(() => {
     return (subtasks || [])
@@ -74,6 +79,7 @@ export default function AutomationInspector({
             onChange={(e) => patchNodeData({ name: e.target.value })}
             placeholder="Nome da regra"
           />
+
           <label className="mt-2 flex items-center gap-2 text-sm text-zinc-700">
             <input
               type="checkbox"
@@ -91,11 +97,10 @@ export default function AutomationInspector({
           <select
             className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-300"
             value={triggerType}
-            onChange={(e) =>
-              patchNodeData({
-                trigger: { type: e.target.value, params: {} },
-              })
-            }
+            onChange={(e) => {
+              onUnlinkEntity?.(selectedNode.id);
+              patchNodeData({ trigger: { type: e.target.value, params: {} } });
+            }}
           >
             {TRIGGER_TYPES.map((t) => (
               <option key={t.key} value={t.key}>
@@ -114,14 +119,11 @@ export default function AutomationInspector({
             <select
               className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-300"
               value={params.subtaskKey || ""}
-              onChange={(e) =>
-                patchNodeData({
-                  trigger: {
-                    type: triggerType,
-                    params: { ...params, subtaskKey: e.target.value },
-                  },
-                })
-              }
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return onUnlinkEntity?.(selectedNode.id);
+                onLinkEntity?.(selectedNode.id, `subtask:${v}`);
+              }}
             >
               <option value="">(selecionar)</option>
               {subtaskOptions.map((o) => (
@@ -189,14 +191,11 @@ export default function AutomationInspector({
             <select
               className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-300"
               value={params.activityId || ""}
-              onChange={(e) =>
-                patchNodeData({
-                  trigger: {
-                    type: triggerType,
-                    params: { ...params, activityId: e.target.value },
-                  },
-                })
-              }
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return onUnlinkEntity?.(selectedNode.id);
+                onLinkEntity?.(selectedNode.id, `activity:${v}`);
+              }}
             >
               <option value="">(selecionar)</option>
               {activityOptions.map((o) => (
@@ -303,6 +302,18 @@ export default function AutomationInspector({
             ))}
           </select>
         </div>
+      ) : null}
+
+      {/* ✅ Botão deletar (Action/Trigger) */}
+      {selectedNode?.type === "triggerNode" ||
+      selectedNode?.type === "actionNode" ? (
+        <button
+          type="button"
+          className="mt-2 w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+          onClick={() => onDeleteNode?.(selectedNode.id)}
+        >
+          Excluir
+        </button>
       ) : null}
 
       <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-[11px] text-zinc-700">
