@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import AutomationTool from "@/components/tools/AutomationTool";
+
 import { Wrench, Mic, Sparkles, FileText, Settings2 } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
@@ -39,11 +41,11 @@ const TOOL_DEFS = [
     status: "ativo",
   },
   {
-    id: "validador-script",
-    title: "Validador de Script",
-    desc: "Valida padrões, erros comuns e consistência de prompts/URA.",
+    id: "automacao",
+    title: "Automação",
+    desc: "Crie fluxos de automação por ticket (gatilhos → ações) com ReactFlow.",
     icon: FileText,
-    status: "em_breve",
+    status: "ativo",
   },
   {
     id: "configs",
@@ -245,6 +247,8 @@ export default function ToolsTab() {
                   <AudioTranscriptionTool serviceOnline={sttOnline === true} />
                 ) : activeTool === "tts" ? (
                   <TextToSpeechTool serviceOnline={sttOnline === true} />
+                ) : activeTool === "automacao" ? (
+                  <AutomationTool />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-8 text-center">
                     <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-white shadow-sm">
