@@ -16,6 +16,8 @@ import ReactFlow, {
   applyEdgeChanges,
 } from "reactflow";
 
+import { Maximize2, Minimize2, ChevronDown, ChevronUp } from "lucide-react";
+
 import "reactflow/dist/style.css";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -233,6 +235,10 @@ export default function AutomationTool() {
 
   const [showSubtasks, setShowSubtasks] = useState(true);
   const [showActivities, setShowActivities] = useState(true);
+
+  const [wideFlow, setWideFlow] = useState(false);
+
+  const [templatesOpen, setTemplatesOpen] = useState(true);
 
   const [nodes, _setNodes] = useState([]);
   const [edges, _setEdges] = useState([]);
@@ -986,6 +992,21 @@ export default function AutomationTool() {
             >
               {dryRunning ? "Dry-run…" : "Executar teste (dry-run)"}
             </Button>
+
+            <Button
+              variant="outline"
+              className="rounded-xl"
+              onClick={() => setWideFlow((v) => !v)}
+              title="Alternar layout do editor"
+            >
+              {wideFlow ? (
+                <Minimize2 className="mr-2 h-4 w-4" />
+              ) : (
+                <Maximize2 className="mr-2 h-4 w-4" />
+              )}
+              {wideFlow ? "Layout normal" : "Tela ampla"}
+            </Button>
+
             <Button
               className="rounded-xl bg-red-600 hover:bg-red-700"
               onClick={onSave}
@@ -1007,7 +1028,12 @@ export default function AutomationTool() {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr_360px]">
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-4",
+            wideFlow ? null : "lg:grid-cols-[320px_1fr_360px]"
+          )}
+        >
           {/* LEFT */}
           <Card className="rounded-2xl border-zinc-200">
             <CardHeader className="pb-3">
@@ -1099,17 +1125,51 @@ export default function AutomationTool() {
               <Separator />
 
               <div>
-                <div className="mb-2 text-xs font-semibold text-zinc-900">
-                  Templates
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-zinc-900">
+                    Templates
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 rounded-xl px-2"
+                    onClick={() => setTemplatesOpen((v) => !v)}
+                    aria-expanded={templatesOpen}
+                    title={
+                      templatesOpen
+                        ? "Recolher templates"
+                        : "Expandir templates"
+                    }
+                  >
+                    {templatesOpen ? (
+                      <ChevronUp className="h-4 w-4 text-zinc-600" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-zinc-600" />
+                    )}
+                  </Button>
                 </div>
-                <AutomationTemplates
-                  onPickTemplate={(p) => onPickTemplate(p)}
-                />
-                <div className="mt-2 text-[11px] text-zinc-600">
-                  Dica: você pode{" "}
-                  <span className="font-semibold">arrastar</span> um template
-                  para o canvas.
-                </div>
+
+                {templatesOpen ? (
+                  <>
+                    <div className="mt-2">
+                      <AutomationTemplates
+                        onPickTemplate={(p) => onPickTemplate(p)}
+                      />
+                    </div>
+
+                    <div className="mt-2 text-[11px] text-zinc-600">
+                      Dica: você pode{" "}
+                      <span className="font-semibold">arrastar</span> um
+                      template para o canvas.
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-2 text-[11px] text-zinc-500">
+                    Lista de templates recolhida.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
