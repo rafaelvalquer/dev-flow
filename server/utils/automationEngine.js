@@ -197,6 +197,43 @@ export function evaluateRules({
       continue;
     }
 
+    // --- triggers de subtarefa ---
+    if (t === "subtask.allCompleted") {
+      const subtaskKeys = Array.isArray(p.subtaskKeys)
+        ? p.subtaskKeys.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+
+      if (!subtaskKeys.length) continue;
+
+      const prevAllDone = subtaskKeys.every((k) => {
+        const prev = subtasksState[k] || {};
+        return isDoneStatus(prev.statusCategoryKey, prev.statusName);
+      });
+
+      const curAllDone = subtaskKeys.every((k) => {
+        const cur = nextSubtasksState[k] || {};
+        return isDoneStatus(cur.statusCategoryKey, cur.statusName);
+      });
+
+      if (!prevAllDone && curAllDone) {
+        const eventKey = makeEventKey([
+          rule.id,
+          "subtask.allCompleted",
+          subtaskKeys.join(","),
+        ]);
+
+        const base = buildVars({ ticketKey, issue, currentStatus });
+        const vars = {
+          ...base,
+          subtaskKeys: subtaskKeys.join(", "),
+          subtaskCount: subtaskKeys.length,
+        };
+
+        fired.push({ rule, eventKey, vars });
+      }
+      continue;
+    }
+
     if (t === "subtask.overdue") {
       const subtaskKey = String(p.subtaskKey || "").trim();
       const dueDate = String(p.dueDate || "").trim();
@@ -327,6 +364,22 @@ export async function executeRule({ ticketKey, rule, vars, jira }) {
       if (!toStatus) throw new Error("Ação transition sem toStatus.");
       const r = await jira.transitionToStatusName(ticketKey, toStatus);
       results.push({ type: action.type, ok: true, to: r.to });
+      continue;
+    }
+
+    // NOVO: alterar responsável
+    if (action.type === "jira.assign") {
+      // pode ser string (accountId), null (sem responsável) ou "-1" (default)
+      const accountId =
+        action.params?.accountId === undefined ? "" : action.params.accountId;
+
+      await jira.assignIssue(ticketKey, accountId === "" ? null : accountId);
+
+      results.push({
+        type: action.type,
+        ok: true,
+        accountId: accountId ?? null,
+      });
       continue;
     }
 

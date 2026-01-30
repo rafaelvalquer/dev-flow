@@ -173,6 +173,10 @@ export function buildRulesFromFlow(nodes, edges) {
   return out;
 }
 
+export function isGateNode(id) {
+  return /^gate:/.test(String(id || ""));
+}
+
 export function validateFlow(nodes, edges) {
   const errors = [];
   const triggerNodes = (nodes || []).filter((n) => isTriggerNode(n.id));
@@ -183,11 +187,19 @@ export function validateFlow(nodes, edges) {
   }
 
   for (const tn of triggerNodes) {
-    const hasAction = (edges || []).some(
-      (e) => e.source === tn.id && isActionNode(e.target)
-    );
-    if (!hasAction)
-      errors.push(`Regra "${tn.data?.name || tn.id}" sem ação conectada.`);
+    const trigType = tn.data?.trigger?.type;
+
+    if (trigType === "subtask.allCompleted") {
+      const keys = tn.data?.trigger?.params?.subtaskKeys;
+      const ok = Array.isArray(keys) && keys.filter(Boolean).length > 0;
+      if (!ok) {
+        errors.push(
+          `Regra "${
+            tn.data?.name || tn.id
+          }" precisa de ao menos 1 subtarefa conectada ao Centralizador (AND).`
+        );
+      }
+    }
   }
 
   return errors;

@@ -6,11 +6,13 @@ export const TRIGGER_TYPES = [
   { key: "ticket.status.notEquals", label: "Status do ticket ≠ X" },
   { key: "activity.start", label: "Início da atividade (cronograma)" },
   { key: "activity.overdue", label: "Atividade atrasou (cronograma)" },
+  { key: "subtask.allCompleted", label: "Subtarefas: todas concluídas (AND)" },
 ];
 
 export const ACTION_TYPES = [
   { key: "jira.comment", label: "Comentar no ticket" },
   { key: "jira.transition", label: "Transicionar status do ticket" },
+  { key: "jira.assign", label: "Alterar responsável (Assignee)" },
 ];
 
 export const AUTOMATION_PRESETS = [
@@ -72,6 +74,16 @@ export const AUTOMATION_PRESETS = [
       params: {
         text: "Atividade atrasada: {activityName} ({activityId}) - fim {activityEnd}",
       },
+    },
+  },
+  {
+    id: "subtasks_all_done_comment",
+    title: "Todas subtarefas concluídas → Comentar",
+    icon: "CheckCircle2",
+    trigger: { type: "subtask.allCompleted", params: { subtaskKeys: [] } },
+    action: {
+      type: "jira.comment",
+      params: { text: "✅ Todas as subtarefas do grupo foram concluídas." },
     },
   },
 ];

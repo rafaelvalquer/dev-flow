@@ -73,6 +73,17 @@ export function createJiraClient(env = process.env) {
     };
   }
 
+  async function assignIssue(issueKey, accountId) {
+    // Jira Cloud REST v3: PUT /rest/api/3/issue/{issueIdOrKey}/assignee
+    // accountId null => unassigned; "-1" => default assignee
+    await jiraFetch(`/rest/api/3/issue/${issueKey}/assignee`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accountId: accountId ?? null }),
+    });
+    return { ok: true };
+  }
+
   // --------- endpoints principais ----------
   function getIssue(key, fields = "summary,subtasks,status,project") {
     const f = Array.isArray(fields) ? fields.join(",") : String(fields || "");
@@ -216,7 +227,8 @@ export function createJiraClient(env = process.env) {
     getAttachmentMeta,
     downloadAttachment,
     adfFromPlainText,
-    jiraFetch, // use com cuidado
+    jiraFetch,
+    assignIssue,
   };
 }
 

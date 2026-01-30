@@ -59,12 +59,15 @@ import {
   isActionNode,
 } from "@/components/automation/flowModel";
 
+import GateNode from "@/components/automation/nodes/GateNode";
+
 const nodeTypes = {
   ticketNode: TicketNode,
   subtaskNode: SubtaskNode,
   activityNode: ActivityNode,
   triggerNode: TriggerNode,
   actionNode: ActionNode,
+  gateNode: GateNode,
 };
 
 function indexRuleExecutions(executions) {
@@ -263,7 +266,7 @@ export default function AutomationTool() {
         // Permite deletar apenas Trigger/Action. Entidades não são deletáveis.
         const allowedRemove = removeIds.filter((id) => {
           const n = byId[id];
-          return isTriggerNode(n?.id) || isActionNode(n?.id);
+          return isTriggerNode(n?.id) || isActionNode(n?.id) || isGateId(n?.id);
         });
 
         const removeSet = new Set(allowedRemove);
@@ -407,6 +410,119 @@ export default function AutomationTool() {
     }
   }
 
+  const isGateId = useCallback(
+    (id) => String(id || "").startsWith("gate:"),
+    []
+  );
+
+  function stripSubtaskId(entityId) {
+    const s = String(entityId || "");
+    return s.startsWith("subtask:") ? s.slice("subtask:".length) : "";
+  }
+
+  function computeSubtaskKeysFromGateTargets(targets) {
+    return (targets || [])
+      .map(stripSubtaskId)
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+      .sort();
+  }
+
+  const syncGateIntoTrigger = useCallback(
+    ({ gateId, triggerId, targets }) => {
+      const subtaskKeys = computeSubtaskKeysFromGateTargets(targets);
+
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== triggerId) return n;
+          if (!isTriggerNode(n.id)) return n;
+
+          const prevTrig = n.data?.trigger || {};
+          const prevParams = prevTrig.params || {};
+
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              trigger: {
+                ...prevTrig,
+                type: "subtask.allCompleted",
+                params: { ...prevParams, subtaskKeys },
+              },
+            },
+          };
+        })
+      );
+    },
+    [setNodes]
+  );
+
+  const addEntityToGate = useCallback(
+    ({ gateId, entityId }) => {
+      if (!String(entityId || "").startsWith("subtask:")) return;
+
+      // calcula targets próximos a partir do estado atual
+      const gate = nodes.find((n) => n.id === gateId);
+      const curTargets = Array.isArray(gate?.data?.targets)
+        ? gate.data.targets
+        : [];
+      const nextTargets = curTargets.includes(entityId)
+        ? curTargets
+        : [...curTargets, entityId];
+
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id !== gateId
+            ? n
+            : { ...n, data: { ...n.data, targets: nextTargets } }
+        )
+      );
+
+      setEdges((prev) => {
+        const edgeId = `edge:gateEntity:${gateId}:${entityId}`;
+        const next = prev.filter((e) => e.id !== edgeId);
+        next.push({ id: edgeId, source: entityId, target: gateId });
+        return next;
+      });
+
+      // se gate já estiver ligado a um trigger, sincroniza params
+      const gateToTrigger = edges.find(
+        (e) => e.source === gateId && isTriggerNode(e.target)
+      );
+      if (gateToTrigger?.target) {
+        syncGateIntoTrigger({
+          gateId,
+          triggerId: gateToTrigger.target,
+          targets: nextTargets,
+        });
+      }
+    },
+    [nodes, edges, setNodes, setEdges, isTriggerNode, syncGateIntoTrigger]
+  );
+
+  const linkGateToTrigger = useCallback(
+    ({ gateId, triggerId }) => {
+      const gate = nodes.find((n) => n.id === gateId);
+      const targets = Array.isArray(gate?.data?.targets)
+        ? gate.data.targets
+        : [];
+
+      // edge única gate -> trigger
+      setEdges((prev) => {
+        const edgeId = `edge:gateTrigger:${gateId}`;
+        let next = prev.filter(
+          (e) =>
+            e.id !== edgeId && !(e.source === gateId && isTriggerNode(e.target)) // remove antigas
+        );
+        next.push({ id: edgeId, source: gateId, target: triggerId });
+        return next;
+      });
+
+      syncGateIntoTrigger({ gateId, triggerId, targets });
+    },
+    [nodes, setEdges, isTriggerNode, syncGateIntoTrigger]
+  );
+
   // Rebuild entity nodes when toggles change
   useEffect(() => {
     if (!ticketKey) return;
@@ -445,6 +561,7 @@ export default function AutomationTool() {
   const onPickTemplate = useCallback(
     (preset, pos) => {
       if (!ticketKey) return;
+
       const ruleId = uid("rule").replace("rule:", "");
       const triggerId = `trigger:${ruleId}`;
       const actionId = `action:${ruleId}:0`;
@@ -452,15 +569,26 @@ export default function AutomationTool() {
       const baseX = pos?.x ?? 0;
       const baseY = pos?.y ?? 420;
 
+      // garante shape consistente (evita undefined em params)
+      const safeTrigger = {
+        type: preset?.trigger?.type || "ticket.status.changed",
+        params: { ...(preset?.trigger?.params || {}) },
+      };
+
+      const safeAction = {
+        type: preset?.action?.type || "jira.comment",
+        params: { ...(preset?.action?.params || {}) },
+      };
+
       const triggerNode = {
         id: triggerId,
         type: "triggerNode",
         position: { x: baseX, y: baseY },
         data: {
           ruleId,
-          name: preset.title,
+          name: preset?.title || "Regra",
           enabled: true,
-          trigger: preset.trigger,
+          trigger: safeTrigger,
           conditions: {},
           hint: "Conecte em uma ação (e opcionalmente ao node alvo).",
           executed: false,
@@ -470,19 +598,24 @@ export default function AutomationTool() {
         },
       };
 
+      const actionName =
+        String(preset?.title || "")
+          .split("→")[1]
+          ?.trim() || "Ação";
+
       const actionNode = {
         id: actionId,
         type: "actionNode",
         position: { x: baseX + 320, y: baseY + 140 },
         data: {
-          ruleId, // <- importante
-          name: preset.title.split("→")[1]?.trim() || "Ação",
-          action: preset.action,
+          ruleId, // <- importante para cascade/seleção/execuções
+          name: actionName,
+          action: safeAction,
           preview:
-            preset.action.type === "jira.comment"
-              ? String(preset.action.params?.text || "").slice(0, 80)
+            safeAction.type === "jira.comment"
+              ? String(safeAction.params?.text || "").slice(0, 80)
               : `Transicionar → ${
-                  preset.action.params?.toStatus || "(selecionar)"
+                  safeAction.params?.toStatus || "(selecionar)"
                 }`,
           executed: false,
           execStatus: "",
@@ -510,13 +643,25 @@ export default function AutomationTool() {
     return s.startsWith("subtask:") || s.startsWith("activity:");
   }, []);
 
-  // Conexões: trigger->action; trigger->entity (seta target no trigger)
+  // Helper: decide se este "trigger" aceita múltiplas entidades (Gate)
+  const isMultiTargetTrigger = useCallback(
+    (triggerId) => {
+      const n = nodes.find((x) => x.id === String(triggerId || ""));
+      const t = n?.data?.trigger?.type;
+      const p = n?.data?.trigger?.params || {};
+      return t === "subtask.allCompleted" || Array.isArray(p.subtaskKeys);
+    },
+    [nodes]
+  );
+
+  // Conexões: entity -> trigger
   const linkTriggerToEntity = useCallback(
     ({ triggerId, entityId }) => {
       const trgId = String(triggerId || "");
       const entId = String(entityId || "");
+      const multi = isMultiTargetTrigger(trgId);
 
-      // 1) Atualiza params do Trigger (mantém como está)
+      // 1) Atualiza params do Trigger (single ou multi)
       setNodes((prev) =>
         prev.map((n) => {
           if (n.id !== trgId) return n;
@@ -526,6 +671,63 @@ export default function AutomationTool() {
           const prevParams = prevTrig.params || {};
           const nextParams = { ...prevParams };
 
+          // se estiver limpando alvo
+          if (!entId) {
+            // single
+            delete nextParams.subtaskKey;
+            delete nextParams.activityId;
+            // multi
+            delete nextParams.subtaskKeys;
+            delete nextParams.activityIds;
+
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                trigger: { ...prevTrig, params: nextParams },
+              },
+            };
+          }
+
+          // ---------- MULTI (Gate) ----------
+          if (multi) {
+            // garante arrays
+            const subtaskKeys = Array.isArray(nextParams.subtaskKeys)
+              ? [...nextParams.subtaskKeys]
+              : [];
+            const activityIds = Array.isArray(nextParams.activityIds)
+              ? [...nextParams.activityIds]
+              : [];
+
+            // remove versões "single" (para não conflitar)
+            delete nextParams.subtaskKey;
+            delete nextParams.activityId;
+
+            if (entId.startsWith("subtask:")) {
+              const k = entId.slice("subtask:".length);
+              if (k && !subtaskKeys.includes(k)) subtaskKeys.push(k);
+              nextParams.subtaskKeys = subtaskKeys;
+              nextParams.activityIds = activityIds;
+            } else if (entId.startsWith("activity:")) {
+              const k = entId.slice("activity:".length);
+              if (k && !activityIds.includes(k)) activityIds.push(k);
+              nextParams.subtaskKeys = subtaskKeys;
+              nextParams.activityIds = activityIds;
+            }
+
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                trigger: { ...prevTrig, params: nextParams },
+              },
+            };
+          }
+
+          // ---------- SINGLE (comportamento antigo) ----------
+          // reseta alvos anteriores
+          delete nextParams.subtaskKeys;
+          delete nextParams.activityIds;
           delete nextParams.subtaskKey;
           delete nextParams.activityId;
 
@@ -545,36 +747,73 @@ export default function AutomationTool() {
         })
       );
 
-      // 2) Edge única: Entity -> Trigger (para cair no handle de ENTRADA do Trigger)
+      // 2) Edges
       setEdges((prev) => {
+        // se limpou, remove TODAS as ligações entity<->trigger
+        if (!entId) {
+          return prev.filter(
+            (e) =>
+              !(
+                (e.target === trgId && isEntityId(e.source)) ||
+                (e.source === trgId && isEntityId(e.target))
+              )
+          );
+        }
+
+        const exists = nodes.some((n) => n.id === entId);
+        if (!exists) return prev;
+
+        // MULTI: um edge por entidade
+        if (multi) {
+          const entityEdgeId = `edge:triggerEntity:${trgId}:${entId}`;
+
+          let next = prev.filter((e) => {
+            // remove duplicata do mesmo par (qualquer direção)
+            if (
+              (e.source === entId && e.target === trgId) ||
+              (e.source === trgId && e.target === entId)
+            )
+              return false;
+
+            // remove edgeId específico do par
+            if (e.id === entityEdgeId) return false;
+
+            // remove eventual edgeId antigo single (migração)
+            if (e.id === `edge:triggerEntity:${trgId}`) return false;
+
+            return true;
+          });
+
+          next.push({
+            id: entityEdgeId,
+            source: entId, // entity sai
+            target: trgId, // trigger entra
+          });
+
+          return next;
+        }
+
+        // SINGLE: mantém edge única (comportamento antigo)
         const entityEdgeId = `edge:triggerEntity:${trgId}`;
 
-        // remove edge antigo (Trigger->Entity) e o novo (Entity->Trigger) deste trigger
         let next = prev.filter(
           (e) =>
             !(
-              (
-                (e.source === trgId && isEntityId(e.target)) || // antigo
-                (e.target === trgId && isEntityId(e.source))
-              ) // novo
+              (e.source === trgId && isEntityId(e.target)) ||
+              (e.target === trgId && isEntityId(e.source))
             ) && e.id !== entityEdgeId
         );
 
-        if (!entId) return next;
-
-        const exists = nodes.some((n) => n.id === entId);
-        if (!exists) return next;
-
         next.push({
           id: entityEdgeId,
-          source: entId, // <- entity sai
-          target: trgId, // <- trigger entra
+          source: entId,
+          target: trgId,
         });
 
         return next;
       });
     },
-    [setNodes, setEdges, nodes, isEntityId]
+    [setNodes, setEdges, nodes, isEntityId, isMultiTargetTrigger]
   );
 
   const unlinkTriggerEntity = useCallback(
@@ -625,8 +864,23 @@ export default function AutomationTool() {
       const sourceNode = byId[sourceId];
       const targetNode = byId[targetId];
 
-      if (isTriggerNode(sourceId) && isEntityNode(targetId)) {
-        linkTriggerToEntity({ triggerId: sourceId, entityId: targetId });
+      // gate <-> entity (subtask)
+      if (isGateId(sourceId) && isEntityNode(targetId)) {
+        addEntityToGate({ gateId: sourceId, entityId: targetId });
+        return true;
+      }
+      if (isEntityNode(sourceId) && isGateId(targetId)) {
+        addEntityToGate({ gateId: targetId, entityId: sourceId });
+        return true;
+      }
+
+      // gate <-> trigger
+      if (isGateId(sourceId) && isTriggerNode(targetId)) {
+        linkGateToTrigger({ gateId: sourceId, triggerId: targetId });
+        return true;
+      }
+      if (isTriggerNode(sourceId) && isGateId(targetId)) {
+        linkGateToTrigger({ gateId: targetId, triggerId: sourceId });
         return true;
       }
       if (isEntityNode(sourceId) && isTriggerNode(targetId)) {

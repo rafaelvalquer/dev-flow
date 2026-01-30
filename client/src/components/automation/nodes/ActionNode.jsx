@@ -1,3 +1,4 @@
+// src/components/automation/nodes/ActionNode.jsx
 import React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Handle, Position } from "reactflow";
