@@ -1,5 +1,5 @@
 // src/components/AMCalendarDashboard.jsx
-import { memo, useMemo, useState, useCallback } from "react";
+import { memo, useMemo, useState, useCallback, useEffect, useRef } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -25,14 +25,37 @@ import {
 import ReactApexChart from "react-apexcharts";
 import { AlertTriangle } from "lucide-react";
 
-/** ✅ Timeline de Recursos (FullCalendar Scheduler) */
-import FullCalendar from "@fullcalendar/react";
-import interactionPlugin from "@fullcalendar/interaction";
-import resourceTimelinePlugin from "@fullcalendar/resource-timeline";
+/** ✅ React Calendar Timeline */
+import Timeline from "react-calendar-timeline";
+import "react-calendar-timeline/style.css";
 
 /* =========================
    //#region HELPERS
 ========================= */
+
+function useElementSize() {
+  const ref = useRef(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      const w = Math.floor(cr?.width || 0);
+      const h = Math.floor(cr?.height || 0);
+
+      setSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return [ref, size];
+}
+
 function cn(...a) {
   return a.filter(Boolean).join(" ");
 }
@@ -92,9 +115,7 @@ function daysBetweenInclusive(start, end) {
   const e = e0.getTime();
 
   const out = [];
-  for (let t = s; t <= e; t += 24 * 60 * 60 * 1000) {
-    out.push(new Date(t));
-  }
+  for (let t = s; t <= e; t += 24 * 60 * 60 * 1000) out.push(new Date(t));
   return out;
 }
 
@@ -126,12 +147,12 @@ function eventDate(ev) {
 
   if (!start) return { start: null, end: null };
 
-  // FullCalendar: para allDay, end é EXCLUSIVO. Se vier vazio/igual, assume 1 dia.
+  // Para allDay, se vier vazio/igual, assume 1 dia (end exclusivo)
   if (!end) end = start;
 
   if (ev?.allDay) {
     if (end.getTime() === start.getTime()) {
-      end = new Date(start.getTime() + 24 * 60 * 60 * 1000); // exclusivo +1 dia
+      end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
     }
   }
 
@@ -144,7 +165,6 @@ function eventOverlapsRange(
   rangeStart,
   rangeEndExclusive
 ) {
-  // Usando end INCLUSIVO do evento, e end EXCLUSIVO do range (padrão FC).
   if (!evStart || !evEndInclusive || !rangeStart || !rangeEndExclusive)
     return false;
 
@@ -171,11 +191,6 @@ function getIssueKey(ev) {
 function getActivityId(ev) {
   const p = ev?.extendedProps || {};
   return String(p?.activityId || "").trim() || "other";
-}
-
-function getActivityName(ev) {
-  const p = ev?.extendedProps || {};
-  return String(p?.activityName || p?.atividade || ev?.title || "").trim();
 }
 
 function inferDueDateFromIssue(iss) {
@@ -205,17 +220,19 @@ function eventDayKeysInRange(ev, rangeDaySet) {
   const { start, end } = eventDate(ev);
   if (!start || !end) return [];
 
-  // end do evento:
-  // - allDay: end é exclusivo, então para cálculo diário usamos (end - 1ms) como inclusivo
-  // - não allDay: usa end direto
+  // allDay: end é exclusivo -> para calcular dias, usa end-1ms como inclusivo
   const endInclusive = ev?.allDay ? new Date(end.getTime() - 1) : end;
 
   const dayKeys = daysBetweenInclusive(start, endInclusive)
     .map(toYmd)
     .filter(Boolean);
-
-  // filtra pelo range visível
   return dayKeys.filter((dk) => rangeDaySet.has(dk));
+}
+
+function addDays(d, n) {
+  const dt = d instanceof Date ? d : parseDateAny(d);
+  if (!dt) return null;
+  return new Date(dt.getTime() + n * 24 * 60 * 60 * 1000);
 }
 
 /* =========================
@@ -226,11 +243,23 @@ export default memo(function AMCalendarDashboard({
   calendarioIssues,
   visibleRange,
 }) {
-  // ✅ como você não tem horas, aqui é "atividades/dia"
-  const metric = "activities";
-
   // capacidade por dev/dia (atividades simultâneas)
   const [capacityActsPerDevPerDay, setCapacityActsPerDevPerDay] = useState(3);
+
+  // filtro multi-select (clicar alterna)
+  const [hasTouchedDevFilter, setHasTouchedDevFilter] = useState(false);
+  const [selectedDevSet, setSelectedDevSet] = useState(() => new Set());
+
+  // range visível do Timeline (ms)
+  const [tlVisible, setTlVisible] = useState(() => {
+    const rs = parseDateAny(visibleRange?.start) || startOfDay(new Date());
+    const re = parseDateAny(visibleRange?.end) || addDays(rs, 30);
+    const a = rs ? rs.getTime() : Date.now();
+    const b = re ? re.getTime() : a + 30 * 24 * 60 * 60 * 1000;
+    return { start: a, end: Math.max(b, a + 24 * 60 * 60 * 1000) };
+  });
+
+  const [workloadRef, workloadSize] = useElementSize();
 
   // =========================
   // Cores
@@ -253,7 +282,6 @@ export default memo(function AMCalendarDashboard({
     "#06B6D4",
   ];
 
-  // ✅ cores por tipo de atividade (útil no Timeline e tooltips)
   const ATIVIDADE_COLOR_BY_ID = {
     devUra: "#2563EB",
     rdm: "#7C3AED",
@@ -294,7 +322,7 @@ export default memo(function AMCalendarDashboard({
   }, [calendarioIssues]);
 
   // =========================
-  // Range visível / dias do range
+  // Range visível (para charts/heatmap) — usa visibleRange (prop)
   // =========================
   const rangeDays = useMemo(() => {
     const rs = parseDateAny(visibleRange?.start);
@@ -305,22 +333,19 @@ export default memo(function AMCalendarDashboard({
     const last = new Date(re.getTime() - 1);
     const days = daysBetweenInclusive(rs, last);
 
-    // proteção
-    return days.slice(0, 62);
+    return days.slice(0, 100);
   }, [visibleRange?.start, visibleRange?.end]);
 
   const rangeDayKeys = useMemo(() => rangeDays.map(toYmd), [rangeDays]);
-
   const rangeDaySet = useMemo(() => new Set(rangeDayKeys), [rangeDayKeys]);
 
   // =========================
-  // Eventos dentro do range visível
+  // Eventos dentro do range visível (charts/heatmap)
   // =========================
   const rangedEvents = useMemo(() => {
     const rs = parseDateAny(visibleRange?.start);
     const re = parseDateAny(visibleRange?.end);
     const list = Array.isArray(events) ? events : [];
-
     if (!rs || !re) return list;
 
     return list.filter((ev) => {
@@ -331,6 +356,28 @@ export default memo(function AMCalendarDashboard({
       return eventOverlapsRange(start, endInclusive, rs, re);
     });
   }, [events, visibleRange?.start, visibleRange?.end]);
+
+  const timelineEvents = useMemo(() => {
+    const list = Array.isArray(events) ? events : [];
+
+    const a = Number(tlVisible?.start);
+    const b = Number(tlVisible?.end);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return list;
+
+    const rs = new Date(a);
+    const re = new Date(b); // end exclusivo
+
+    return list.filter((ev) => {
+      const { start, end } = eventDate(ev);
+      if (!start || !end) return false;
+
+      const endInclusive = ev?.allDay ? new Date(end.getTime() - 1) : end;
+      return eventOverlapsRange(start, endInclusive, rs, re);
+    });
+  }, [events, tlVisible?.start, tlVisible?.end]);
+
+  const hasChartData = rangedEvents.length > 0;
+  const hasTimelineData = timelineEvents.length > 0;
 
   // =========================
   // Overdue: evento ultrapassa dueDate do ticket
@@ -346,7 +393,6 @@ export default memo(function AMCalendarDashboard({
       const { end } = eventDate(ev);
       if (!end) return false;
 
-      // allDay: end exclusivo -> compara com end-1ms
       const evEnd = ev?.allDay ? new Date(end.getTime() - 1) : end;
       return evEnd.getTime() > due.getTime();
     };
@@ -365,17 +411,14 @@ export default memo(function AMCalendarDashboard({
 
   // =========================
   // ✅ WORKLOAD (Recharts) - por dia
-  // X = dia, stacks = devs (capacidade diária)
   // =========================
   const workloadDaily = useMemo(() => {
-    // devs existentes no range
     const devSet = new Set();
-    rangedEvents.forEach((ev) => devSet.add(getRecurso(ev)));
+    timelineEvents.forEach((ev) => devSet.add(getRecurso(ev)));
     const devs = Array.from(devSet).sort((a, b) =>
       String(a).localeCompare(String(b))
     );
 
-    // cria chaves seguras para Recharts
     const devMeta = devs.map((dev, idx) => {
       const base = normalizeStr(dev).replace(/[^a-z0-9]+/g, "_") || "dev";
       const key = `${base}__${idx}`;
@@ -384,19 +427,16 @@ export default memo(function AMCalendarDashboard({
 
     const devKeyByName = new Map(devMeta.map((x) => [x.dev, x.key]));
 
-    // base data por dia
     const base = rangeDayKeys.map((day) => ({
       day,
       total: 0,
       overdueCount: 0,
       overdueTickets: [],
-      // dev keys adicionadas dinamicamente
     }));
 
     const dayIndex = new Map(base.map((row, i) => [row.day, i]));
-    const overdueByDay = new Map(); // day -> Set(issueKey)
+    const overdueByDay = new Map();
 
-    // conta 1 atividade por DEV por DIA ocupado
     for (const ev of rangedEvents) {
       const dev = getRecurso(ev);
       const devKey = devKeyByName.get(dev);
@@ -406,7 +446,6 @@ export default memo(function AMCalendarDashboard({
       const overdue = isOverdueEvent(ev);
 
       const dks = eventDayKeysInRange(ev, rangeDaySet);
-
       for (const dk of dks) {
         const i = dayIndex.get(dk);
         if (i == null) continue;
@@ -421,7 +460,6 @@ export default memo(function AMCalendarDashboard({
       }
     }
 
-    // finaliza overdueCount
     for (const row of base) {
       const set = overdueByDay.get(row.day);
       const arr = set ? Array.from(set.values()) : [];
@@ -440,7 +478,6 @@ export default memo(function AMCalendarDashboard({
     };
   }, [rangedEvents, rangeDayKeys, rangeDaySet, isOverdueEvent]);
 
-  // ✅ capacidade total do time por dia
   const capacityLine = useMemo(() => {
     const capPerDev = clampNumber(capacityActsPerDevPerDay, 1, 20);
     const devCount = Math.max(1, workloadDaily.devCount || 1);
@@ -459,13 +496,10 @@ export default memo(function AMCalendarDashboard({
     const row = payload?.[0]?.payload || {};
     const overdueCount = row?.overdueCount || 0;
 
-    // lista somente devs com valor > 0
     const items = (workloadDaily.devMeta || [])
       .map((d) => ({ ...d, v: row[d.key] || 0 }))
       .filter((x) => x.v > 0)
       .sort((a, b) => b.v - a.v);
-
-    const unit = "ativ.";
 
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs shadow-sm">
@@ -475,8 +509,7 @@ export default memo(function AMCalendarDashboard({
 
         <div className="grid gap-1 text-zinc-700">
           <div>
-            <span className="font-semibold">Total:</span> {row.total || 0}{" "}
-            {unit}
+            <span className="font-semibold">Total:</span> {row.total || 0} ativ.
           </div>
 
           <div
@@ -524,9 +557,7 @@ export default memo(function AMCalendarDashboard({
   }
 
   // =========================
-  // ✅ HEATMAP (ApexCharts) - corrigido
-  // - 1 atividade conta 1 dia (não divide em 0,5)
-  // - datas YYYY-MM-DD parse local (não pinta o dia anterior)
+  // ✅ HEATMAP (ApexCharts)
   // =========================
   const heatmap = useMemo(() => {
     const devSet = new Set();
@@ -556,7 +587,6 @@ export default memo(function AMCalendarDashboard({
       const dayKeys = eventDayKeysInRange(ev, rangeDaySet);
       const overdue = isOverdueEvent(ev);
 
-      // ✅ cada dia ocupado conta 1
       for (const dk of dayKeys) {
         const cell = ensureCell(dev, dk);
         cell.value += 1;
@@ -661,9 +691,7 @@ export default memo(function AMCalendarDashboard({
           formatter: (v) => fmtBrDay(v),
         },
       },
-      yaxis: {
-        labels: { style: { fontSize: "11px" } },
-      },
+      yaxis: { labels: { style: { fontSize: "11px" } } },
       tooltip: {
         custom: ({ seriesIndex, dataPointIndex, w }) => {
           const point =
@@ -674,7 +702,6 @@ export default memo(function AMCalendarDashboard({
           const overdueTickets = Array.isArray(meta.overdueTickets)
             ? meta.overdueTickets
             : [];
-
           const { items, rest } = shortList(overdueTickets, 3);
 
           const overdueHtml =
@@ -717,29 +744,42 @@ export default memo(function AMCalendarDashboard({
   }, [heatmap.maxY]);
 
   // =========================
-  // ✅ TIMELINE DE RECURSOS (FullCalendar Scheduler)
+  // ✅ TIMELINE (react-calendar-timeline)
   // =========================
-  const timeline = useMemo(() => {
+  const timelineModel = useMemo(() => {
+    // lista de devs do range
     const devSet = new Set();
     rangedEvents.forEach((ev) => devSet.add(getRecurso(ev)));
-
     const devs = Array.from(devSet).sort((a, b) =>
       String(a).localeCompare(String(b))
     );
 
-    const resources = devs.map((dev, idx) => ({
-      id: `res_${idx}`,
+    // map dev -> groupId estável
+    const groupsAll = devs.map((dev, idx) => ({
+      id: `${normalizeStr(dev).replace(/[^a-z0-9]+/g, "_") || "dev"}__${idx}`,
       title: dev,
       _dev: dev,
     }));
+    const groupIdByDev = new Map(groupsAll.map((g) => [g._dev, g.id]));
 
-    const resourceIdByDev = new Map(resources.map((r) => [r._dev, r.id]));
+    // aplica filtro multi-select (se tocado)
+    const isDevSelected = (dev) => {
+      if (!hasTouchedDevFilter) return true;
+      return selectedDevSet.has(dev);
+    };
 
-    const schedulerEvents = rangedEvents
+    const groups = groupsAll.filter((g) => isDevSelected(g._dev));
+    const selectedCount = hasTouchedDevFilter
+      ? selectedDevSet.size
+      : devs.length;
+
+    // items
+    const items = timelineEvents
+      .filter((ev) => isDevSelected(getRecurso(ev)))
       .map((ev, idx) => {
         const dev = getRecurso(ev);
-        const resourceId = resourceIdByDev.get(dev);
-        if (!resourceId) return null;
+        const group = groupIdByDev.get(dev);
+        if (!group) return null;
 
         const issueKey = getIssueKey(ev);
         const activityId = getActivityId(ev);
@@ -748,109 +788,156 @@ export default memo(function AMCalendarDashboard({
         const { start, end } = eventDate(ev);
         if (!start || !end) return null;
 
-        // Timeline: manter allDay como no evento
-        const allDay = !!ev?.allDay;
+        const startMs = start.getTime();
+        let endMs = end.getTime();
 
-        // cor por tipo de atividade
-        const color =
+        // proteção (end precisa ser > start)
+        if (endMs <= startMs) endMs = startMs + 24 * 60 * 60 * 1000;
+
+        // ✅ ID ÚNICO (ev.id pode repetir entre atividades)
+        const safeId = `${getIssueKey(ev) || "no"}_${getActivityId(
+          ev
+        )}_${startMs}_${endMs}_${idx}`;
+
+        const baseColor =
           ATIVIDADE_COLOR_BY_ID[activityId] || ATIVIDADE_COLOR_BY_ID.other;
+        const overdue = isOverdueEvent(ev);
+
+        // gradient do atraso (a partir do dia seguinte ao dueDate)
+        let backgroundImage = undefined;
+        if (overdue && issueKey) {
+          const due = dueIndex.get(issueKey);
+          if (due) {
+            const cutoff = startOfDay(
+              new Date(due.getFullYear(), due.getMonth(), due.getDate() + 1)
+            );
+            const cutoffMs = cutoff?.getTime();
+
+            const sDay = startOfDay(start)?.getTime() ?? startMs;
+            const eDay = startOfDay(new Date(endMs))?.getTime() ?? endMs;
+
+            if (cutoffMs && eDay > sDay && cutoffMs > sDay && cutoffMs < eDay) {
+              const pct = clampNumber(
+                ((cutoffMs - sDay) / (eDay - sDay)) * 100,
+                0,
+                100
+              );
+              backgroundImage = `linear-gradient(90deg, ${baseColor} 0%, ${baseColor} ${pct}%, #DC2626 ${pct}%, #DC2626 100%)`;
+            }
+          }
+        }
 
         const titleParts = [];
         if (issueKey) titleParts.push(issueKey);
         titleParts.push(activityLabel);
 
         return {
-          id: ev?.id ? String(ev.id) : `ev_${idx}`,
+          id: String(ev?.id ?? safeId),
+          group,
           title: titleParts.join(" • "),
-          start,
-          end, // allDay: end é exclusivo (ok)
-          allDay,
-          resourceId,
-          backgroundColor: color,
-          borderColor: isOverdueEvent(ev) ? "#DC2626" : color,
-          textColor: "#ffffff",
-          extendedProps: {
+          start_time: startMs,
+          end_time: endMs,
+          canMove: false,
+          canResize: false,
+          itemProps: {
+            style: {
+              backgroundColor: backgroundImage ? "transparent" : baseColor,
+              backgroundImage,
+              color: "#fff",
+              border: `1px solid ${overdue ? "#DC2626" : baseColor}`,
+              borderRadius: 12,
+              boxShadow: "0 2px 10px rgba(0,0,0,.08)",
+              overflow: "hidden",
+            },
+          },
+          _meta: {
+            dev,
             issueKey,
-            activityId,
             activityLabel,
-            recurso: dev,
-            overdue: isOverdueEvent(ev),
+            activityId,
+            overdue,
+            startMs,
+            endMs,
           },
         };
       })
       .filter(Boolean);
 
-    return { resources, schedulerEvents };
-  }, [rangedEvents, isOverdueEvent]);
+    return { devs, groupsAll, groups, items, selectedCount };
+  }, [
+    timelineEvents,
+    isOverdueEvent,
+    dueIndex,
+    hasTouchedDevFilter,
+    selectedDevSet,
+  ]);
 
-  // =========================
+  useEffect(() => {
+    const rs = parseDateAny(visibleRange?.start);
+    const re = parseDateAny(visibleRange?.end);
+    if (!rs || !re) return;
+
+    const a = rs.getTime();
+    const b = re.getTime();
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return;
+
+    setTlVisible((prev) =>
+      prev.start === a && prev.end === b ? prev : { start: a, end: b }
+    );
+  }, [visibleRange?.start, visibleRange?.end]);
+
+  const toggleDev = useCallback(
+    (dev) => {
+      setHasTouchedDevFilter(true);
+      setSelectedDevSet((prev) => {
+        const base = hasTouchedDevFilter
+          ? prev
+          : new Set(timelineModel.devs || []);
+        const next = new Set(base);
+        if (next.has(dev)) next.delete(dev);
+        else next.add(dev);
+        return next;
+      });
+    },
+    [hasTouchedDevFilter, timelineModel.devs]
+  );
+
+  const selectAllDevs = useCallback(() => {
+    setHasTouchedDevFilter(true);
+    setSelectedDevSet(new Set(timelineModel.devs || []));
+  }, [timelineModel.devs]);
+
+  const clearAllDevs = useCallback(() => {
+    setHasTouchedDevFilter(true);
+    setSelectedDevSet(new Set());
+  }, []);
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  const setTimelineDays = useCallback((days, anchor = "start") => {
+    setTlVisible((prev) => {
+      const baseStart =
+        anchor === "today"
+          ? startOfDay(new Date())?.getTime() ?? Date.now()
+          : prev.start;
+
+      const start = baseStart;
+      const end = start + days * DAY_MS;
+
+      return prev.start === start && prev.end === end ? prev : { start, end };
+    });
+  }, []);
+
+  const goToday = useCallback(() => {
+    setTimelineDays(30, "today"); // "Hoje" joga para o mês atual (ajuste se quiser semana)
+  }, [setTimelineDays]);
+
   // Legend formatter (workload daily)
-  // =========================
   const devNameByKey = useMemo(() => {
     const m = new Map();
     (workloadDaily.devMeta || []).forEach((d) => m.set(d.key, d.dev));
     return m;
   }, [workloadDaily.devMeta]);
-
-  const onTimelineEventDidMount = useCallback(
-    (info) => {
-      const p = info?.event?.extendedProps || {};
-      const issueKey = String(p.issueKey || "")
-        .trim()
-        .toUpperCase();
-      if (!issueKey) return;
-
-      const due = dueIndex.get(issueKey);
-      if (!due) return;
-
-      const start = info.event.start;
-      const end = info.event.end;
-      if (!start || !end) return;
-
-      // Timeline/allDay: end é EXCLUSIVO
-      const startMs = startOfDay(start)?.getTime();
-      const endMs = startOfDay(end)?.getTime();
-      if (!startMs || !endMs || endMs <= startMs) return;
-
-      // ✅ O atraso começa NO DIA SEGUINTE ao dueDate (00:00)
-      const cutoff = startOfDay(
-        new Date(due.getFullYear(), due.getMonth(), due.getDate() + 1)
-      );
-      const cutoffMs = cutoff?.getTime();
-      if (!cutoffMs) return;
-
-      // Se o cutoff >= fim do evento, não tem parte atrasada
-      if (cutoffMs >= endMs) return;
-
-      // Cor base do evento
-      const baseColor =
-        info.event.backgroundColor ||
-        ATIVIDADE_COLOR_BY_ID[p.activityId] ||
-        "#64748B";
-
-      const overdueColor = "#DC2626";
-
-      // pct do bloco que fica "normal"
-      const pct = clampNumber(
-        ((cutoffMs - startMs) / (endMs - startMs)) * 100,
-        0,
-        100
-      );
-
-      // Aplica no elemento correto (Scheduler muda a estrutura, então tenta pegar o main)
-      const target =
-        info.el.querySelector(".fc-event-main") ||
-        info.el.querySelector(".fc-event-main-frame") ||
-        info.el;
-
-      target.style.backgroundImage = `linear-gradient(90deg, ${baseColor} 0%, ${baseColor} ${pct}%, ${overdueColor} ${pct}%, ${overdueColor} 100%)`;
-      target.style.backgroundColor = "transparent";
-
-      // borda destacada
-      info.el.style.borderColor = overdueColor;
-    },
-    [dueIndex]
-  );
 
   // =========================
   // UI
@@ -862,9 +949,7 @@ export default memo(function AMCalendarDashboard({
             PRIMEIRA LINHA (2 cards)
         ========================= */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {/* =========================
-              WORKLOAD / CAPACIDADE DIÁRIA (Recharts)
-          ========================= */}
+          {/* WORKLOAD */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -905,13 +990,18 @@ export default memo(function AMCalendarDashboard({
               </div>
             </div>
 
-            <div className="mt-3 h-[300px]">
-              {!hasData ? (
+            <div ref={workloadRef} className="mt-3 h-[300px] min-w-0 w-full">
+              {!hasChartData ? (
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
                   Sem dados para o período selecionado.
                 </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
+              ) : workloadSize.w > 0 && workloadSize.h > 0 ? (
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  minWidth={0}
+                  minHeight={0}
+                >
                   <BarChart
                     data={workloadDaily.data}
                     margin={{ left: 10, right: 10, top: 8, bottom: 6 }}
@@ -936,48 +1026,44 @@ export default memo(function AMCalendarDashboard({
                         style: { fontSize: 11 },
                       }}
                     />
-
                     <ReTooltip content={<WorkloadDailyTooltip />} />
-
                     <Legend
                       formatter={(k) =>
                         devNameByKey.get(String(k)) || String(k)
                       }
                     />
-
                     <ReferenceLine
                       y={capacityLine.capTeam}
                       stroke="#DC2626"
                       strokeDasharray="5 5"
                       ifOverflow="extendDomain"
                     />
-
-                    {/* ✅ stacks = devs (cada dev com cor estável) */}
                     {(workloadDaily.devMeta || []).map((d) => (
                       <Bar
                         key={d.key}
                         dataKey={d.key}
                         stackId="devs"
-                        fill={d.color} // ✅ evita tudo preto
+                        fill={d.color}
                         isAnimationActive={false}
                         radius={[6, 6, 0, 0]}
                       />
                     ))}
                   </BarChart>
                 </ResponsiveContainer>
+              ) : (
+                <div className="grid h-full place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
+                  Carregando gráfico…
+                </div>
               )}
             </div>
 
             <div className="mt-2 text-xs text-zinc-600">
               Cada atividade conta{" "}
-              <span className="font-semibold">1 por dia</span> (se a atividade
-              dura 5 dias, ela conta 1 em cada um dos 5 dias).
+              <span className="font-semibold">1 por dia</span>.
             </div>
           </div>
 
-          {/* =========================
-              HEATMAP / MATRIZ (ApexCharts) - corrigido
-          ========================= */}
+          {/* HEATMAP */}
           <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -1002,7 +1088,7 @@ export default memo(function AMCalendarDashboard({
             </div>
 
             <div className="mt-3">
-              {!hasData ? (
+              {!hasTimelineData ? (
                 <div className="grid h-[320px] place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
                   Sem dados para o período selecionado.
                 </div>
@@ -1030,9 +1116,34 @@ export default memo(function AMCalendarDashboard({
                 Timeline de Recursos
               </div>
               <div className="text-xs text-zinc-500">
-                Visualização por recurso usando FullCalendar Scheduler • cores
-                por tipo de atividade
+                Visualização por recurso usando{" "}
+                <span className="font-medium">react-calendar-timeline</span> •
+                cores por tipo de atividade
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={goToday}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimelineDays(7)}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+              >
+                Semana
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimelineDays(30)}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+              >
+                Mês
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1056,68 +1167,164 @@ export default memo(function AMCalendarDashboard({
             </div>
           </div>
 
-          <div className="mt-3 overflow-x-auto">
-            {!hasData ? (
-              <div className="grid h-[340px] place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
-                Sem dados para o período selecionado.
+          <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_280px]">
+            {/* Timeline */}
+            <div className="overflow-x-auto">
+              {!hasData ? (
+                <div className="grid h-[360px] place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
+                  Sem dados para o período selecionado.
+                </div>
+              ) : timelineModel.groups.length === 0 ? (
+                <div className="grid h-[360px] place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
+                  Nenhum recurso selecionado.
+                </div>
+              ) : (
+                <div className="min-w-[900px] rounded-xl border border-zinc-200 p-2">
+                  <Timeline
+                    groups={timelineModel.groups}
+                    items={timelineModel.items}
+                    visibleTimeStart={tlVisible.start}
+                    visibleTimeEnd={tlVisible.end}
+                    onTimeChange={(start, end, updateScrollCanvas) => {
+                      if (typeof updateScrollCanvas === "function")
+                        updateScrollCanvas(start, end);
+                      setTlVisible((prev) =>
+                        prev.start === start && prev.end === end
+                          ? prev
+                          : { start, end }
+                      );
+                    }}
+                    sidebarWidth={240}
+                    lineHeight={52}
+                    itemHeightRatio={0.72}
+                    stackItems
+                    canMove={false}
+                    canResize={false}
+                    timeSteps={{ day: 1, month: 1, year: 1 }}
+                    itemRenderer={({ item, itemContext, getItemProps }) => {
+                      const meta = item?._meta || {};
+                      const overdue = !!meta.overdue;
+                      const dev = meta.dev || "";
+
+                      const props = getItemProps({
+                        style: {
+                          ...(item?.itemProps?.style || {}),
+                          opacity: itemContext.selected ? 0.95 : 1,
+                        },
+                        title: `${item.title}${dev ? ` — ${dev}` : ""}`,
+                      });
+
+                      const { key, ...rest } = props;
+
+                      return (
+                        <div key={key} {...rest}>
+                          <div className="flex h-full items-center gap-2 px-2">
+                            {overdue ? (
+                              <span className="text-[11px]">⚠</span>
+                            ) : null}
+                            <span className="truncate text-[12px] font-medium">
+                              {item.title}
+                            </span>
+                            {dev ? (
+                              <span className="ml-auto hidden max-w-[160px] truncate text-[11px] text-white/80 lg:inline">
+                                {dev}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Lista de recursos (direita) com multi-select por clique */}
+            <div className="rounded-xl border border-zinc-200 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Recursos
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    Selecionados:{" "}
+                    <span className="font-medium">
+                      {hasTouchedDevFilter
+                        ? selectedDevSet.size
+                        : timelineModel.devs.length}
+                    </span>
+                    {" / "}
+                    <span className="font-medium">
+                      {timelineModel.devs.length}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllDevs}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearAllDevs}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Limpar
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="min-w-[900px] rounded-xl border border-zinc-200 p-2">
-                <FullCalendar
-                  plugins={[resourceTimelinePlugin, interactionPlugin]}
-                  initialView="resourceTimelineMonth"
-                  height="auto"
-                  editable={false}
-                  selectable={false}
-                  nowIndicator={true}
-                  resourceAreaHeaderContent="Recurso"
-                  resources={timeline.resources}
-                  events={timeline.schedulerEvents}
-                  headerToolbar={{
-                    left: "prev,next today",
-                    center: "title",
-                    right: "resourceTimelineWeek,resourceTimelineMonth",
-                  }}
-                  buttonText={{
-                    today: "Hoje",
-                    week: "Semana",
-                    month: "Mês",
-                  }}
-                  // ✅ mantém o mesmo range visível do calendário principal (se existir)
-                  visibleRange={
-                    visibleRange?.start && visibleRange?.end
-                      ? { start: visibleRange.start, end: visibleRange.end }
-                      : undefined
-                  }
-                  // ⚠️ Scheduler é plugin comercial (se precisar)
-                  // schedulerLicenseKey="GPL-My-Project-Is-Open-Source"
-                  eventContent={(arg) => {
-                    const p = arg?.event?.extendedProps || {};
-                    const overdue = !!p.overdue;
+
+              <div className="max-h-[320px] overflow-auto pr-1">
+                <div className="grid gap-1">
+                  {timelineModel.devs.map((dev) => {
+                    const active = hasTouchedDevFilter
+                      ? selectedDevSet.has(dev)
+                      : true;
+                    const color = pickDevColor(dev);
 
                     return (
-                      <div
+                      <button
+                        key={dev}
+                        type="button"
+                        onClick={() => toggleDev(dev)}
                         className={cn(
-                          "flex items-center gap-2 truncate",
-                          overdue ? "font-semibold" : "font-medium"
+                          "flex items-center justify-between gap-2 rounded-xl border px-2 py-2 text-left text-xs transition",
+                          active
+                            ? "border-zinc-200 bg-white hover:bg-zinc-50"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-zinc-100"
                         )}
-                        title={arg.event.title}
+                        title="Clique para alternar"
                       >
-                        {overdue ? (
-                          <span className="inline-flex items-center text-[11px] text-red-100">
-                            ⚠
-                          </span>
-                        ) : null}
-                        <span className="truncate text-[12px]">
-                          {arg.event.title}
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn("h-2.5 w-2.5 rounded-sm")}
+                            style={{ background: active ? color : "#D4D4D8" }}
+                          />
+                          <span className="max-w-[200px] truncate">{dev}</span>
+                        </div>
+                        <span
+                          className={cn(
+                            "text-[11px]",
+                            active ? "text-zinc-700" : "text-zinc-400"
+                          )}
+                        >
+                          {active ? "ON" : "OFF"}
                         </span>
-                      </div>
+                      </button>
                     );
-                  }}
-                  eventDidMount={onTimelineEventDidMount}
-                />
+                  })}
+                </div>
               </div>
-            )}
+
+              <div className="mt-3 text-xs text-zinc-600">
+                Clique em um recurso para{" "}
+                <span className="font-semibold">habilitar/desabilitar</span>.
+              </div>
+            </div>
           </div>
 
           <div className="mt-2 text-xs text-zinc-600">
