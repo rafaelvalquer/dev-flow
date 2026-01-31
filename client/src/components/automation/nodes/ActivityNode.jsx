@@ -1,42 +1,37 @@
-import React from "react";
-import { Badge } from "@/components/ui/badge";
+import React, { memo } from "react";
 import { Handle, Position } from "reactflow";
+import { CalendarClock } from "lucide-react";
+import { getNodeTone } from "@/components/automation/automationTheme";
 
-export default function ActivityNode({ data }) {
-  const risk = Boolean(data.risk || data.risco);
+function ActivityNode({ data, selected }) {
+  const tone = getNodeTone("activityNode", { selected });
+  const name = data?.name || "Atividade";
+  const id = data?.id || "";
+
   return (
-    <div
-      className={[
-        "min-w-[280px] rounded-2xl border bg-white p-3 shadow-sm",
-        risk ? "border-red-200" : "border-zinc-200",
-      ].join(" ")}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold text-zinc-900">{data.name}</div>
-          <div className="mt-1 text-[11px] text-zinc-600">
-            {data.data ? `Data: ${data.data}` : "Sem data"}
+    <div className={tone.wrap}>
+      <div className={tone.headerBar} />
+      <div className={tone.body}>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
+            <CalendarClock className="h-4 w-4 text-zinc-700" />
+          </span>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold">{name}</div>
+            <div className="mt-1 text-[11px] text-zinc-600">
+              {id ? `ID: ${id}` : "—"}
+            </div>
           </div>
-          <div className="mt-1 text-[11px] text-zinc-600">
-            {data.recurso || "Sem recurso"} • {data.area || "—"}
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-600">ID: {data.id}</div>
         </div>
-
-        <Badge
-          className={[
-            "border",
-            risk
-              ? "border-red-200 bg-red-50 text-red-700"
-              : "border-zinc-200 bg-zinc-50 text-zinc-700",
-          ].join(" ")}
-        >
-          {risk ? "Risco" : "Atividade"}
-        </Badge>
       </div>
 
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Left} />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-3 !w-3 !border-2 !border-white !bg-zinc-400"
+      />
     </div>
   );
 }
+
+export default memo(ActivityNode);

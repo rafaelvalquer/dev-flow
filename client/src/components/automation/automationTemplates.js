@@ -1,18 +1,20 @@
 export const TRIGGER_TYPES = [
+  { key: "ticket.status.changed", label: "Status do ticket mudou" },
+
   { key: "subtask.completed", label: "Subtarefa concluída" },
   { key: "subtask.overdue", label: "Subtarefa atrasada (até data)" },
-  { key: "ticket.status.changed", label: "Status do ticket mudou" },
-  { key: "ticket.status.equals", label: "Status do ticket = X" },
-  { key: "ticket.status.notEquals", label: "Status do ticket ≠ X" },
+
+  // MULTI (gate/AND)
+  { key: "subtask.allCompleted", label: "Todas subtarefas concluídas (AND)" },
+
   { key: "activity.start", label: "Início da atividade (cronograma)" },
   { key: "activity.overdue", label: "Atividade atrasou (cronograma)" },
-  { key: "subtask.allCompleted", label: "Subtarefas: todas concluídas (AND)" },
 ];
 
 export const ACTION_TYPES = [
   { key: "jira.comment", label: "Comentar no ticket" },
   { key: "jira.transition", label: "Transicionar status do ticket" },
-  { key: "jira.assign", label: "Alterar responsável (Assignee)" },
+  { key: "jira.assign", label: "Alterar responsável (assignee)" },
 ];
 
 export const AUTOMATION_PRESETS = [
@@ -30,6 +32,12 @@ export const AUTOMATION_PRESETS = [
     title: "Subtarefa concluída → transicionar ticket",
     trigger: { type: "subtask.completed", params: { subtaskKey: "" } },
     action: { type: "jira.transition", params: { toStatus: "" } },
+  },
+  {
+    id: "preset_subtask_done_assign",
+    title: "Subtarefa concluída → atribuir responsável",
+    trigger: { type: "subtask.completed", params: { subtaskKey: "" } },
+    action: { type: "jira.assign", params: { accountId: "", displayName: "" } },
   },
   {
     id: "preset_subtask_overdue_comment",
@@ -54,6 +62,24 @@ export const AUTOMATION_PRESETS = [
       params: { text: "Status mudou: {prevStatus} → {currentStatus}" },
     },
   },
+
+  // MULTI (via gate/AND no canvas)
+  {
+    id: "preset_all_subtasks_done_comment",
+    title: "Todas subtarefas concluídas → comentar",
+    trigger: { type: "subtask.allCompleted", params: { subtaskKeys: [] } },
+    action: {
+      type: "jira.comment",
+      params: { text: "✅ Todas as subtarefas do fluxo foram concluídas." },
+    },
+  },
+  {
+    id: "preset_all_subtasks_done_transition",
+    title: "Todas subtarefas concluídas → transicionar ticket",
+    trigger: { type: "subtask.allCompleted", params: { subtaskKeys: [] } },
+    action: { type: "jira.transition", params: { toStatus: "" } },
+  },
+
   {
     id: "preset_activity_start_comment",
     title: "Início da atividade → comentar",
@@ -74,16 +100,6 @@ export const AUTOMATION_PRESETS = [
       params: {
         text: "Atividade atrasada: {activityName} ({activityId}) - fim {activityEnd}",
       },
-    },
-  },
-  {
-    id: "subtasks_all_done_comment",
-    title: "Todas subtarefas concluídas → Comentar",
-    icon: "CheckCircle2",
-    trigger: { type: "subtask.allCompleted", params: { subtaskKeys: [] } },
-    action: {
-      type: "jira.comment",
-      params: { text: "✅ Todas as subtarefas do grupo foram concluídas." },
     },
   },
 ];
