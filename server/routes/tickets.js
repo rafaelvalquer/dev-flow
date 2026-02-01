@@ -140,6 +140,212 @@ router.put("/:key/kanban", async (req, res) => {
 });
 
 /**
+ * =========================
+ * TIMESHEET (MongoDB)
+ * Base: /api/tickets/:key/timesheet
+ * Persistência: ticket.data.timesheet
+ * =========================
+ */
+
+function defaultTimesheet() {
+  return {
+    version: 1,
+    developers: [],
+    estimates: {},
+    entries: [],
+    updatedAt: null,
+  };
+}
+
+function normIsoDate(v) {
+  const s = String(v || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  return s;
+}
+
+function clampHours(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(24, Math.max(0, n));
+}
+
+function ensureTimesheetInData(doc) {
+  doc.data = doc.data && typeof doc.data === "object" ? doc.data : {};
+  doc.data.timesheet =
+    doc.data.timesheet && typeof doc.data.timesheet === "object"
+      ? doc.data.timesheet
+      : defaultTimesheet();
+
+  doc.data.timesheet.developers = Array.isArray(doc.data.timesheet.developers)
+    ? doc.data.timesheet.developers
+    : [];
+
+  doc.data.timesheet.estimates =
+    doc.data.timesheet.estimates &&
+    typeof doc.data.timesheet.estimates === "object"
+      ? doc.data.timesheet.estimates
+      : {};
+
+  doc.data.timesheet.entries = Array.isArray(doc.data.timesheet.entries)
+    ? doc.data.timesheet.entries
+    : [];
+
+  return doc.data.timesheet;
+}
+
+router.get("/:key/timesheet", async (req, res) => {
+  try {
+    const ticketKey = normKey(req.params.key);
+    const doc = await Ticket.findOne({ ticketKey });
+    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+
+    const ts = ensureTimesheetInData(doc);
+    return res.json({ ticketKey, timesheet: ts });
+  } catch (err) {
+    console.error("GET timesheet error:", err);
+    return res.status(500).json({ error: "Erro ao buscar timesheet" });
+  }
+});
+
+router.put("/:key/timesheet", async (req, res) => {
+  try {
+    const ticketKey = normKey(req.params.key);
+    const { devId, taskKey, date, hours, note } = req.body || {};
+
+    const safeDevId = String(devId || "").trim();
+    const safeTaskKey = String(taskKey || "").trim();
+    const safeDate = normIsoDate(date);
+
+    if (!safeDevId)
+      return res.status(400).json({ error: "devId é obrigatório." });
+    if (!safeTaskKey)
+      return res.status(400).json({ error: "taskKey é obrigatório." });
+    if (!safeDate)
+      return res.status(400).json({ error: "date inválido (YYYY-MM-DD)." });
+
+    const safeHours = clampHours(hours);
+    const safeNote = String(note || "").trim();
+
+    const doc = await Ticket.findOne({ ticketKey });
+    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+
+    const ts = ensureTimesheetInData(doc);
+    const now = new Date();
+
+    const matchIdx = ts.entries.findIndex(
+      (e) =>
+        e?.devId === safeDevId &&
+        e?.taskKey === safeTaskKey &&
+        e?.date === safeDate
+    );
+
+    // hours=0 => remove
+    if (!safeHours || safeHours <= 0) {
+      if (matchIdx >= 0) ts.entries.splice(matchIdx, 1);
+      ts.updatedAt = now;
+      doc.set("data.timesheet", ts);
+      doc.markModified("data");
+      await doc.save();
+      return res.json({ ticketKey, timesheet: ts });
+    }
+
+    const entry = {
+      id:
+        matchIdx >= 0
+          ? ts.entries[matchIdx].id
+          : globalThis.crypto?.randomUUID?.() ||
+            `${Date.now()}-${Math.random()}`,
+      devId: safeDevId,
+      taskKey: safeTaskKey,
+      date: safeDate,
+      hours: safeHours,
+      note: safeNote || undefined,
+      updatedAt: now,
+    };
+
+    if (matchIdx >= 0)
+      ts.entries[matchIdx] = { ...ts.entries[matchIdx], ...entry };
+    else ts.entries.push(entry);
+
+    ts.updatedAt = now;
+
+    doc.set("data.timesheet", ts);
+    doc.markModified("data");
+    await doc.save();
+
+    return res.json({ ticketKey, timesheet: ts });
+  } catch (err) {
+    console.error("PUT timesheet error:", err);
+    return res.status(500).json({ error: "Erro ao salvar apontamento" });
+  }
+});
+
+router.put("/:key/timesheet/estimate", async (req, res) => {
+  try {
+    const ticketKey = normKey(req.params.key);
+    const { taskKey, hours } = req.body || {};
+
+    const safeTaskKey = String(taskKey || "").trim();
+    if (!safeTaskKey)
+      return res.status(400).json({ error: "taskKey é obrigatório." });
+
+    const safeHours = Number(hours);
+    const normalized = Number.isFinite(safeHours) ? Math.max(0, safeHours) : 0;
+
+    const doc = await Ticket.findOne({ ticketKey });
+    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+
+    const ts = ensureTimesheetInData(doc);
+    const now = new Date();
+
+    if (!normalized || normalized <= 0) delete ts.estimates[safeTaskKey];
+    else ts.estimates[safeTaskKey] = normalized;
+
+    ts.updatedAt = now;
+    doc.set("data.timesheet", ts);
+    doc.markModified("data");
+    await doc.save();
+
+    return res.json({ ticketKey, timesheet: ts });
+  } catch (err) {
+    console.error("PUT timesheet/estimate error:", err);
+    return res.status(500).json({ error: "Erro ao salvar estimate" });
+  }
+});
+
+router.put("/:key/timesheet/developers", async (req, res) => {
+  try {
+    const ticketKey = normKey(req.params.key);
+    const developers = Array.isArray(req.body?.developers)
+      ? req.body.developers
+      : [];
+
+    const next = developers
+      .map((d) => ({
+        id: String(d?.id || "").trim(),
+        name: String(d?.name || "").trim(),
+      }))
+      .filter((d) => d.id && d.name);
+
+    const doc = await Ticket.findOne({ ticketKey });
+    if (!doc) return res.status(404).json({ error: "Ticket não encontrado." });
+
+    const ts = ensureTimesheetInData(doc);
+    ts.developers = next;
+    ts.updatedAt = new Date();
+
+    doc.set("data.timesheet", ts);
+    doc.markModified("data");
+    await doc.save();
+
+    return res.json({ ticketKey, timesheet: ts });
+  } catch (err) {
+    console.error("PUT timesheet/developers error:", err);
+    return res.status(500).json({ error: "Erro ao salvar desenvolvedores" });
+  }
+});
+
+/**
  * GET /api/tickets/:ticketKey/automation
  * Retorna config de automação armazenada no ticket (data.automation)
  */

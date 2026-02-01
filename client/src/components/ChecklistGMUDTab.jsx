@@ -23,6 +23,8 @@ import {
   transitionToStatusName,
 } from "../lib/jira";
 
+import TimesheetPanel from "./TimesheetPanel";
+
 import {
   SCRIPTS_TAG,
   VARS_TAG,
@@ -71,6 +73,8 @@ import { buildGmudFinalSummary } from "../utils/gmudSummaryBuilder";
 import { notify } from "../utils/notify";
 
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { cn } from "@/lib/utils";
 import {
   RotateCw,
@@ -178,6 +182,8 @@ function ChecklistGMUDTab({
     toIdx: null,
   });
   const [advancingStep, setAdvancingStep] = useState(false);
+
+  const [kanbanView, setKanbanView] = useState("kanban"); // "kanban" | "timesheet"
 
   // --- Estados para Nova Tarefa Avulsa ---
   const makeCustomTaskModal = (patch = {}) => ({
@@ -2449,296 +2455,346 @@ function ChecklistGMUDTab({
             </details>
           </div>
 
-          {/* ===== Kanban UI Wrapper (Scroll Horizontal) ===== */}
-          <div
-            style={{
-              marginTop: 20,
-              overflowX: "auto",
-              paddingBottom: 10,
-              display: "flex",
-              gap: 16,
-              scrollbarWidth: "thin",
-            }}
-          >
-            {!kanbanCfg ? (
+          {/* ===== Kanban | Timesheet ===== */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 px-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">
+                Visão
+              </span>
+
+              <Tabs value={kanbanView} onValueChange={setKanbanView}>
+                <TabsList className="h-9 rounded-xl border border-zinc-200 bg-white shadow-sm">
+                  <TabsTrigger value="kanban" className="rounded-lg">
+                    Kanban
+                  </TabsTrigger>
+                  <TabsTrigger value="timesheet" className="rounded-lg">
+                    Timesheet
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+
+            <div className="text-xs text-zinc-500">
+              {kanbanView === "timesheet"
+                ? "Lançamentos ficam salvos no ticket."
+                : "Fluxo do Jira e subtarefas."}
+            </div>
+          </div>
+
+          {kanbanView === "kanban" ? (
+            <>
+              {/* ===== Kanban UI Wrapper (Scroll Horizontal) ===== */}
               <div
                 style={{
-                  border: "1px dashed #ccc",
-                  borderRadius: 12,
-                  padding: 30,
-                  background: "#fff",
-                  textAlign: "center",
-                  width: "100%",
+                  marginTop: 20,
+                  overflowX: "auto",
+                  paddingBottom: 10,
+                  display: "flex",
+                  gap: 16,
+                  scrollbarWidth: "thin",
                 }}
               >
-                <div style={{ fontWeight: 700, fontSize: 16 }}>
-                  Sem estrutura de Kanban
-                </div>
-                <p style={{ color: "#666", fontSize: 13 }}>
-                  Sincronize com o Jira para visualizar o fluxo.
-                </p>
-                <Button
-                  type="button"
-                  onClick={() => setBuilderOpen(true)}
-                  className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-                >
-                  <Layers3 className="mr-2 h-4 w-4" />
-                  Montar estrutura
-                </Button>
-              </div>
-            ) : (
-              getWorkflow().map((step, idx) => {
-                const stepKey = step.key;
-                const col = kanbanCfg.columns?.[stepKey];
-                const stat = computeStepPct(
-                  kanbanCfg,
-                  stepKey,
-                  jiraCtx?.subtasksBySummary || {}
-                );
-                const evCount = Number(evidenceCountsByStep?.[stepKey] || 0);
-
-                const isDone = idx < unlockedStepIdx;
-                const isActive = idx === unlockedStepIdx;
-                const isLocked = idx > unlockedStepIdx;
-                const hasNext = idx + 1 < getWorkflow().length;
-
-                const statusColor = isDone
-                  ? "#28a745"
-                  : isActive
-                  ? "#ee0000"
-                  : "#d1d1d1";
-
-                return (
+                {!kanbanCfg ? (
                   <div
-                    key={stepKey}
                     style={{
-                      flex: "0 0 280px",
-                      display: "flex",
-                      flexDirection: "column",
-                      opacity: isLocked ? 0.6 : 1,
+                      border: "1px dashed #ccc",
+                      borderRadius: 12,
+                      padding: 30,
+                      background: "#fff",
+                      textAlign: "center",
+                      width: "100%",
                     }}
                   >
-                    <div
-                      style={{
-                        padding: "0 4px 12px 4px",
-                        borderBottom: `2px solid ${
-                          isActive ? "#ee0000" : "#eee"
-                        }`,
-                        marginBottom: 12,
-                      }}
+                    <div style={{ fontWeight: 700, fontSize: 16 }}>
+                      Sem estrutura de Kanban
+                    </div>
+                    <p style={{ color: "#666", fontSize: 13 }}>
+                      Sincronize com o Jira para visualizar o fluxo.
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={() => setBuilderOpen(true)}
+                      className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                     >
+                      <Layers3 className="mr-2 h-4 w-4" />
+                      Montar estrutura
+                    </Button>
+                  </div>
+                ) : (
+                  getWorkflow().map((step, idx) => {
+                    const stepKey = step.key;
+                    const col = kanbanCfg.columns?.[stepKey];
+                    const stat = computeStepPct(
+                      kanbanCfg,
+                      stepKey,
+                      jiraCtx?.subtasksBySummary || {}
+                    );
+                    const evCount = Number(
+                      evidenceCountsByStep?.[stepKey] || 0
+                    );
+
+                    const isDone = idx < unlockedStepIdx;
+                    const isActive = idx === unlockedStepIdx;
+                    const isLocked = idx > unlockedStepIdx;
+                    const hasNext = idx + 1 < getWorkflow().length;
+
+                    const statusColor = isDone
+                      ? "#28a745"
+                      : isActive
+                      ? "#ee0000"
+                      : "#d1d1d1";
+
+                    return (
                       <div
+                        key={stepKey}
                         style={{
+                          flex: "0 0 280px",
                           display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 10,
+                          flexDirection: "column",
+                          opacity: isLocked ? 0.6 : 1,
                         }}
                       >
                         <div
                           style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                          }}
-                        >
-                          <i
-                            className={step.icon}
-                            style={{ color: statusColor, fontSize: 14 }}
-                          />
-                          <span
-                            style={{
-                              fontWeight: 800,
-                              fontSize: 13,
-                              textTransform: "uppercase",
-                              letterSpacing: "0.5px",
-                            }}
-                          >
-                            {step.title}
-                          </span>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                          }}
-                        >
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 6,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: "#666",
-                            }}
-                            title={`Evidências registradas no step: ${evCount}`}
-                          >
-                            <Paperclip className="h-3.5 w-3.5" />
-                            {evCount}
-                          </span>
-
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: statusColor,
-                            }}
-                          >
-                            {isDone ? "CONCLUÍDO" : `${stat.pct}%`}
-                          </span>
-                        </div>
-                      </div>
-
-                      {isActive && stat.complete && (
-                        <button
-                          type="button"
-                          className="primary"
-                          style={{
-                            width: "100%",
-                            marginTop: 8,
-                            padding: "4px 8px",
-                            fontSize: 11,
-                            borderRadius: 6,
-                          }}
-                          disabled={!jiraCtx || advancingStep}
-                          onClick={() =>
-                            openStepGate(
-                              idx,
-                              hasNext ? idx + 1 : getWorkflow().length
-                            )
-                          }
-                        >
-                          {hasNext ? `Liberar Próximo` : "Finalizar"}
-                        </button>
-                      )}
-                    </div>
-
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {(col?.cards || []).map((card) => (
-                        <div
-                          key={card.id}
-                          style={{
-                            background: "#fff",
-                            border: "1px solid #e1e1e1",
-                            borderLeft: `4px solid ${statusColor}`,
-                            borderRadius: "4px 8px 8px 4px",
-                            padding: "10px 12px",
-                            transition: "transform 0.2s",
+                            padding: "0 4px 12px 4px",
+                            borderBottom: `2px solid ${
+                              isActive ? "#ee0000" : "#eee"
+                            }`,
+                            marginBottom: 12,
                           }}
                         >
                           <div
                             style={{
-                              fontWeight: 700,
-                              fontSize: 13,
-                              color: "#333",
-                              marginBottom: 6,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
                             }}
                           >
-                            {card.title}
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <i
+                                className={step.icon}
+                                style={{ color: statusColor, fontSize: 14 }}
+                              />
+                              <span
+                                style={{
+                                  fontWeight: 800,
+                                  fontSize: 13,
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.5px",
+                                }}
+                              >
+                                {step.title}
+                              </span>
+                            </div>
+
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: "#666",
+                                }}
+                                title={`Evidências registradas no step: ${evCount}`}
+                              >
+                                <Paperclip className="h-3.5 w-3.5" />
+                                {evCount}
+                              </span>
+
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: statusColor,
+                                }}
+                              >
+                                {isDone ? "CONCLUÍDO" : `${stat.pct}%`}
+                              </span>
+                            </div>
                           </div>
 
-                          <div style={{ display: "grid", gap: 4 }}>
-                            {(card.subtasks || []).map((st) => {
-                              const summary = buildKanbanSummary({
-                                stepTitle: col.title,
-                                cardTitle: card.title,
-                                subTitle: st.title,
-                              });
-                              const mapKey = normalizeKey(summary);
-                              const jira = jiraCtx?.subtasksBySummary?.[mapKey];
-                              const checked = jira ? isDoneStatus(jira) : false;
-
-                              return (
-                                <label
-                                  key={st.id}
-                                  style={{
-                                    display: "flex",
-                                    gap: 8,
-                                    alignItems: "flex-start",
-                                    fontSize: 12,
-                                    cursor: isActive ? "pointer" : "default",
-                                    color: checked ? "#999" : "#444",
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    disabled={!isActive}
-                                    onChange={() =>
-                                      onToggleKanbanSubtask(
-                                        stepKey,
-                                        card.id,
-                                        st.id
-                                      )
-                                    }
-                                    style={{
-                                      marginTop: 2,
-                                      accentColor: "#ee0000",
-                                    }}
-                                  />
-                                  <span
-                                    style={{
-                                      textDecoration: checked
-                                        ? "line-through"
-                                        : "none",
-                                    }}
-                                  >
-                                    {st.title}
-                                  </span>
-                                </label>
-                              );
-                            })}
-                          </div>
+                          {isActive && stat.complete && (
+                            <button
+                              type="button"
+                              className="primary"
+                              style={{
+                                width: "100%",
+                                marginTop: 8,
+                                padding: "4px 8px",
+                                fontSize: 11,
+                                borderRadius: 6,
+                              }}
+                              disabled={!jiraCtx || advancingStep}
+                              onClick={() =>
+                                openStepGate(
+                                  idx,
+                                  hasNext ? idx + 1 : getWorkflow().length
+                                )
+                              }
+                            >
+                              {hasNext ? `Liberar Próximo` : "Finalizar"}
+                            </button>
+                          )}
                         </div>
-                      ))}
 
-                      {!(col?.cards || []).length && (
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: "#999",
-                            textAlign: "center",
-                            padding: 10,
-                            border: "1px dashed #eee",
-                          }}
-                        >
-                          Nenhuma subtarefa
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {(col?.cards || []).map((card) => (
+                            <div
+                              key={card.id}
+                              style={{
+                                background: "#fff",
+                                border: "1px solid #e1e1e1",
+                                borderLeft: `4px solid ${statusColor}`,
+                                borderRadius: "4px 8px 8px 4px",
+                                padding: "10px 12px",
+                                transition: "transform 0.2s",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontWeight: 700,
+                                  fontSize: 13,
+                                  color: "#333",
+                                  marginBottom: 6,
+                                }}
+                              >
+                                {card.title}
+                              </div>
+
+                              <div style={{ display: "grid", gap: 4 }}>
+                                {(card.subtasks || []).map((st) => {
+                                  const summary = buildKanbanSummary({
+                                    stepTitle: col.title,
+                                    cardTitle: card.title,
+                                    subTitle: st.title,
+                                  });
+                                  const mapKey = normalizeKey(summary);
+                                  const jira =
+                                    jiraCtx?.subtasksBySummary?.[mapKey];
+                                  const checked = jira
+                                    ? isDoneStatus(jira)
+                                    : false;
+
+                                  return (
+                                    <label
+                                      key={st.id}
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        alignItems: "flex-start",
+                                        fontSize: 12,
+                                        cursor: isActive
+                                          ? "pointer"
+                                          : "default",
+                                        color: checked ? "#999" : "#444",
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={!isActive}
+                                        onChange={() =>
+                                          onToggleKanbanSubtask(
+                                            stepKey,
+                                            card.id,
+                                            st.id
+                                          )
+                                        }
+                                        style={{
+                                          marginTop: 2,
+                                          accentColor: "#ee0000",
+                                        }}
+                                      />
+                                      <span
+                                        style={{
+                                          textDecoration: checked
+                                            ? "line-through"
+                                            : "none",
+                                        }}
+                                      >
+                                        {st.title}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+
+                          {!(col?.cards || []).length && (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "#999",
+                                textAlign: "center",
+                                padding: 10,
+                                border: "1px dashed #eee",
+                              }}
+                            >
+                              Nenhuma subtarefa
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    {isActive && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCustomTaskModal(
-                            makeCustomTaskModal({ open: true, stepKey })
-                          )
-                        }
-                        style={{
-                          width: "100%",
-                          padding: "10px",
-                          marginTop: "12px",
-                          background: "transparent",
-                          border: "1px dashed #ccc",
-                          borderRadius: "8px",
-                          color: "#666",
-                          cursor: "pointer",
-                          fontSize: "13px",
-                        }}
-                      >
-                        <i className="fas fa-plus" style={{ marginRight: 8 }} />
-                        Adicionar tarefa à parte
-                      </button>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
+                        {isActive && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCustomTaskModal(
+                                makeCustomTaskModal({ open: true, stepKey })
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              padding: "10px",
+                              marginTop: "12px",
+                              background: "transparent",
+                              border: "1px dashed #ccc",
+                              borderRadius: "8px",
+                              color: "#666",
+                              cursor: "pointer",
+                              fontSize: "13px",
+                            }}
+                          >
+                            <i
+                              className="fas fa-plus"
+                              style={{ marginRight: 8 }}
+                            />
+                            Adicionar tarefa à parte
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          ) : (
+            <div style={{ marginTop: 20 }}>
+              <TimesheetPanel
+                ticketKey={
+                  jiraCtx?.ticketKey || String(ticketJira || "").trim()
+                }
+                kanbanCfg={kanbanCfg}
+                jiraCtx={jiraCtx}
+              />
+            </div>
+          )}
 
           {/* ===== Tabs ===== */}
           <div
