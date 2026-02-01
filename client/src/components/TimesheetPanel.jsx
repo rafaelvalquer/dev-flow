@@ -41,6 +41,7 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -186,6 +187,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
   const [periodMode, setPeriodMode] = useState("week"); // 'day' | 'week'
   const [anchorDate, setAnchorDate] = useState(today);
   const [devFilter, setDevFilter] = useState("all"); // 'all' | devId
+  const [chartMode, setChartMode] = useState("dev"); // 'dev' | 'task'
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -277,6 +279,46 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
     return m;
   }, [entries]);
 
+  const colors = [
+    "#ef4444", // red
+    "#f97316", // orange
+    "#eab308", // yellow
+    "#22c55e", // green
+    "#14b8a6", // teal
+    "#3b82f6", // blue
+    "#6366f1", // indigo
+    "#8b5cf6", // violet
+    "#ec4899", // pink
+    "#f43f5e", // rose
+  ];
+
+  const devColorMap = useMemo(() => {
+    const map = new Map();
+    developers.forEach((dev, index) => {
+      map.set(dev.id, colors[index % colors.length]);
+    });
+    return map;
+  }, [developers]);
+
+  const taskColorMap = useMemo(() => {
+    const map = new Map();
+    tasks.forEach((task, index) => {
+      map.set(task.taskKey, colors[index % colors.length]);
+    });
+    return map;
+  }, [tasks]);
+
+  const totalsByDay = useMemo(() => {
+    const map = {};
+    for (const iso of days) map[iso] = 0;
+
+    for (const e of entries) {
+      const d = String(e?.date || "");
+      if (map[d] != null) map[d] += Number(e?.hours || 0);
+    }
+    return map;
+  }, [entries, days]);
+
   const totalsByDev = useMemo(() => {
     const map = new Map();
     for (const d of developers) map.set(d.id, 0);
@@ -294,14 +336,6 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
     return list;
   }, [developers, entries]);
 
-  const totalsByDay = useMemo(() => {
-    const map = {};
-    for (const iso of days) map[iso] = 0;
-    for (const e of entries)
-      if (map[e.date] != null) map[e.date] += Number(e?.hours || 0);
-    return map;
-  }, [entries, days]);
-
   const totalsByTask = useMemo(() => {
     const map = new Map(tasks.map((t) => [t.taskKey, 0]));
     for (const e of timesheet.entries || []) {
@@ -310,14 +344,21 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
         map.set(tk, map.get(tk) + Number(e.hours || 0));
       }
     }
-    return map;
+    const list = Array.from(map.entries()).map(([taskKey, hours]) => ({
+      taskKey,
+      name: tasks.find((t) => t.taskKey === taskKey)?.title || taskKey,
+      hours,
+    }));
+    list.sort((a, b) => b.hours - a.hours);
+    return list;
   }, [timesheet.entries, tasks]);
 
   const taskProgressData = useMemo(() => {
     return tasks
       .map((t) => {
         const est = parseHours(timesheet.estimates[t.taskKey] || 0);
-        const act = totalsByTask.get(t.taskKey) || 0;
+        const act =
+          totalsByTask.find((item) => item.taskKey === t.taskKey)?.hours || 0;
         const percent = est > 0 ? (act / est) * 100 : 0;
         return {
           name: t.title,
@@ -450,22 +491,13 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
 
   const canEdit = devFilter !== "all";
 
-  const colors = [
-    "#ef4444",
-    "#f97316",
-    "#eab308",
-    "#22c55e",
-    "#14b8a6",
-    "#3b82f6",
-    "#6366f1",
-    "#8b5cf6",
-    "#ec4899",
-  ];
-
-  const chartHeight = Math.min(
-    600,
-    Math.max(200, taskProgressData.length * 30)
+  const summaryChartHeight = Math.max(
+    200,
+    (chartMode === "dev" ? totalsByDev.length : totalsByTask.length) * 30 + 50
   );
+  const progressChartHeight = Math.max(200, taskProgressData.length * 30 + 50);
+
+  const summaryData = chartMode === "dev" ? totalsByDev : totalsByTask;
 
   return (
     <TooltipProvider>
@@ -597,7 +629,12 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                           devFilter === d.id && "border-red-200 bg-red-50"
                         )}
                       >
-                        <div className="grid h-7 w-7 place-items-center rounded-lg bg-white text-xs font-bold text-zinc-700 shadow-sm">
+                        <div
+                          className="grid h-7 w-7 place-items-center rounded-lg text-xs font-bold text-white shadow-sm"
+                          style={{
+                            backgroundColor: devColorMap.get(d.id) || "#6b7280",
+                          }}
+                        >
                           {String(d.name || "?")
                             .trim()
                             .slice(0, 1)
@@ -622,28 +659,55 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
               <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <div className="text-sm font-semibold text-zinc-900">
-                    Horas por dev (período)
+                    Horas {chartMode === "dev" ? "por dev" : "por tarefa"}{" "}
+                    (período)
                   </div>
-                  <div className="text-xs text-zinc-500">
-                    Total: {totalPeriodHours.toFixed(2).replace(/\.00$/, "")}h
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs text-zinc-500">
+                      Total: {totalPeriodHours.toFixed(2).replace(/\.00$/, "")}h
+                    </div>
+                    <Tabs value={chartMode} onValueChange={setChartMode}>
+                      <TabsList className="h-9 rounded-xl border border-zinc-200 bg-white">
+                        <TabsTrigger value="dev" className="rounded-lg text-xs">
+                          Por Dev
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="task"
+                          className="rounded-lg text-xs"
+                        >
+                          Por Tarefa
+                        </TabsTrigger>
+                      </TabsList>
+                    </Tabs>
                   </div>
                 </div>
 
-                <div className="h-[200px] w-full">
+                <div
+                  className="w-full"
+                  style={{ height: `${summaryChartHeight}px` }}
+                >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={totalsByDev}
+                      data={summaryData}
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 11 }} />
                       <ReTooltip />
-                      <Bar
-                        dataKey="hours"
-                        fill={(entry, index) => colors[index % colors.length]}
-                        radius={[4, 4, 0, 0]}
-                      />
+
+                      <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
+                        {summaryData.map((entry, i) => (
+                          <Cell
+                            key={entry.devId || entry.taskKey || i}
+                            fill={
+                              chartMode === "dev"
+                                ? devColorMap.get(entry.devId) || "#8884d8"
+                                : taskColorMap.get(entry.taskKey) || "#8884d8"
+                            }
+                          />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -665,7 +729,10 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                   Defina estimativas nas tarefas para ver o progresso.
                 </div>
               ) : (
-                <div className="w-full" style={{ height: `${chartHeight}px` }}>
+                <div
+                  className="w-full"
+                  style={{ height: `${progressChartHeight}px` }}
+                >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       layout="vertical"
@@ -748,7 +815,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
               </div>
             ) : (
               <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
-                <table className="min-w-[980px] w-full text-sm">
+                <table className="min-w-[980px] w-full text-sm border-collapse">
                   <thead className="bg-zinc-50">
                     <tr className="border-b border-zinc-200">
                       <th className="p-3 text-left font-semibold text-zinc-700">
@@ -773,12 +840,22 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                       <th className="p-3 text-center font-semibold text-zinc-700 w-[120px]">
                         Total
                       </th>
+                      <th className="p-3 text-center font-semibold text-zinc-700 w-[120px]">
+                        Progresso
+                      </th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {tasks.map((t) => {
                       const rowTotal = sumTask(t.taskKey, days);
+                      const est = parseHours(
+                        timesheet.estimates[t.taskKey] || 0
+                      );
+                      const act =
+                        totalsByTask.find((item) => item.taskKey === t.taskKey)
+                          ?.hours || 0;
+                      const percent = est > 0 ? (act / est) * 100 : 0;
                       return (
                         <tr
                           key={t.taskKey}
@@ -900,6 +977,26 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                               ? rowTotal.toFixed(2).replace(/\.00$/, "")
                               : "0"}
                           </td>
+                          <td className="p-3 align-top">
+                            <div className="relative h-4 w-full rounded bg-zinc-200 overflow-hidden">
+                              <div
+                                className="absolute left-0 top-0 h-full bg-green-500"
+                                style={{ width: `${Math.min(100, percent)}%` }}
+                              />
+                              <div
+                                className="absolute left-[100%] top-0 h-full bg-red-500"
+                                style={{
+                                  transform: `translateX(-${Math.max(
+                                    0,
+                                    percent - 100
+                                  )}%)`,
+                                }}
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-white mix-blend-difference">
+                                {percent.toFixed(0)}%
+                              </div>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })}
@@ -922,6 +1019,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                       <td className="p-3 text-center font-semibold text-zinc-900">
                         {totalPeriodHours.toFixed(2).replace(/\.00$/, "")}
                       </td>
+                      <td className="p-3 text-zinc-600"></td>
                     </tr>
                   </tbody>
                 </table>
