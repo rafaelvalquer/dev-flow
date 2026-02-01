@@ -5,6 +5,9 @@ import React, {
   useRef,
   useState,
 } from "react";
+
+import { motion } from "framer-motion";
+
 import ReactFlow, {
   Background,
   Controls,
@@ -237,6 +240,12 @@ export default function AutomationTool() {
   const [showActivities, setShowActivities] = useState(true);
 
   const [wideFlow, setWideFlow] = useState(false);
+
+  // Animação suave quando muda entre "layout normal" e "tela ampla"
+  const layoutSpring = useMemo(
+    () => ({ type: "spring", stiffness: 260, damping: 30, mass: 0.6 }),
+    []
+  );
 
   const [templatesOpen, setTemplatesOpen] = useState(true);
 
@@ -957,12 +966,13 @@ export default function AutomationTool() {
 
   return (
     <ReactFlowProvider>
-      <div className="grid gap-4">
+      <motion.div layout className="grid gap-4" transition={layoutSpring}>
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <Badge className="border border-red-200 bg-red-50 text-red-700">
               Automação
             </Badge>
+
             {ticketKey ? (
               <span className="text-sm text-zinc-700">
                 Ticket selecionado:{" "}
@@ -984,6 +994,7 @@ export default function AutomationTool() {
             >
               Validar
             </Button>
+
             <Button
               variant="outline"
               className="rounded-xl"
@@ -1028,200 +1039,238 @@ export default function AutomationTool() {
           </div>
         ) : null}
 
-        <div
+        <motion.div
+          layout
+          transition={layoutSpring}
           className={cn(
-            "grid grid-cols-1 gap-4",
-            wideFlow ? null : "lg:grid-cols-[320px_1fr_360px]"
+            "grid grid-cols-1 gap-4 lg:items-start",
+            wideFlow
+              ? "lg:grid-cols-[0px_1fr_0px]"
+              : "lg:grid-cols-[320px_1fr_360px]"
           )}
         >
           {/* LEFT */}
-          <Card className="rounded-2xl border-zinc-200">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Tickets</CardTitle>
-              <div className="mt-2">
-                <Input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Buscar por key, resumo, status…"
-                  className="rounded-xl"
-                />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-zinc-600">
-                <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
-                  {loadingTickets
-                    ? "Carregando…"
-                    : `${filteredTickets.length} tickets`}
-                </span>
-                <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
-                  Subtarefas: {entityCount.st}
-                </span>
-                <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
-                  Atividades: {entityCount.ac}
-                </span>
-              </div>
-            </CardHeader>
+          <motion.div
+            layout
+            transition={layoutSpring}
+            initial={false}
+            animate={{
+              opacity: wideFlow ? 0 : 1,
+              x: wideFlow ? -12 : 0,
+            }}
+            className={cn(
+              "min-w-0",
+              wideFlow && "pointer-events-none overflow-hidden"
+            )}
+          >
+            <Card className="rounded-2xl border-zinc-200">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Tickets</CardTitle>
 
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
-                  <input
-                    type="checkbox"
-                    checked={showSubtasks}
-                    onChange={(e) => setShowSubtasks(e.target.checked)}
+                <div className="mt-2">
+                  <Input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Buscar por key, resumo, status…"
+                    className="rounded-xl"
                   />
-                  Subtarefas
-                </label>
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
-                  <input
-                    type="checkbox"
-                    checked={showActivities}
-                    onChange={(e) => setShowActivities(e.target.checked)}
-                  />
-                  Atividades
-                </label>
-              </div>
-
-              <Separator />
-
-              <div className="max-h-[36vh] overflow-auto pr-1">
-                <div className="space-y-2">
-                  {filteredTickets.map((t) => {
-                    const tk = normalizeTicketKey(t.ticketKey || t.key);
-                    const active = tk && tk === ticketKey;
-                    return (
-                      <button
-                        key={tk}
-                        type="button"
-                        onClick={() => selectTicket(t)}
-                        className={cn(
-                          "w-full rounded-2xl border px-3 py-2 text-left transition",
-                          "hover:bg-zinc-50",
-                          active
-                            ? "border-red-200 bg-red-50"
-                            : "border-zinc-200 bg-white"
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-zinc-900">
-                              {tk}
-                            </div>
-                            <div className="mt-0.5 line-clamp-2 text-xs text-zinc-600">
-                              {t.summary || "—"}
-                            </div>
-                          </div>
-                          {t.status ? (
-                            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] text-zinc-700">
-                              {t.status}
-                            </span>
-                          ) : null}
-                        </div>
-                      </button>
-                    );
-                  })}
                 </div>
-              </div>
 
-              <Separator />
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-zinc-600">
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
+                    {loadingTickets
+                      ? "Carregando…"
+                      : `${filteredTickets.length} tickets`}
+                  </span>
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
+                    Subtarefas: {entityCount.st}
+                  </span>
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
+                    Atividades: {entityCount.ac}
+                  </span>
+                </div>
+              </CardHeader>
 
-              <div>
+              <CardContent className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-zinc-900">
-                    Templates
-                  </div>
+                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                    <input
+                      type="checkbox"
+                      checked={showSubtasks}
+                      onChange={(e) => setShowSubtasks(e.target.checked)}
+                    />
+                    Subtarefas
+                  </label>
 
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 rounded-xl px-2"
-                    onClick={() => setTemplatesOpen((v) => !v)}
-                    aria-expanded={templatesOpen}
-                    title={
-                      templatesOpen
-                        ? "Recolher templates"
-                        : "Expandir templates"
-                    }
-                  >
-                    {templatesOpen ? (
-                      <ChevronUp className="h-4 w-4 text-zinc-600" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-zinc-600" />
-                    )}
-                  </Button>
+                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                    <input
+                      type="checkbox"
+                      checked={showActivities}
+                      onChange={(e) => setShowActivities(e.target.checked)}
+                    />
+                    Atividades
+                  </label>
                 </div>
 
-                {templatesOpen ? (
-                  <>
-                    <div className="mt-2">
-                      <AutomationTemplates
-                        onPickTemplate={(p) => onPickTemplate(p)}
-                      />
+                <Separator />
+
+                <div className="max-h-[36vh] overflow-auto pr-1">
+                  <div className="space-y-2">
+                    {filteredTickets.map((t) => {
+                      const tk = normalizeTicketKey(t.ticketKey || t.key);
+                      const active = tk && tk === ticketKey;
+
+                      return (
+                        <button
+                          key={tk}
+                          type="button"
+                          onClick={() => selectTicket(t)}
+                          className={cn(
+                            "w-full rounded-2xl border px-3 py-2 text-left transition",
+                            "hover:bg-zinc-50",
+                            active
+                              ? "border-red-200 bg-red-50"
+                              : "border-zinc-200 bg-white"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-zinc-900">
+                                {tk}
+                              </div>
+                              <div className="mt-0.5 line-clamp-2 text-xs text-zinc-600">
+                                {t.summary || "—"}
+                              </div>
+                            </div>
+
+                            {t.status ? (
+                              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] text-zinc-700">
+                                {t.status}
+                              </span>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-zinc-900">
+                      Templates
                     </div>
 
-                    <div className="mt-2 text-[11px] text-zinc-600">
-                      Dica: você pode{" "}
-                      <span className="font-semibold">arrastar</span> um
-                      template para o canvas.
-                    </div>
-                  </>
-                ) : (
-                  <div className="mt-2 text-[11px] text-zinc-500">
-                    Lista de templates recolhida.
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 rounded-xl px-2"
+                      onClick={() => setTemplatesOpen((v) => !v)}
+                      aria-expanded={templatesOpen}
+                      title={
+                        templatesOpen
+                          ? "Recolher templates"
+                          : "Expandir templates"
+                      }
+                    >
+                      {templatesOpen ? (
+                        <ChevronUp className="h-4 w-4 text-zinc-600" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-zinc-600" />
+                      )}
+                    </Button>
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+
+                  {templatesOpen ? (
+                    <>
+                      <div className="mt-2">
+                        <AutomationTemplates
+                          onPickTemplate={(p) => onPickTemplate(p)}
+                        />
+                      </div>
+
+                      <div className="mt-2 text-[11px] text-zinc-600">
+                        Dica: você pode{" "}
+                        <span className="font-semibold">arrastar</span> um
+                        template para o canvas.
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-2 text-[11px] text-zinc-500">
+                      Lista de templates recolhida.
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
 
           {/* CENTER */}
-          <Card className="rounded-2xl border-zinc-200">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-base">Flow</CardTitle>
-                {loadingTicketData ? (
-                  <span className="text-sm text-zinc-600">
-                    Carregando ticket…
-                  </span>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="h-[70vh] min-h-[520px]">
-              {!ticketKey ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
-                  Selecione um ticket na esquerda para carregar
-                  subtarefas/atividades e montar automações.
+          <motion.div layout transition={layoutSpring} className="min-w-0">
+            <Card className="rounded-2xl border-zinc-200">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-base">Flow</CardTitle>
+                  {loadingTicketData ? (
+                    <span className="text-sm text-zinc-600">
+                      Carregando ticket…
+                    </span>
+                  ) : null}
                 </div>
-              ) : (
-                <FlowCanvas
-                  nodes={nodes}
-                  edges={edges}
-                  nodeTypes={nodeTypes}
-                  setNodes={setNodes}
-                  setEdges={setEdges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  onSelectionChange={({ nodes: selNodes } = {}) =>
-                    setSelectedNodeId(selNodes?.[0]?.id || null)
-                  }
-                  onDropTemplate={onDropTemplate}
-                  onConnectHook={onConnectHook}
-                />
-              )}
+              </CardHeader>
 
-              {dryRunResult ? (
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-800">
-                  <div className="font-semibold">Dry-run</div>
-                  <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-zinc-50 p-3 text-[11px]">
-                    {JSON.stringify(dryRunResult, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
+              <CardContent className="h-[70vh] min-h-[520px]">
+                {!ticketKey ? (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
+                    Selecione um ticket na esquerda para carregar
+                    subtarefas/atividades e montar automações.
+                  </div>
+                ) : (
+                  <FlowCanvas
+                    nodes={nodes}
+                    edges={edges}
+                    nodeTypes={nodeTypes}
+                    setNodes={setNodes}
+                    setEdges={setEdges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onSelectionChange={({ nodes: selNodes } = {}) =>
+                      setSelectedNodeId(selNodes?.[0]?.id || null)
+                    }
+                    onDropTemplate={onDropTemplate}
+                    onConnectHook={onConnectHook}
+                  />
+                )}
+
+                {dryRunResult ? (
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-800">
+                    <div className="font-semibold">Dry-run</div>
+                    <pre className="mt-2 max-h-[220px] overflow-auto rounded-xl bg-zinc-50 p-3 text-[11px]">
+                      {JSON.stringify(dryRunResult, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </motion.div>
 
           {/* RIGHT */}
-          <div className="space-y-4">
+          <motion.div
+            layout
+            transition={layoutSpring}
+            initial={false}
+            animate={{
+              opacity: wideFlow ? 0 : 1,
+              x: wideFlow ? 12 : 0,
+            }}
+            className={cn(
+              "space-y-4 min-w-0",
+              wideFlow && "pointer-events-none overflow-hidden"
+            )}
+          >
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-sm font-semibold text-zinc-900">
@@ -1260,9 +1309,9 @@ export default function AutomationTool() {
                 </li>
               </ul>
             </div>
-          </div>
-        </div>
-      </div>
+          </motion.div>
+        </motion.div>
+      </motion.div>
     </ReactFlowProvider>
   );
 }
