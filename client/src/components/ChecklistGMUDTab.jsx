@@ -1635,11 +1635,9 @@ function ChecklistGMUDTab({
         selectedByStepKey,
       });
 
-      // step default evidência
       const wf = cfg?.workflow || DEFAULT_KANBAN_WORKFLOW;
       setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
 
-      // cria subtasks do step 0 (manual)
       const ensured = await ensureSubtasksForStep({
         cfg,
         stepIdx: 0,
@@ -1652,24 +1650,39 @@ function ChecklistGMUDTab({
 
       cfg = ensured.nextCfg;
 
-      const saved = await upsertKanbanConfigDb({
-        ticketKey: jiraCtx.ticketKey,
-        config: cfg,
-        data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
-        jira: { projectId: jiraCtx.projectId },
-      });
+      // ✅ Tenta salvar no Mongo, mas NÃO depende disso para renderizar
+      let saved = null;
+      try {
+        saved = await upsertKanbanConfigDb({
+          ticketKey: jiraCtx.ticketKey,
+          config: cfg,
+          data: { nomeProjeto, numeroGMUD, ticketJira: jiraCtx.ticketKey },
+          jira: { projectId: jiraCtx.projectId },
+        });
+      } catch (e) {
+        notify.warning("Kanban criado no Jira, mas falha ao salvar no banco.", {
+          description: e?.message || String(e),
+        });
+      }
 
-      setKanbanCfg(
-        applyJiraStatusesToConfig(saved.savedConfig, ensured.nextMap)
-      );
-      setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
-      setUnlockedStepIdx(saved.savedConfig.unlockedStepIdx || 0);
+      // ✅ Normaliza o config final (fallback para cfg local)
+      const savedCfg =
+        saved?.savedConfig || saved?.config || saved?.kanban?.config || cfg;
+
+      const savedText = saved?.savedText || JSON.stringify(savedCfg, null, 2);
+
+      setKanbanCfg(applyJiraStatusesToConfig(savedCfg, ensured.nextMap));
+      setKanbanComment({
+        id: saved?.ticketId || jiraCtx.ticketKey,
+        originalText: savedText,
+      });
+      setUnlockedStepIdx(savedCfg.unlockedStepIdx || 0);
 
       setJiraCtx((prev) => ({ ...prev, subtasksBySummary: ensured.nextMap }));
 
       showSyncOverlay({
         title: "Estrutura criada",
-        message: "Kanban configurado no ticket e step inicial liberado.",
+        message: "Kanban configurado e step inicial liberado.",
         done: true,
         created: ensured.created || [],
       });

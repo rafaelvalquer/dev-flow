@@ -66,7 +66,7 @@ router.put("/:key", async (req, res) => {
   const doc = await Ticket.findOneAndUpdate(
     { ticketKey },
     { $set: update },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { new: true, upsert: true, setDefaultsOnInsert: true },
   ).lean();
 
   res.json({ ticketId: doc._id, ticketKey: doc.ticketKey });
@@ -79,12 +79,21 @@ router.get("/:key/kanban", async (req, res) => {
   const ticketKey = normKey(req.params.key);
   const doc = await Ticket.findOne({ ticketKey }).select({ kanban: 1 }).lean();
 
-  if (!doc?.kanban?.config) {
+  if (!doc) {
     return res.json({
       found: false,
       ticketId: null,
       config: null,
       updatedAt: null,
+    });
+  }
+
+  if (!doc?.kanban?.config) {
+    return res.json({
+      found: false,
+      ticketId: doc._id,
+      config: null,
+      updatedAt: doc?.kanban?.updatedAt || null,
     });
   }
 
@@ -109,17 +118,19 @@ router.put("/:key/kanban", async (req, res) => {
       .json({ error: "Body inválido: config é obrigatório." });
   }
 
+  const now = new Date();
   const cfg = {
     ...config,
-    ticketKey, // força consistência
+    ticketKey,
+    updatedAt: now.getTime(),
   };
 
-  const now = new Date();
   const update = {
     ticketKey,
     "kanban.config": cfg,
     "kanban.updatedAt": now,
     "kanban.version": Number(cfg.version || 1),
+    updatedAt: now,
   };
 
   if (jiraBody && typeof jiraBody === "object") update.jira = jiraBody;
@@ -128,7 +139,7 @@ router.put("/:key/kanban", async (req, res) => {
   const doc = await Ticket.findOneAndUpdate(
     { ticketKey },
     { $set: update },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { new: true, upsert: true, setDefaultsOnInsert: true },
   ).lean();
 
   res.json({
@@ -236,7 +247,7 @@ router.put("/:key/timesheet", async (req, res) => {
       (e) =>
         e?.devId === safeDevId &&
         e?.taskKey === safeTaskKey &&
-        e?.date === safeDate
+        e?.date === safeDate,
     );
 
     // hours=0 => remove
@@ -386,7 +397,7 @@ router.put("/:ticketKey/automation", async (req, res) => {
     const doc = await Ticket.findOneAndUpdate(
       { ticketKey: tk },
       { $setOnInsert: { ticketKey: tk } },
-      { new: true, upsert: true, setDefaultsOnInsert: true }
+      { new: true, upsert: true, setDefaultsOnInsert: true },
     );
 
     // Garante estrutura
@@ -408,7 +419,7 @@ router.put("/:ticketKey/automation", async (req, res) => {
           ? body.graph
           : current.graph || {},
       version: Number(
-        body.version !== undefined ? body.version : current.version || 1
+        body.version !== undefined ? body.version : current.version || 1,
       ),
       updatedAt: new Date(),
     };

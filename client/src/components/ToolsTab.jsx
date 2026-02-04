@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 
 import AutomationTool from "@/components/tools/AutomationTool";
 
-import { Wrench, Mic, Sparkles, FileText, Settings2 } from "lucide-react";
+import { Wrench, Mic, Sparkles, Workflow, Settings2 } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
@@ -44,7 +44,7 @@ const TOOL_DEFS = [
     id: "automacao",
     title: "Automação",
     desc: "Crie fluxos de automação por ticket (gatilhos → ações) com ReactFlow.",
-    icon: FileText,
+    icon: Workflow,
     status: "ativo",
   },
   {

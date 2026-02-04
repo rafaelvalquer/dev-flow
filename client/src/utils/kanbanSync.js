@@ -56,7 +56,7 @@ export function buildJiraSubtaskSummary({
 
 export function getWorkflowIndex(workflow, stepKey) {
   return (workflow || DEFAULT_KANBAN_WORKFLOW).findIndex(
-    (s) => s.key === stepKey
+    (s) => s.key === stepKey,
   );
 }
 
@@ -72,7 +72,7 @@ export function buildTicketKanbanConfig({
   const wf = workflow && workflow.length ? workflow : DEFAULT_KANBAN_WORKFLOW;
 
   const libById = Object.fromEntries(
-    (DEFAULT_KANBAN_LIBRARY || []).map((c) => [c.id, c])
+    (DEFAULT_KANBAN_LIBRARY || []).map((c) => [c.id, c]),
   );
 
   const columns = {};
@@ -120,8 +120,19 @@ export function buildTicketKanbanConfig({
   };
 }
 
-export function applyJiraStatusesToConfig(cfg, subtasksBySummary) {
+export function applyJiraStatusesToConfig(cfgInput, subtasksBySummary) {
   const map = subtasksBySummary || {};
+
+  // ✅ aceita vários formatos e evita crash
+  const cfg =
+    cfgInput?.savedConfig ||
+    cfgInput?.config ||
+    cfgInput?.kanban?.config ||
+    cfgInput?.ticket?.kanban?.config ||
+    cfgInput;
+
+  if (!cfg || !cfg.columns) return cfg; // <-- guarda
+
   const next = structuredClone
     ? structuredClone(cfg)
     : JSON.parse(JSON.stringify(cfg));
@@ -381,10 +392,13 @@ export async function ensureSubtasksForStep({
 ========================= */
 
 async function apiJson(url, options = {}) {
+  const hasBody = options.body != null;
+
   const r = await fetch(url, {
     ...options,
     headers: {
       Accept: "application/json",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
       ...(options.headers || {}),
     },
   });
@@ -409,28 +423,40 @@ async function apiJson(url, options = {}) {
   return data;
 }
 
-export async function getKanbanConfigFromDb(ticketKey) {
-  const tk = String(ticketKey || "")
-    .trim()
-    .toUpperCase();
-  if (!tk) return { found: false, config: null, ticketId: null };
-
-  return apiJson(`/api/tickets/${encodeURIComponent(tk)}/kanban`, {
-    method: "GET",
-  });
+function pickConfigFromPayload(payload, fallback = null) {
+  return (
+    payload?.savedConfig ||
+    payload?.config ||
+    payload?.kanban?.config ||
+    payload?.ticket?.kanban?.config ||
+    fallback
+  );
 }
 
-export async function upsertKanbanConfigDb({ ticketKey, config }) {
-  const tk = String(ticketKey || "")
-    .trim()
-    .toUpperCase();
-  if (!tk) throw new Error("ticketKey é obrigatório.");
+export async function getKanbanConfigFromDb(ticketKey) {
+  const payload = await apiJson(
+    `/api/tickets/${encodeURIComponent(ticketKey)}/kanban`,
+  );
 
-  return apiJson(`/api/tickets/${encodeURIComponent(tk)}/kanban`, {
-    method: "PUT", // ou "POST" dependendo do seu backend
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ config }),
-  });
+  // mantém payload original, mas garante um campo estável:
+  return { ...payload, savedConfig: pickConfigFromPayload(payload, null) };
+}
+
+export async function upsertKanbanConfigDb({
+  ticketKey,
+  config,
+  method = "PUT",
+}) {
+  const payload = await apiJson(
+    `/api/tickets/${encodeURIComponent(ticketKey)}/kanban`,
+    {
+      method,
+      body: JSON.stringify({ config }),
+    },
+  );
+
+  // garante compatibilidade com fluxos que usam savedConfig
+  return { ...payload, savedConfig: pickConfigFromPayload(payload, config) };
 }
 
 export function findTaggedComment(payload, tag) {

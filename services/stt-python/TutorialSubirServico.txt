@@ -1,0 +1,7 @@
+Em Dev
+.\.venv\Scripts\Activate.ps1
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+Opcional (sem --reload, para uso mais “produção”):
+
+Em Prod
+uvicorn app:app --host 0.0.0.0 --port 8000
