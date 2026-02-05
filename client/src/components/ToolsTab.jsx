@@ -19,8 +19,9 @@ import {
 import { cn } from "@/lib/utils";
 
 import AutomationTool from "@/components/tools/AutomationTool";
+import NiceIntegrationTool from "@/components/tools/NiceIntegrationTool";
 
-import { Wrench, Mic, Sparkles, Workflow, Settings2 } from "lucide-react";
+import { Wrench, Mic, Sparkles, Workflow, Link2 } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
@@ -48,11 +49,11 @@ const TOOL_DEFS = [
     status: "ativo",
   },
   {
-    id: "configs",
-    title: "Configurações de Ferramentas",
-    desc: "Preferências e integrações (idioma, formatos, presets).",
-    icon: Settings2,
-    status: "em_breve",
+    id: "nice",
+    title: "Integração NICE",
+    desc: "Conexão com o Contact Center (cluster 1/2) via backend → serviço Puppeteer.",
+    icon: Link2,
+    status: "ativo",
   },
 ];
 
@@ -62,7 +63,7 @@ function toolButtonClasses(active) {
     "hover:bg-zinc-50",
     active
       ? "border-red-200 bg-red-50 text-red-700"
-      : "border-zinc-200 bg-white text-zinc-800"
+      : "border-zinc-200 bg-white text-zinc-800",
   );
 }
 
@@ -77,7 +78,7 @@ export default function ToolsTab() {
 
   const active = useMemo(
     () => TOOL_DEFS.find((t) => t.id === activeTool) || TOOL_DEFS[0],
-    [activeTool]
+    [activeTool],
   );
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export default function ToolsTab() {
         setSttError(
           ok
             ? null
-            : j?.error || `Upstream status: ${j?.upstreamStatus || r.status}`
+            : j?.error || `Upstream status: ${j?.upstreamStatus || r.status}`,
         );
       } catch (err) {
         if (!mounted) return;
@@ -116,7 +117,7 @@ export default function ToolsTab() {
         setSttError(
           err?.name === "AbortError"
             ? "Timeout no health-check"
-            : String(err?.message || err)
+            : String(err?.message || err),
         );
       } finally {
         clearTimeout(t);
@@ -138,14 +139,14 @@ export default function ToolsTab() {
         "border",
         sttOnline === true && "border-green-200 bg-green-50 text-green-700",
         sttOnline === false && "border-red-200 bg-red-50 text-red-700",
-        sttOnline == null && "border-zinc-200 bg-zinc-50 text-zinc-700"
+        sttOnline == null && "border-zinc-200 bg-zinc-50 text-zinc-700",
       )}
     >
       {sttOnline === true
         ? "Serviços online"
         : sttOnline === false
-        ? "Serviços offline"
-        : "Verificando…"}
+          ? "Serviços offline"
+          : "Verificando…"}
     </Badge>
   );
 
@@ -249,6 +250,8 @@ export default function ToolsTab() {
                   <TextToSpeechTool serviceOnline={sttOnline === true} />
                 ) : activeTool === "automacao" ? (
                   <AutomationTool />
+                ) : activeTool === "nice" ? (
+                  <NiceIntegrationTool />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-8 text-center">
                     <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-white shadow-sm">

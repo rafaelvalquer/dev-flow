@@ -1,5 +1,6 @@
 // server/app.js
 import express from "express";
+import session from "express-session";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -12,6 +13,7 @@ import jiraRoutes from "./routes/jira.routes.js";
 import dbRoutes from "./routes/db.routes.js";
 import ticketsRouter from "./routes/tickets.js";
 import automationRouter from "./routes/automation.js";
+import niceRoutes from "./routes/nice.routes.js";
 
 import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
 import { startAutomationJob } from "./jobs/automationJob.js";
@@ -42,6 +44,8 @@ export default function createApp({ startJobs = true } = {}) {
 
   const upload = createUpload();
 
+  app.set("trust proxy", 1); // ok em dev também
+
   // RDM Co-pilot (mantém igual)
   registerRdmCopilotRoutes(app, upload, env);
 
@@ -50,9 +54,25 @@ export default function createApp({ startJobs = true } = {}) {
   app.use("/api/jira", jiraRoutes({ upload, env }));
   app.use("/api/db", dbRoutes);
   app.use("/api/tickets", ticketsRouter);
+  app.use("/api/nice", niceRoutes({ env }));
 
   // NOVO: automação
   app.use("/api/automation", automationRouter);
+
+  app.use(
+    session({
+      name: "devflow.sid",
+      secret: env.SESSION_SECRET || "dev-secret-change-me",
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: false, // em produção com HTTPS, coloque true
+        maxAge: 60 * 60 * 1000, // 1h
+      },
+    }),
+  );
 
   // IMPORTANTE: só inicie após Mongo estar conectado (ideal: chamar createApp({startJobs:false}) e start no entrypoint)
   if (startJobs) startAutomationJobOnce();

@@ -23,7 +23,7 @@ async function main() {
   }
 
   const port = Number(env.PORT || 3001);
-  app.listen(port, () => console.log(`[server] listening on :${port}`));
+  app.listen(port, () => console.log(`[server] listening on:${port}`));
 }
 
 main().catch((e) => {
