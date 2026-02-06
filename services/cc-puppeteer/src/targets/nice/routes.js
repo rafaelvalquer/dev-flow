@@ -12,6 +12,9 @@ const NICE_STUDIO_TIMEOUT_MS = Number(
 );
 const NICE_DEBUG_ON_ERROR = process.env.NICE_DEBUG_ON_ERROR === "1";
 
+const SCRIPT_CELL_SPAN =
+  '.ag-center-cols-container [col-id="scriptName"] stx-agcell-script-name span.ng-star-inserted';
+
 function normalizeDigits(text) {
   return String(text || "")
     .replace(/\D+/g, "")
@@ -104,6 +107,172 @@ async function findFirstInPageOrFrames(page, selectors) {
     }
   }
   return null;
+}
+
+// ✅ 1) ADICIONE este helper (perto dos outros helpers de Studio)
+
+async function collectStudioItems(page) {
+  // Pastas/itens do TREE (lado esquerdo)
+  const treeItems = await listTreeItemsBestEffort(page).catch(() => []);
+
+  // Scripts do AG-GRID (tabela) — após double-click em DEV/PRD e/ou navegar no path
+  const scriptNames = await extractAllScriptNames(page, {
+    timeoutMs: Math.min(60_000, NICE_STUDIO_TIMEOUT_MS),
+    maxScrolls: 250,
+    settleMs: 250,
+    noNewLimit: 8,
+  }).catch(() => []);
+
+  // Normaliza e junta em uma lista única (pastas + scripts)
+  const out = [];
+  const seen = new Set();
+
+  for (const it of Array.isArray(treeItems) ? treeItems : []) {
+    const name = normalizeText(it?.name);
+    if (!name) continue;
+
+    const type =
+      String(it?.type || "").toLowerCase() === "folder" ? "folder" : "script";
+    const key = `${type}:${name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push({ name, type });
+  }
+
+  for (const nameRaw of Array.isArray(scriptNames) ? scriptNames : []) {
+    const name = normalizeText(nameRaw);
+    if (!name) continue;
+
+    const key = `script:${name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push({ name, type: "script" });
+  }
+
+  // Ordena: pastas primeiro, depois scripts (opcional)
+  out.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return out;
+}
+
+async function extractAllScriptNames(
+  page,
+  {
+    maxScrolls = 250, // limite de rolagens
+    settleMs = 250, // tempo p/ render após scroll
+    noNewLimit = 8, // para quando não aparecerem novos itens
+    timeoutMs = 30_000, // timeout geral
+  } = {},
+) {
+  // Helpers locais (não dependem de Page vs Frame)
+  const waitAnyInScope = async (scope, selectors, timeout) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      for (const sel of selectors) {
+        const h = await scope.$(sel).catch(() => null);
+        if (h) return { selector: sel, handle: h };
+      }
+      await sleep(scope, 250);
+    }
+    throw new Error(
+      `Timeout waiting for selectors in scope: ${selectors.join(", ")}`,
+    );
+  };
+
+  const waitConditionInScope = async (scope, fn, timeout, ...args) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const ok = await scope.evaluate(fn, ...args).catch(() => false);
+      if (ok) return true;
+      await sleep(scope, 250);
+    }
+    return false;
+  };
+
+  // 1) Descobre onde está o AG-Grid (page ou algum iframe)
+  const gridFound = await waitForAnySelectorDeep(
+    page,
+    [".ag-root-wrapper-body", ".ag-root", ".ag-center-cols-container"],
+    { timeout: timeoutMs, visible: false },
+  ).catch(() => null);
+
+  if (!gridFound?.scope) {
+    throw new Error(
+      "AG-Grid not found (no .ag-root/.ag-center-cols-container)",
+    );
+  }
+
+  const scope = gridFound.scope; // Page ou Frame
+
+  // 2) Aguarda um viewport rolável do grid
+  const viewportCandidates = [
+    ".ag-body-viewport", // mais comum
+    ".ag-center-cols-viewport", // algumas variações
+    ".ag-body-viewport-wrapper",
+  ];
+
+  const viewport = await waitAnyInScope(scope, viewportCandidates, timeoutMs);
+  const viewportSel = viewport.selector;
+
+  // 3) Aguarda aparecer pelo menos 1 nome (ou ao menos rows renderizadas)
+  const hasAtLeastOne = await waitConditionInScope(
+    scope,
+    (cellSel) => {
+      const els = Array.from(document.querySelectorAll(cellSel));
+      return els.some((e) => (e.textContent || "").trim().length > 0);
+    },
+    timeoutMs,
+    SCRIPT_CELL_SPAN,
+  );
+
+  if (!hasAtLeastOne) {
+    // Se o grid existe mas não carregou itens, retorna vazio sem travar
+    return [];
+  }
+
+  // 4) Coleta + scroll incremental (grid virtualizado)
+  const seen = new Set();
+  let noNewCount = 0;
+
+  for (let i = 0; i < maxScrolls; i++) {
+    const batch = await scope
+      .$$eval(SCRIPT_CELL_SPAN, (els) =>
+        els.map((e) => (e.textContent || "").trim()).filter(Boolean),
+      )
+      .catch(() => []);
+
+    const before = seen.size;
+    for (const name of batch) seen.add(normalizeText(name));
+
+    if (seen.size === before) noNewCount++;
+    else noNewCount = 0;
+
+    if (noNewCount >= noNewLimit) break;
+
+    const moved = await scope
+      .evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+
+        const prev = el.scrollTop;
+        const delta = Math.max(200, Math.floor(el.clientHeight * 0.85));
+
+        el.scrollTop = Math.min(prev + delta, el.scrollHeight);
+        return el.scrollTop !== prev;
+      }, viewportSel)
+      .catch(() => false);
+
+    if (!moved) break;
+
+    await sleep(scope, settleMs);
+  }
+
+  return Array.from(seen);
 }
 
 async function waitForAnySelectorDeep(page, selectors, opts = {}) {
@@ -217,6 +386,53 @@ async function clickSpanByExactText(page, text, timeoutMs) {
   return false;
 }
 
+async function waitForStudioTreePopulated(page, timeoutMs) {
+  const deadline = Date.now() + Number(timeoutMs || NICE_STUDIO_TIMEOUT_MS);
+
+  const probe = async (scope) => {
+    return scope
+      .evaluate(() => {
+        const norm = (s) =>
+          String(s || "")
+            .replace(/\s+/g, " ")
+            .trim();
+        const bad = new Set(["SCRIPTS", "DEV", "PRD"]);
+
+        const root = document.querySelector("[role='tree']") || document;
+
+        // 1) Se houver treeitems, ótimo
+        const treeItems = Array.from(root.querySelectorAll("[role='treeitem']"))
+          .map((n) => norm(n.textContent))
+          .filter(Boolean);
+
+        if (treeItems.some((t) => !bad.has(t.toUpperCase()))) return true;
+
+        // 2) Fallback: spans (caso a UI esteja assim)
+        const spans = Array.from(root.querySelectorAll("span.ng-star-inserted"))
+          .map((s) => norm(s.textContent))
+          .filter(Boolean);
+
+        return spans.some((t) => !bad.has(t.toUpperCase()));
+      })
+      .catch(() => false);
+  };
+
+  while (Date.now() < deadline) {
+    // tenta no main frame
+    if (await probe(page)) return true;
+
+    // tenta nos iframes
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      if (await probe(frame)) return true;
+    }
+
+    await sleep(page, 250);
+  }
+
+  return false;
+}
+
 /**
  * ✅ NOVO (Opção A): double-click "real" via mouse.click(clickCount: 2)
  * Mantém todas as funções existentes; apenas adiciona esta helper.
@@ -320,7 +536,7 @@ async function ensureStudioAndEnv(session, envName) {
 
   await clickOkIfPresent(page, 5000);
 
-  // ✅ AJUSTE: selecionar DEV/PRD com double-click (Opção A)
+  // ✅ AJUSTE: selecionar DEV/PRD com double-click
   const envOk = await doubleClickSpanByExactText(
     page,
     env,
@@ -328,7 +544,10 @@ async function ensureStudioAndEnv(session, envName) {
   );
   if (!envOk) return { ok: false, reason: "env_not_found", env };
 
-  await sleep(page, 1200);
+  // ✅ aguarda árvore popular após mudar env (ex.: aparecer "API")
+  const loaded = await waitForStudioTreePopulated(page, NICE_STUDIO_TIMEOUT_MS);
+  if (!loaded) return { ok: false, reason: "tree_not_loaded_after_env", env };
+
   return { ok: true };
 }
 
@@ -412,31 +631,70 @@ async function clickOkIfPresent(page, timeoutMs = 2500) {
 }
 
 async function listTreeItemsBestEffort(page) {
-  const items = await page
-    .evaluate(() => {
-      const out = [];
-      const seen = new Set();
-      const norm = (s) =>
-        String(s || "")
-          .replace(/\s+/g, " ")
-          .trim();
+  const extractor = () => {
+    const out = [];
+    const seen = new Set();
+    const norm = (s) =>
+      String(s || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const bad = new Set(["SCRIPTS", "DEV", "PRD"]);
 
-      const nodes = Array.from(document.querySelectorAll("[role='treeitem']"));
-      for (const n of nodes) {
-        const name = norm(n.textContent);
-        if (!name || seen.has(name)) continue;
-        seen.add(name);
+    const treeRoot = document.querySelector("[role='tree']");
+    if (!treeRoot) return []; // ✅ evita “contaminar” com spans do grid
 
-        const expanded = n.getAttribute("aria-expanded");
-        const type =
-          expanded === "true" || expanded === "false" ? "folder" : "script";
-        out.push({ name, type });
-      }
-      return out;
-    })
-    .catch(() => []);
+    // 1) Preferência: role=treeitem
+    const nodes = Array.from(treeRoot.querySelectorAll("[role='treeitem']"));
+    for (const n of nodes) {
+      const name = norm(n.textContent);
+      if (!name) continue;
+      if (bad.has(name.toUpperCase())) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
 
-  return Array.isArray(items) ? items : [];
+      const expanded = n.getAttribute("aria-expanded");
+      const type =
+        expanded === "true" || expanded === "false" ? "folder" : "script";
+
+      out.push({ name, type });
+    }
+
+    if (out.length) return out;
+
+    // 2) Fallback: spans dentro do TREE
+    const spans = Array.from(
+      treeRoot.querySelectorAll("span.ng-star-inserted"),
+    );
+    for (const s of spans) {
+      const name = norm(s.textContent);
+      if (!name) continue;
+      if (bad.has(name.toUpperCase())) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+
+      const parent = s.closest("[role='treeitem']");
+      const expanded = parent?.getAttribute?.("aria-expanded");
+      const type =
+        expanded === "true" || expanded === "false" ? "folder" : "script";
+
+      out.push({ name, type });
+    }
+
+    return out;
+  };
+
+  // main frame
+  let items = await page.evaluate(extractor).catch(() => []);
+  if (Array.isArray(items) && items.length) return items;
+
+  // iframes
+  for (const frame of page.frames()) {
+    if (frame === page.mainFrame()) continue;
+    items = await frame.evaluate(extractor).catch(() => []);
+    if (Array.isArray(items) && items.length) return items;
+  }
+
+  return [];
 }
 
 // ===== ROUTER =====
@@ -712,6 +970,7 @@ niceRouter.get("/sessions/:id/studio/tree", async (req, res) => {
           .filter(Boolean)
       : [];
 
+    // navega pelo tree (pastas) — a grid atualiza com scripts do nível selecionado
     for (const part of parts) {
       const clicked = await clickTreeItemByText(
         session.page,
@@ -729,14 +988,15 @@ niceRouter.get("/sessions/:id/studio/tree", async (req, res) => {
       await sleep(session.page, 1200);
     }
 
-    const items = await listTreeItemsBestEffort(session.page);
+    // ✅ AQUI: retorna a lista final usando AG-GRID + TREE
+    const items = await collectStudioItems(session.page);
 
     return res.json({
       ok: true,
       env: envName,
       path: parts.join("/"),
       breadcrumb: ["Scripts", envName, ...parts],
-      items,
+      items, // ✅ [{ name, type: "folder"|"script" }, ...]
     });
   } catch (e) {
     return res.status(500).json({
