@@ -1,48 +1,45 @@
-// services/nice-puppeteer/src/sessions.js
-import crypto from "node:crypto";
-
 const sessions = new Map();
 
-/**
- * TTL por sessão (sem atividade). Ajuste se quiser.
- * Ex.: 10 min (600_000)
- */
-const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 10 * 60 * 1000);
+const SESSION_TTL_MS = Number(process.env.SESSION_TTL_MS || 15 * 60 * 1000);
 
-export function createSession({ context, page }) {
-  const id = crypto.randomUUID();
-  const now = Date.now();
+function randomId(len = 16) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
 
+export function createSession({ target, context, page, meta }) {
+  const id = randomId();
   sessions.set(id, {
     id,
-    context,
+    target: target || "unknown",
+    context: context || null,
     page,
-    createdAt: now,
-    lastAccessAt: now,
+    meta: meta || {},
+    createdAt: Date.now(),
   });
-
   return id;
 }
 
 export function getSession(id) {
-  const s = sessions.get(id);
-  if (!s) return null;
-  s.lastAccessAt = Date.now();
-  return s;
+  return sessions.get(id) || null;
 }
 
 export async function closeSession(id) {
   const s = sessions.get(id);
   if (!s) return false;
-
   sessions.delete(id);
 
+  // Fecha page/context; NÃO fecha o browser global.
   try {
-    await s.page?.close().catch(() => {});
+    if (s.page && !s.page.isClosed()) {
+      await s.page.close({ runBeforeUnload: true });
+    }
   } catch {}
 
   try {
-    await s.context?.close().catch(() => {});
+    if (s.context) await s.context.close();
   } catch {}
 
   return true;
@@ -54,12 +51,9 @@ export function countSessions() {
 
 export async function cleanupExpiredSessions() {
   const now = Date.now();
-  const idsToClose = [];
-
   for (const [id, s] of sessions.entries()) {
-    const age = now - (s.lastAccessAt || s.createdAt || now);
-    if (age > SESSION_TTL_MS) idsToClose.push(id);
+    if (now - s.createdAt > SESSION_TTL_MS) {
+      await closeSession(id);
+    }
   }
-
-  await Promise.all(idsToClose.map((id) => closeSession(id)));
 }

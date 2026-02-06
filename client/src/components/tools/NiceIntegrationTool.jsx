@@ -47,6 +47,12 @@ function formatDuo(codeDigits) {
   return s;
 }
 
+function isDuoStage(stage) {
+  return ["duo", "duo_code", "duo_trust"].includes(
+    String(stage || "").toLowerCase(),
+  );
+}
+
 export default function NiceIntegrationTool() {
   const [cluster, setCluster] = useState(null); // 1 | 2 | null
   const [status, setStatus] = useState("idle"); // idle | connecting | connected | error
@@ -119,7 +125,7 @@ export default function NiceIntegrationTool() {
       setLastMsg(j?.message || "Sessão iniciada. Autentique para continuar.");
 
       // abre modal no passo adequado
-      if (nextSession.stage === "duo") {
+      if (isDuoStage(nextSession.stage)) {
         setAuthStep("duo");
         setDuoCode(nextSession.duoCode || null);
       } else {
@@ -235,7 +241,7 @@ export default function NiceIntegrationTool() {
       setSessionInfo(next);
 
       const isDuoByUrl = /duosecurity\.com\/frame\//i.test(j?.url || "");
-      const shouldShowDuo = stage === "duo" || isDuoByUrl;
+      const shouldShowDuo = isDuoStage(stage) || isDuoByUrl || !!j?.duoCode;
 
       if (shouldShowDuo) {
         setDuoCode(j.duoCode || null);
@@ -269,9 +275,9 @@ export default function NiceIntegrationTool() {
       };
       setSessionInfo(next);
 
-      if (st.stage === "duo") {
+      if (isDuoStage(st.stage)) {
         if (st.duoCode) setDuoCode(st.duoCode);
-        return; // continua no modal e continua polling
+        return;
       }
 
       // quando sair do duo...
@@ -433,7 +439,7 @@ export default function NiceIntegrationTool() {
                   setAuthError("");
                   setAuthBusy(false);
                   setAuthOpen(true);
-                  setAuthStep(sessionInfo?.stage === "duo" ? "duo" : "login");
+                  setAuthStep(isDuoStage(sessionInfo?.stage) ? "duo" : "login");
                   setDuoCode(sessionInfo?.duoCode || duoCode || null);
                 }
               }}
