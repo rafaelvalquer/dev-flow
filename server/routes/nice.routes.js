@@ -24,6 +24,32 @@ export default function niceRoutes({ env }) {
     return h;
   }
 
+  // =========================
+  // HELPERS (NOVO)
+  // =========================
+  function normalizeEnv(v) {
+    const e = String(v || "")
+      .trim()
+      .toUpperCase();
+    if (e !== "DEV" && e !== "PRD") return null;
+    return e;
+  }
+
+  function sanitizePath(p) {
+    // path opcional: "a/b/c"
+    let s = String(p || "").trim();
+
+    // normaliza e evita traversal
+    s = s.replace(/^\/+/, "").replace(/\/+$/, ""); // remove "/" nas pontas
+    if (!s) return "";
+
+    // bloqueia ".." e caracteres de controle
+    if (s.includes("..")) return null;
+    if (/[\u0000-\u001F]/.test(s)) return null;
+
+    return s;
+  }
+
   // health do serviço puppeteer
   router.get("/health", async (_req, res) => {
     try {
@@ -190,6 +216,46 @@ export default function niceRoutes({ env }) {
       return res.status(500).json({
         ok: false,
         error: "Proxy error on NICE /sessions/:id/screenshot",
+        details: String(err?.message || err),
+      });
+    }
+  });
+
+  // GET /studio/tree  (front -> back -> puppeteer)
+  // /api/nice/studio/tree?sessionId=<id>&env=DEV|PRD&path=a/b/c
+  router.get("/studio/tree", async (req, res) => {
+    try {
+      const sessionId = String(req.query.sessionId || "").trim();
+      const envName = String(req.query.env || "")
+        .trim()
+        .toUpperCase();
+      const path = String(req.query.path || "").trim();
+
+      if (!sessionId) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "sessionId é obrigatório" });
+      }
+      if (!["DEV", "PRD"].includes(envName)) {
+        return res
+          .status(400)
+          .json({ ok: false, error: "env deve ser DEV ou PRD" });
+      }
+
+      const qs = new URLSearchParams({ env: envName });
+      if (path) qs.set("path", path);
+
+      const r = await fetch(
+        `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/studio/tree?${qs.toString()}`,
+        { method: "GET", headers: headersAny("application/json") },
+      );
+
+      return sendUpstream(res, r);
+    } catch (err) {
+      console.error("NICE proxy /studio/tree error:", err);
+      return res.status(500).json({
+        ok: false,
+        error: "Proxy error on NICE studio tree",
         details: String(err?.message || err),
       });
     }

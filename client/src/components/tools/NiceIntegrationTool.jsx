@@ -28,6 +28,9 @@ import {
   RefreshCw,
   KeyRound,
   Smartphone,
+  Folder,
+  FileText,
+  ChevronRight,
 } from "lucide-react";
 
 function toneBadge(status) {
@@ -43,8 +46,7 @@ function toneBadge(status) {
 function formatDuo(codeDigits) {
   const s = String(codeDigits || "").replace(/\D/g, "");
   if (s.length === 6) return `${s.slice(0, 3)} ${s.slice(3)}`;
-  if (!s) return "••• •••";
-  return s;
+  return "••• •••";
 }
 
 function isDuoStage(stage) {
@@ -53,11 +55,29 @@ function isDuoStage(stage) {
   );
 }
 
+function isDuoUrl(url) {
+  return /duosecurity\.com\/frame\//i.test(String(url || ""));
+}
+
+function hasValidDuoCode(codeDigits) {
+  const s = String(codeDigits || "").replace(/\D/g, "");
+  return s.length === 6;
+}
+
+function safeEntryType(e) {
+  const t = String(e?.type || e?.kind || "").toLowerCase();
+  if (t.includes("folder") || t.includes("dir")) return "folder";
+  if (t.includes("script") || t.includes("file")) return "script";
+  // fallback: se vier sem type, tenta inferir pela flag
+  if (e?.isFolder === true) return "folder";
+  return "script";
+}
+
 export default function NiceIntegrationTool() {
   const [cluster, setCluster] = useState(null); // 1 | 2 | null
   const [status, setStatus] = useState("idle"); // idle | connecting | connected | error
   const [lastMsg, setLastMsg] = useState("");
-  const [sessionInfo, setSessionInfo] = useState(null); // { sessionId?, startedAt?, cluster?, stage?, duoCode? }
+  const [sessionInfo, setSessionInfo] = useState(null); // { sessionId?, startedAt?, cluster?, stage?, duoCode?, url? }
 
   // Modal (login/duo)
   const [authOpen, setAuthOpen] = useState(false);
@@ -67,9 +87,25 @@ export default function NiceIntegrationTool() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+
+  // Duo
   const [duoCode, setDuoCode] = useState(null);
+  const [duoPending, setDuoPending] = useState(false);
+
+  // Autenticação concluída (após Duo)
+  const [authed, setAuthed] = useState(false);
+  const duoFlowSeenRef = useRef(false);
+
+  // Studio scripts explorer
+  const [studioEnv, setStudioEnv] = useState(null); // "DEV" | "PRD" | null
+  const [studioPath, setStudioPath] = useState([]); // ["ivr_bandalarga_pos", ...]
+  const [studioItems, setStudioItems] = useState([]); // [{ name, type }]
+  const [studioBusy, setStudioBusy] = useState(false);
+  const [studioError, setStudioError] = useState("");
 
   const pollRef = useRef(null);
+
+  const sid = sessionInfo?.sessionId || null;
 
   const statusLabel = useMemo(() => {
     if (status === "connected") return "Conectado";
@@ -91,7 +127,19 @@ export default function NiceIntegrationTool() {
     setAuthError("");
     setUsername("");
     setPassword("");
+
+    // reset duo state
     setDuoCode(null);
+    setDuoPending(false);
+    duoFlowSeenRef.current = false;
+
+    // reset authed & studio
+    setAuthed(false);
+    setStudioEnv(null);
+    setStudioPath([]);
+    setStudioItems([]);
+    setStudioBusy(false);
+    setStudioError("");
 
     try {
       const r = await fetch("/api/nice/session/start", {
@@ -118,16 +166,20 @@ export default function NiceIntegrationTool() {
         cluster: pickedCluster,
         stage: j.stage || "unknown",
         duoCode: j.duoCode || null,
+        url: j.url || null,
       };
 
       setStatus("connected");
       setSessionInfo(nextSession);
       setLastMsg(j?.message || "Sessão iniciada. Autentique para continuar.");
 
-      // abre modal no passo adequado
-      if (isDuoStage(nextSession.stage)) {
+      const duoish = isDuoStage(nextSession.stage) || isDuoUrl(nextSession.url);
+
+      if (duoish) {
+        duoFlowSeenRef.current = true;
         setAuthStep("duo");
         setDuoCode(nextSession.duoCode || null);
+        setDuoPending(!hasValidDuoCode(nextSession.duoCode));
       } else {
         setAuthStep("login");
       }
@@ -153,7 +205,7 @@ export default function NiceIntegrationTool() {
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({ sessionId: sessionInfo?.sessionId || null }),
+        body: JSON.stringify({ sessionId: sid }),
       });
 
       const j = await r.json().catch(() => null);
@@ -171,15 +223,24 @@ export default function NiceIntegrationTool() {
       setCluster(null);
       setUsername("");
       setPassword("");
+
       setDuoCode(null);
+      setDuoPending(false);
+      duoFlowSeenRef.current = false;
+
+      setAuthed(false);
+      setStudioEnv(null);
+      setStudioPath([]);
+      setStudioItems([]);
+      setStudioBusy(false);
+      setStudioError("");
     } catch (e) {
       setStatus("error");
       setLastMsg(e?.message || String(e));
     }
-  }, [sessionInfo?.sessionId]);
+  }, [sid]);
 
   const fetchState = useCallback(async () => {
-    const sid = sessionInfo?.sessionId;
     if (!sid) return null;
 
     const r = await fetch(
@@ -194,10 +255,96 @@ export default function NiceIntegrationTool() {
     const j = await r.json().catch(() => null);
     if (!r.ok || !j?.ok) return null;
     return j;
-  }, [sessionInfo?.sessionId]);
+  }, [sid]);
+
+  const loadStudioTree = useCallback(
+    async ({ env, pathSegments }) => {
+      if (!sid) return;
+      const E = String(env || "").toUpperCase();
+      if (!["DEV", "PRD"].includes(E)) return;
+
+      const pathStr = (pathSegments || []).join("/");
+
+      setStudioBusy(true);
+      setStudioError("");
+
+      try {
+        const qs = new URLSearchParams({
+          sessionId: sid,
+          env: E,
+          path: pathStr,
+        });
+
+        const r = await fetch(`/api/nice/studio/tree?${qs.toString()}`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+
+        const j = await r.json().catch(() => null);
+
+        if (!r.ok || !j?.ok) {
+          const msg =
+            j?.error || `Falha ao buscar scripts (HTTP ${r.status || "?"})`;
+          setStudioError(msg);
+          setStudioItems([]);
+          return;
+        }
+
+        const items = j.items || j.entries || j.nodes || [];
+        setStudioItems(Array.isArray(items) ? items : []);
+      } catch (e) {
+        setStudioError(e?.message || String(e));
+        setStudioItems([]);
+      } finally {
+        setStudioBusy(false);
+      }
+    },
+    [sid],
+  );
+
+  const selectStudioEnv = useCallback(
+    async (env) => {
+      const E = String(env || "").toUpperCase();
+      setStudioEnv(E);
+      setStudioPath([]);
+      setStudioItems([]);
+      await loadStudioTree({ env: E, pathSegments: [] });
+    },
+    [loadStudioTree],
+  );
+
+  const openFolder = useCallback(
+    async (name) => {
+      const seg = String(name || "").trim();
+      if (!seg) return;
+      const nextPath = [...studioPath, seg];
+      setStudioPath(nextPath);
+      await loadStudioTree({ env: studioEnv, pathSegments: nextPath });
+    },
+    [loadStudioTree, studioEnv, studioPath],
+  );
+
+  const goBreadcrumb = useCallback(
+    async (idx) => {
+      // idx = -1 -> root "Scripts"
+      // idx = 0..n -> path slice(0, idx+1)
+      if (!studioEnv) return;
+
+      if (idx < 0) {
+        setStudioPath([]);
+        await loadStudioTree({ env: studioEnv, pathSegments: [] });
+        return;
+      }
+
+      const nextPath = studioPath.slice(0, idx + 1);
+      setStudioPath(nextPath);
+      await loadStudioTree({ env: studioEnv, pathSegments: nextPath });
+    },
+    [loadStudioTree, studioEnv, studioPath],
+  );
 
   const doLogin = useCallback(async () => {
-    const sid = sessionInfo?.sessionId;
     if (!sid) {
       setAuthError("Sessão inválida. Inicie novamente.");
       return;
@@ -233,24 +380,36 @@ export default function NiceIntegrationTool() {
       setPassword("");
 
       const stage = j.stage || "unknown";
-      const next = {
-        ...(sessionInfo || {}),
+      const url = j.url || null;
+      const code = j.duoCode || null;
+
+      setSessionInfo((prev) => ({
+        ...(prev || {}),
         stage,
-        duoCode: j.duoCode || null,
-      };
-      setSessionInfo(next);
+        url,
+        duoCode: code,
+      }));
 
-      const isDuoByUrl = /duosecurity\.com\/frame\//i.test(j?.url || "");
-      const shouldShowDuo = isDuoStage(stage) || isDuoByUrl || !!j?.duoCode;
+      const duoish = isDuoStage(stage) || isDuoUrl(url);
 
-      if (shouldShowDuo) {
-        setDuoCode(j.duoCode || null);
+      // Se entrar no Duo: vai pro step "duo" e mostra o código (ou placeholder)
+      if (duoish || !!code) {
+        duoFlowSeenRef.current = true;
+
         setAuthStep("duo");
         setAuthOpen(true);
+
+        setDuoCode(code);
+        setDuoPending(!hasValidDuoCode(code));
+
         setLastMsg(j?.message || "Login enviado. Aguardando Duo…");
       } else {
+        // já autenticou sem Duo
         setAuthOpen(false);
-        setLastMsg(j?.message || "Login enviado.");
+        setAuthed(true);
+        setLastMsg(
+          j?.message || "Autenticado. Selecione DEV/PRD para listar scripts.",
+        );
       }
 
       setAuthBusy(false);
@@ -258,31 +417,43 @@ export default function NiceIntegrationTool() {
       setAuthError(e?.message || String(e));
       setAuthBusy(false);
     }
-  }, [password, sessionInfo, username]);
+  }, [password, sid, username]);
 
   // Poll enquanto estiver no step do Duo
   useEffect(() => {
-    if (!authOpen || authStep !== "duo" || !sessionInfo?.sessionId) return;
+    if (!authOpen || authStep !== "duo" || !sid) return;
 
     async function tick() {
       const st = await fetchState().catch(() => null);
       if (!st) return;
 
-      const next = {
-        ...(sessionInfo || {}),
-        stage: st.stage,
-        duoCode: st.duoCode || null,
-      };
-      setSessionInfo(next);
+      const stage = st.stage || "unknown";
+      const url = st.url || null;
+      const code = st.duoCode || null;
 
-      if (isDuoStage(st.stage)) {
-        if (st.duoCode) setDuoCode(st.duoCode);
+      const duoish = isDuoStage(stage) || isDuoUrl(url);
+
+      setSessionInfo((prev) => ({
+        ...(prev || {}),
+        stage,
+        url,
+        duoCode: code,
+      }));
+
+      // Continua no Duo: mostra placeholder se ainda não tem código
+      if (duoish) {
+        setDuoCode(code);
+        setDuoPending(!hasValidDuoCode(code));
         return;
       }
 
-      // quando sair do duo...
-      setAuthOpen(false);
-      setLastMsg("Duo confirmado. Página recarregada/fluxo avançado.");
+      // Saiu do Duo => considera autenticado (apenas se realmente passou pelo Duo)
+      if (duoFlowSeenRef.current) {
+        setDuoPending(false);
+        setAuthOpen(false);
+        setAuthed(true);
+        setLastMsg("Duo confirmado. Selecione DEV/PRD para listar scripts.");
+      }
     }
 
     pollRef.current = window.setInterval(tick, 2500);
@@ -292,11 +463,13 @@ export default function NiceIntegrationTool() {
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
-  }, [authOpen, authStep, fetchState, sessionInfo?.sessionId]);
+  }, [authOpen, authStep, fetchState, sid]);
 
   const healthBadge = (
     <Badge className={cn("border", toneBadge(status))}>{statusLabel}</Badge>
   );
+
+  const showScriptsSection = status === "connected" && !!sid && authed;
 
   return (
     <div className="space-y-4">
@@ -435,15 +608,23 @@ export default function NiceIntegrationTool() {
               variant="outline"
               className="rounded-xl border-zinc-200 bg-white"
               onClick={() => {
-                if (sessionInfo?.sessionId) {
+                if (sid) {
                   setAuthError("");
                   setAuthBusy(false);
                   setAuthOpen(true);
-                  setAuthStep(isDuoStage(sessionInfo?.stage) ? "duo" : "login");
+
+                  const duoish =
+                    isDuoStage(sessionInfo?.stage) ||
+                    isDuoUrl(sessionInfo?.url);
+
+                  setAuthStep(duoish ? "duo" : "login");
                   setDuoCode(sessionInfo?.duoCode || duoCode || null);
+                  setDuoPending(
+                    duoish && !hasValidDuoCode(sessionInfo?.duoCode),
+                  );
                 }
               }}
-              disabled={!sessionInfo?.sessionId || status !== "connected"}
+              disabled={!sid || status !== "connected"}
               title="Abrir autenticação"
             >
               Autenticar
@@ -463,6 +644,178 @@ export default function NiceIntegrationTool() {
         </div>
       </div>
 
+      {/* Scripts (após Duo) */}
+      {showScriptsSection ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">
+                Scripts • Studio NICE
+              </div>
+              <div className="mt-1 text-xs text-zinc-600">
+                Selecione DEV/PRD para listar pastas e scripts.
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={studioEnv === "DEV" ? "default" : "outline"}
+                className={cn(
+                  "rounded-xl",
+                  studioEnv === "DEV"
+                    ? "bg-zinc-900 text-white hover:bg-zinc-800"
+                    : "border-zinc-200 bg-white",
+                )}
+                onClick={() => selectStudioEnv("DEV")}
+                disabled={studioBusy}
+              >
+                DEV
+              </Button>
+
+              <Button
+                type="button"
+                variant={studioEnv === "PRD" ? "default" : "outline"}
+                className={cn(
+                  "rounded-xl",
+                  studioEnv === "PRD"
+                    ? "bg-zinc-900 text-white hover:bg-zinc-800"
+                    : "border-zinc-200 bg-white",
+                )}
+                onClick={() => selectStudioEnv("PRD")}
+                disabled={studioBusy}
+              >
+                PRD
+              </Button>
+            </div>
+          </div>
+
+          {/* Breadcrumb: Scripts -> PRD -> pasta */}
+          <div className="mt-4 flex flex-wrap items-center gap-1 text-xs text-zinc-600">
+            <button
+              type="button"
+              className="rounded-md px-1.5 py-0.5 hover:bg-zinc-100"
+              onClick={() => goBreadcrumb(-1)}
+              disabled={!studioEnv || studioBusy}
+              title="Voltar ao início"
+            >
+              Scripts
+            </button>
+
+            <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
+
+            <button
+              type="button"
+              className="rounded-md px-1.5 py-0.5 hover:bg-zinc-100"
+              onClick={() => {
+                if (!studioEnv) return;
+                goBreadcrumb(-1);
+              }}
+              disabled={!studioEnv || studioBusy}
+              title="Voltar para o root do ambiente"
+            >
+              {studioEnv || "—"}
+            </button>
+
+            {studioPath.map((seg, idx) => (
+              <React.Fragment key={`${seg}-${idx}`}>
+                <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
+                <button
+                  type="button"
+                  className="rounded-md px-1.5 py-0.5 hover:bg-zinc-100"
+                  onClick={() => goBreadcrumb(idx)}
+                  disabled={!studioEnv || studioBusy}
+                  title="Abrir este nível"
+                >
+                  {seg}
+                </button>
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* Lista */}
+          <div className="mt-3 rounded-2xl border border-zinc-200 bg-white">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Itens
+              </div>
+
+              {studioBusy ? (
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Carregando…
+                </div>
+              ) : null}
+            </div>
+
+            {studioError ? (
+              <div className="px-3 py-3 text-sm text-red-700">
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2">
+                  {studioError}
+                </div>
+              </div>
+            ) : null}
+
+            {!studioEnv ? (
+              <div className="px-3 py-4 text-sm text-zinc-600">
+                Selecione <b>DEV</b> ou <b>PRD</b> para carregar a lista.
+              </div>
+            ) : studioItems?.length ? (
+              <div className="divide-y divide-zinc-100">
+                {studioItems.map((it, idx) => {
+                  const name =
+                    it?.name || it?.title || it?.label || `item-${idx}`;
+                  const type = safeEntryType(it);
+                  const isFolder = type === "folder";
+
+                  return (
+                    <button
+                      key={`${name}-${idx}`}
+                      type="button"
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50",
+                        studioBusy ? "opacity-60" : "",
+                      )}
+                      onClick={() => {
+                        if (studioBusy) return;
+                        if (isFolder) return openFolder(name);
+                        // script (futuro: abrir/baixar/exibir)
+                        setLastMsg(`Selecionado script: ${name}`);
+                      }}
+                      disabled={studioBusy}
+                      title={isFolder ? "Abrir pasta" : "Selecionar script"}
+                    >
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
+                        {isFolder ? (
+                          <Folder className="h-4 w-4 text-zinc-800" />
+                        ) : (
+                          <FileText className="h-4 w-4 text-zinc-800" />
+                        )}
+                      </span>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-zinc-900">
+                          {name}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {isFolder ? "Pasta" : "Script"}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-3 py-4 text-sm text-zinc-600">
+                {studioBusy
+                  ? "Carregando…"
+                  : "Nenhum item encontrado neste caminho."}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {/* Debug/Info */}
       <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -474,6 +827,11 @@ export default function NiceIntegrationTool() {
               status,
               cluster,
               sessionInfo,
+              duoPending,
+              authed,
+              studioEnv,
+              studioPath,
+              studioItemsCount: studioItems?.length || 0,
             },
             null,
             2,
@@ -500,7 +858,9 @@ export default function NiceIntegrationTool() {
             <DialogDescription>
               {authStep === "login"
                 ? "Informe usuário e senha e clique em OK para iniciar a sessão."
-                : "Abra o Duo Mobile e digite o número exibido no navegador."}
+                : duoPending
+                  ? "Aguardando o portal carregar o código do Duo…"
+                  : "Abra o Duo Mobile e digite o número exibido no navegador."}
             </DialogDescription>
           </DialogHeader>
 
@@ -536,16 +896,37 @@ export default function NiceIntegrationTool() {
                   {authError}
                 </div>
               ) : null}
+
+              {authBusy ? (
+                <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Enviando credenciais…
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Sempre mostra o bloco do número; se não tiver código, fica ••• ••• */}
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-center">
-                <div className="text-xs text-zinc-600">Número do Duo</div>
+                {duoPending ? (
+                  <div className="flex items-center justify-center gap-2 text-sm text-zinc-700">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Carregando código do Duo…
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-600">Número do Duo</div>
+                )}
+
                 <div className="mt-2 text-4xl font-semibold tracking-widest text-zinc-900">
                   {formatDuo(duoCode)}
                 </div>
+
                 <div className="mt-2 text-xs text-zinc-600">
                   A tela deve recarregar automaticamente após a confirmação.
+                </div>
+
+                <div className="mt-3 text-[11px] text-zinc-500">
+                  Stage: <span className="font-mono">{sessionInfo?.stage}</span>
                 </div>
               </div>
 
@@ -577,9 +958,16 @@ export default function NiceIntegrationTool() {
                 type="button"
                 className="rounded-xl bg-red-600 text-white hover:bg-red-700"
                 onClick={doLogin}
-                disabled={authBusy || !sessionInfo?.sessionId}
+                disabled={authBusy || !sid}
               >
-                OK
+                {authBusy ? (
+                  <span className="inline-flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Enviando…
+                  </span>
+                ) : (
+                  "OK"
+                )}
               </Button>
             ) : (
               <Button
@@ -591,22 +979,39 @@ export default function NiceIntegrationTool() {
                   try {
                     const st = await fetchState();
                     if (!st) throw new Error("Falha ao consultar estado.");
+
+                    const stage = st.stage || "unknown";
+                    const url = st.url || null;
+                    const code = st.duoCode || null;
+                    const duoish = isDuoStage(stage) || isDuoUrl(url);
+
                     setSessionInfo((prev) => ({
                       ...(prev || {}),
-                      stage: st.stage,
-                      duoCode: st.duoCode || null,
+                      stage,
+                      url,
+                      duoCode: code,
                     }));
-                    if (st.stage === "duo" && st.duoCode)
-                      setDuoCode(st.duoCode);
+
+                    if (duoish) {
+                      setDuoCode(code);
+                      setDuoPending(!hasValidDuoCode(code));
+                    }
                   } catch (e) {
                     setAuthError(e?.message || String(e));
                   } finally {
                     setAuthBusy(false);
                   }
                 }}
-                disabled={authBusy || !sessionInfo?.sessionId}
+                disabled={authBusy || !sid}
               >
-                Atualizar
+                {authBusy ? (
+                  <span className="inline-flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Atualizando…
+                  </span>
+                ) : (
+                  "Atualizar"
+                )}
               </Button>
             )}
           </DialogFooter>
