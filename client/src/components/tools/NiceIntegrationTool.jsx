@@ -778,9 +778,7 @@ export default function NiceIntegrationTool() {
                       )}
                       onClick={() => {
                         if (studioBusy) return;
-                        if (isFolder) return openFolder(name);
-                        // script (futuro: abrir/baixar/exibir)
-                        setLastMsg(`Selecionado script: ${name}`);
+                        openFolder(name); // agora toda navegação é por dblclick no back
                       }}
                       disabled={studioBusy}
                       title={isFolder ? "Abrir pasta" : "Selecionar script"}

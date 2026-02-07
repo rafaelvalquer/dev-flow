@@ -12,8 +12,29 @@ const NICE_STUDIO_TIMEOUT_MS = Number(
 );
 const NICE_DEBUG_ON_ERROR = process.env.NICE_DEBUG_ON_ERROR === "1";
 
+const STUDIO_URL_RE = /\/studio\/#\/home\/scripts/i;
+
 const SCRIPT_CELL_SPAN =
   '.ag-center-cols-container [col-id="scriptName"] stx-agcell-script-name span.ng-star-inserted';
+
+async function isStudioOpen(page) {
+  const mainUrl = String(page.url?.() || "");
+  if (STUDIO_URL_RE.test(mainUrl)) return true;
+
+  // Studio às vezes fica em iframe
+  for (const f of page.frames?.() || []) {
+    const u = String(f.url?.() || "");
+    if (STUDIO_URL_RE.test(u)) return true;
+  }
+
+  // Fallback por DOM (bem específico do Studio Scripts)
+  const found = await findFirstInPageOrFrames(page, [
+    "[col-id='scriptName'] stx-agcell-script-name",
+    "stx-agcell-script-name span.ng-star-inserted",
+  ]).catch(() => null);
+
+  return !!found?.handle;
+}
 
 function normalizeDigits(text) {
   return String(text || "")
@@ -275,6 +296,156 @@ async function extractAllScriptNames(
   return Array.from(seen);
 }
 
+async function doubleClickGridItemByName(
+  page,
+  itemName,
+  { maxScrolls = 250, settleMs = 250, timeoutMs = NICE_STUDIO_TIMEOUT_MS } = {},
+) {
+  const target = normalizeText(itemName);
+
+  const gridFound = await waitForAnySelectorDeep(
+    page,
+    [".ag-root-wrapper-body", ".ag-root", ".ag-center-cols-container"],
+    { timeout: timeoutMs, visible: false },
+  ).catch(() => null);
+
+  if (!gridFound?.scope) return false;
+  const scope = gridFound.scope; // Page ou Frame
+
+  const viewportSel = await (async () => {
+    const candidates = [
+      ".ag-body-viewport",
+      ".ag-center-cols-viewport",
+      ".ag-body-viewport-wrapper",
+    ];
+    for (const sel of candidates) {
+      const h = await scope.$(sel).catch(() => null);
+      if (h) return sel;
+    }
+    return null;
+  })();
+
+  if (!viewportSel) return false;
+
+  const readHead = async () => {
+    return scope
+      .$$eval(SCRIPT_CELL_SPAN, (els) =>
+        els
+          .map((e) => (e.textContent || "").replace(/\s+/g, " ").trim())
+          .filter(Boolean)
+          .slice(0, 10)
+          .join("|"),
+      )
+      .catch(() => "");
+  };
+
+  const waitHeadChange = async (prev, ms) => {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      const now = await readHead();
+      if (now && now !== prev) return true;
+      await sleep(page, 200);
+    }
+    return false;
+  };
+
+  // topo
+  await scope
+    .evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) el.scrollTop = 0;
+      return true;
+    }, viewportSel)
+    .catch(() => null);
+
+  await sleep(page, 250);
+
+  for (let i = 0; i < maxScrolls; i++) {
+    const spans = await scope.$$(SCRIPT_CELL_SPAN).catch(() => []);
+    for (const sp of spans) {
+      const txt = await sp
+        .evaluate((el) => el.textContent || "")
+        .catch(() => "");
+      if (normalizeText(txt) !== target) continue;
+
+      const beforeHead = await readHead();
+
+      // tenta clicar em alvos diferentes (row, cell, span)
+      const rowHandle = await sp
+        .evaluateHandle((el) => el.closest(".ag-row") || null)
+        .catch(() => null);
+      const cellHandle = await sp
+        .evaluateHandle(
+          (el) =>
+            el.closest("[col-id='scriptName']") ||
+            el.closest(".ag-cell") ||
+            null,
+        )
+        .catch(() => null);
+
+      const rowEl = rowHandle?.asElement?.() || null;
+      const cellEl = cellHandle?.asElement?.() || null;
+
+      const candidates = [rowEl, cellEl, sp].filter(Boolean);
+
+      for (const el of candidates) {
+        try {
+          await el.evaluate((n) => n.scrollIntoView?.({ block: "center" }));
+        } catch {}
+
+        // (1) seleciona
+        try {
+          await el.click({ clickCount: 1, delay: 30 });
+        } catch {}
+
+        // (2) double click
+        try {
+          await el.click({ clickCount: 2, delay: 60 });
+        } catch {
+          const box = await el.boundingBox?.().catch(() => null);
+          if (box) {
+            await page.mouse.click(
+              box.x + box.width / 2,
+              box.y + box.height / 2,
+              {
+                clickCount: 2,
+                delay: 60,
+              },
+            );
+          }
+        }
+
+        const changed = await waitHeadChange(
+          beforeHead,
+          Math.min(12_000, timeoutMs),
+        );
+        if (changed) return true;
+      }
+
+      // se achou o item mas não mudou a lista, considera falha (pra não “seguir” errado)
+      return false;
+    }
+
+    // scroll para baixo
+    const moved = await scope
+      .evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+
+        const prev = el.scrollTop;
+        const delta = Math.max(260, Math.floor(el.clientHeight * 0.85));
+        el.scrollTop = Math.min(prev + delta, el.scrollHeight);
+        return el.scrollTop !== prev;
+      }, viewportSel)
+      .catch(() => false);
+
+    if (!moved) break;
+    await sleep(page, settleMs);
+  }
+
+  return false;
+}
+
 async function waitForAnySelectorDeep(page, selectors, opts = {}) {
   const timeout = Number(opts.timeout ?? NICE_TIMEOUT_MS);
   const visible = Boolean(opts.visible ?? false);
@@ -442,51 +613,199 @@ async function doubleClickSpanByExactText(page, text, timeoutMs) {
   const target = normalizeText(text);
   const deadline = Date.now() + Number(timeoutMs || NICE_STUDIO_TIMEOUT_MS);
 
-  while (Date.now() < deadline) {
-    const clicked = await page
-      .evaluate((t) => {
+  async function dblClickHandle(el) {
+    try {
+      await el.evaluate((n) => n.scrollIntoView?.({ block: "center" }));
+    } catch {}
+
+    try {
+      await el.click({ clickCount: 2, delay: 60 });
+      return true;
+    } catch {}
+
+    // fallback: eventos DOM
+    try {
+      await el.evaluate((node) => {
+        const mk = (type) =>
+          new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          });
+        node.dispatchEvent(mk("click"));
+        node.dispatchEvent(mk("dblclick"));
+      });
+      return true;
+    } catch {}
+
+    return false;
+  }
+
+  async function findInScope(scope) {
+    const h = await scope
+      .evaluateHandle((t) => {
+        const norm = (s) =>
+          String(s || "")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        // IMPORTANTe: restringe ao TREE para não clicar no grid
+        const root = document.querySelector("[role='tree']") || document;
         const spans = Array.from(
-          document.querySelectorAll("span.ng-star-inserted"),
+          root.querySelectorAll("span.ng-star-inserted"),
         );
 
-        const hit = spans.find(
-          (s) => (s.textContent || "").replace(/\s+/g, " ").trim() === t,
-        );
-        if (!hit) return null;
-
-        const clickable =
-          hit.closest("button,[role='button'],a,[role='tab'],li,div") || hit;
-
-        clickable.scrollIntoView?.({ block: "center" });
-        const r = clickable.getBoundingClientRect?.();
-        if (!r) return null;
-
-        // Retorna o centro do elemento para o Node fazer mouse.click(...)
-        return {
-          x: r.left + r.width / 2,
-          y: r.top + r.height / 2,
-          w: r.width,
-          h: r.height,
-        };
+        const hit = spans.find((s) => norm(s.textContent) === t);
+        return hit || null;
       }, target)
       .catch(() => null);
 
-    if (
-      clicked &&
-      typeof clicked.x === "number" &&
-      typeof clicked.y === "number"
-    ) {
-      // Como coordenadas são relativas ao viewport, o mouse.click funciona direto.
-      await page.mouse.click(clicked.x, clicked.y, {
-        clickCount: 2,
-        delay: 50,
-      });
-      return true;
+    return h?.asElement?.() || null;
+  }
+
+  while (Date.now() < deadline) {
+    // main doc
+    const elMain = await findInScope(page);
+    if (elMain) return (await dblClickHandle(elMain)) || false;
+
+    // iframes
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      const el = await findInScope(frame);
+      if (el) return (await dblClickHandle(el)) || false;
     }
 
     await sleep(page, 250);
   }
+
   return false;
+}
+
+function ensureStudioState(session) {
+  if (!session.meta) session.meta = {};
+  if (!session.meta.studio) {
+    session.meta.studio = {
+      ready: false,
+      env: null, // "DEV" | "PRD"
+      path: [], // ["pasta1","pasta2",...]
+    };
+  }
+  if (!Array.isArray(session.meta.studio.path)) session.meta.studio.path = [];
+  return session.meta.studio;
+}
+
+function splitPath(path) {
+  return String(path || "")
+    .split("/")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+function isPrefixPath(prefixArr, fullArr) {
+  if (prefixArr.length > fullArr.length) return false;
+  for (let i = 0; i < prefixArr.length; i++) {
+    if (normalizeText(prefixArr[i]) !== normalizeText(fullArr[i])) return false;
+  }
+  return true;
+}
+
+async function waitForGridReady(page, timeoutMs = NICE_STUDIO_TIMEOUT_MS) {
+  // grid pode estar em iframe
+  await waitForAnySelectorDeep(
+    page,
+    [
+      ".ag-root-wrapper-body",
+      ".ag-root",
+      ".ag-center-cols-container",
+      ".ag-body-viewport",
+    ],
+    { timeout: timeoutMs, visible: false },
+  ).catch(() => null);
+
+  // tenta garantir que pelo menos 1 célula exista (quando já carregou lista)
+  await waitForAnySelectorDeep(page, [SCRIPT_CELL_SPAN], {
+    timeout: Math.min(15_000, timeoutMs),
+    visible: false,
+  }).catch(() => null);
+}
+
+async function resetToEnvRoot(session, envName) {
+  const page = session.page;
+  const studio = ensureStudioState(session);
+
+  await clickOkIfPresent(page, 3000);
+
+  const ok = await doubleClickSpanByExactText(
+    page,
+    envName,
+    NICE_STUDIO_TIMEOUT_MS,
+  );
+  if (!ok) return { ok: false, reason: "env_not_found", env: envName };
+
+  await waitForStudioTreePopulated(page, NICE_STUDIO_TIMEOUT_MS).catch(
+    () => false,
+  );
+  await waitForGridReady(page, NICE_STUDIO_TIMEOUT_MS);
+
+  studio.ready = true;
+  studio.env = envName;
+  studio.path = [];
+  return { ok: true };
+}
+
+async function navigateByGridDoubleClick(session, envName, requestedParts) {
+  const page = session.page;
+  const studio = ensureStudioState(session);
+
+  const current = Array.isArray(studio.path) ? studio.path : [];
+  const req = Array.isArray(requestedParts) ? requestedParts : [];
+
+  // path vazio => voltar root do ENV (se estava em subpasta)
+  if (req.length === 0) {
+    if (current.length === 0) return { ok: true };
+    return resetToEnvRoot(session, envName);
+  }
+
+  // Se o requested não é continuação do current, reseta root e re-navega
+  if (!isPrefixPath(current, req)) {
+    const rst = await resetToEnvRoot(session, envName);
+    if (!rst.ok) return rst;
+    studio.path = [];
+  }
+
+  // abre somente os segmentos restantes
+  const base = studio.path;
+  const remaining = req.slice(base.length);
+
+  for (const part of remaining) {
+    const clicked = await doubleClickGridItemByName(page, part, {
+      timeoutMs: NICE_STUDIO_TIMEOUT_MS,
+      maxScrolls: 250,
+      settleMs: 250,
+    });
+
+    if (!clicked) {
+      return {
+        ok: false,
+        reason: "grid_item_not_found",
+        missing: part,
+        env: envName,
+        path: req.join("/"),
+        currentPath: base.join("/"),
+      };
+    }
+
+    // aguarda grid atualizar
+    await sleep(page, 900);
+    await waitForGridReady(page, NICE_STUDIO_TIMEOUT_MS);
+
+    base.push(part);
+    studio.path = base.slice();
+  }
+
+  studio.ready = true;
+  studio.env = envName;
+  return { ok: true };
 }
 
 async function ensureStudioAndEnv(session, envName) {
@@ -494,18 +813,51 @@ async function ensureStudioAndEnv(session, envName) {
   const env = String(envName || "")
     .trim()
     .toUpperCase();
+  const studio = ensureStudioState(session);
 
   const st = await getPageState(page);
   if (["cluster", "login", "duo_trust", "duo_code"].includes(st.stage)) {
     return { ok: false, reason: "auth", state: st };
   }
 
-  // abre app picker
+  const onStudio = await isStudioOpen(page);
+
+  // ✅ Se já está no Studio:
+  // - Se ENV é o mesmo: NÃO refaz menu/Studio/OK/DEV
+  // - Se ENV mudou: só troca ENV (double click no DEV/PRD) e zera path
+  if (onStudio) {
+    await clickOkIfPresent(page, 2000);
+
+    if (studio.ready && studio.env === env) {
+      // best-effort: garante que grid está disponível e segue
+      await waitForGridReady(page, 12_000);
+      return { ok: true, reused: true };
+    }
+
+    // troca ENV sem sair do Studio
+    const envOk = await doubleClickSpanByExactText(
+      page,
+      env,
+      NICE_STUDIO_TIMEOUT_MS,
+    );
+    if (!envOk) return { ok: false, reason: "env_not_found", env };
+
+    await waitForStudioTreePopulated(page, NICE_STUDIO_TIMEOUT_MS).catch(
+      () => false,
+    );
+    await waitForGridReady(page, NICE_STUDIO_TIMEOUT_MS);
+
+    studio.ready = true;
+    studio.env = env;
+    studio.path = [];
+    return { ok: true, switchedEnv: true };
+  }
+
+  // ✅ Fluxo completo (somente quando NÃO está no Studio ainda)
   await clickBestEffortDeep(page, SELECTORS.appPicker, {
     timeout: NICE_STUDIO_TIMEOUT_MS,
   });
 
-  // clica Studio (a#select-cxStudio)
   const studioClicked = await clickBestEffortDeep(
     page,
     SELECTORS.studioMenuItem,
@@ -515,7 +867,6 @@ async function ensureStudioAndEnv(session, envName) {
   );
   if (!studioClicked) return { ok: false, reason: "studio_menu_not_found" };
 
-  // aguarda URL do studio
   await Promise.race([
     page
       .waitForNavigation({
@@ -536,7 +887,6 @@ async function ensureStudioAndEnv(session, envName) {
 
   await clickOkIfPresent(page, 5000);
 
-  // ✅ AJUSTE: selecionar DEV/PRD com double-click
   const envOk = await doubleClickSpanByExactText(
     page,
     env,
@@ -544,10 +894,14 @@ async function ensureStudioAndEnv(session, envName) {
   );
   if (!envOk) return { ok: false, reason: "env_not_found", env };
 
-  // ✅ aguarda árvore popular após mudar env (ex.: aparecer "API")
   const loaded = await waitForStudioTreePopulated(page, NICE_STUDIO_TIMEOUT_MS);
   if (!loaded) return { ok: false, reason: "tree_not_loaded_after_env", env };
 
+  await waitForGridReady(page, NICE_STUDIO_TIMEOUT_MS);
+
+  studio.ready = true;
+  studio.env = env;
+  studio.path = [];
   return { ok: true };
 }
 
@@ -946,6 +1300,7 @@ niceRouter.get("/sessions/:id/studio/tree", async (req, res) => {
         .json({ ok: false, error: "env deve ser DEV ou PRD" });
     }
 
+    // 1) Garante que está no Studio e com ENV selecionado
     const ensured = await ensureStudioAndEnv(session, envName);
     if (!ensured.ok) {
       if (ensured.reason === "auth") {
@@ -963,40 +1318,44 @@ niceRouter.get("/sessions/:id/studio/tree", async (req, res) => {
       });
     }
 
-    const parts = path
-      ? path
-          .split("/")
-          .map((p) => p.trim())
-          .filter(Boolean)
-      : [];
+    // 2) Navega no path SOMENTE via double-click no GRID (sem refazer menu/Studio/OK/DEV)
+    const requestedParts = splitPath(path);
 
-    // navega pelo tree (pastas) — a grid atualiza com scripts do nível selecionado
-    for (const part of parts) {
-      const clicked = await clickTreeItemByText(
-        session.page,
-        part,
-        NICE_STUDIO_TIMEOUT_MS,
-      );
-      if (!clicked) {
-        return res.status(404).json({
-          ok: false,
-          error: `Path segment not found: ${part}`,
-          env: envName,
-          path,
-        });
-      }
-      await sleep(session.page, 1200);
+    const nav = await navigateByGridDoubleClick(
+      session,
+      envName,
+      requestedParts,
+    );
+    if (!nav.ok) {
+      return res.status(nav.reason === "grid_item_not_found" ? 404 : 500).json({
+        ok: false,
+        error:
+          nav.reason === "grid_item_not_found"
+            ? `Item not found in list: ${nav.missing}`
+            : "Failed to navigate",
+        details: nav,
+      });
     }
 
-    // ✅ AQUI: retorna a lista final usando AG-GRID + TREE
-    const items = await collectStudioItems(session.page);
+    // 3) Retorna lista atual do GRID (scripts/pastas mostradas no AG-Grid)
+    const names = await extractAllScriptNames(session.page, {
+      timeoutMs: 30_000,
+      maxScrolls: 250,
+      settleMs: 250,
+      noNewLimit: 8,
+    });
+
+    // ✅ Para o front conseguir “clicar e navegar” sempre, trate como folder navegável
+    const items = (names || []).map((n) => ({ name: n, type: "folder" }));
+
+    const studio = ensureStudioState(session);
 
     return res.json({
       ok: true,
       env: envName,
-      path: parts.join("/"),
-      breadcrumb: ["Scripts", envName, ...parts],
-      items, // ✅ [{ name, type: "folder"|"script" }, ...]
+      path: (studio.path || []).join("/"),
+      breadcrumb: ["Scripts", envName, ...(studio.path || [])],
+      items,
     });
   } catch (e) {
     return res.status(500).json({

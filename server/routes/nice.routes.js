@@ -245,6 +245,8 @@ export default function niceRoutes({ env }) {
       const qs = new URLSearchParams({ env: envName });
       if (path) qs.set("path", path);
 
+      console.log(qs);
+
       const r = await fetch(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/studio/tree?${qs.toString()}`,
         { method: "GET", headers: headersAny("application/json") },
