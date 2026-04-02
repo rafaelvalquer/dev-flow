@@ -1,4 +1,4 @@
-// src/components/ChecklistGMUDTab.jsx
+﻿// src/components/ChecklistGMUDTab.jsx
 import React, {
   useEffect,
   useMemo,
@@ -74,6 +74,11 @@ import { notify } from "../utils/notify";
 
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  EmptyState,
+  SectionCard,
+  StickyActionBar,
+} from "@/components/layout/ModulePrimitives";
 
 import { cn } from "@/lib/utils";
 import {
@@ -113,12 +118,12 @@ function ChecklistGMUDTab({
   const [attachments, setAttachments] = useState([]);
   const [previewFiles, setPreviewFiles] = useState([]);
 
-  // Evidências (por step)
+  // EvidÃªncias (por step)
   const [evidenceByStep, setEvidenceByStep] = useState({});
   const [evidenceCountsByStep, setEvidenceCountsByStep] = useState({});
   const [evidenceStepKey, setEvidenceStepKey] = useState("");
 
-  // Variáveis
+  // VariÃ¡veis
   const [chaves, setChaves] = useState([]); // {id, ambiente, nome, valor, pendente}
   const [varsBanner, setVarsBanner] = useState(false);
   const varsBaselineRef = useRef(new Set());
@@ -194,11 +199,11 @@ function ChecklistGMUDTab({
     ...patch,
   });
   const [customTaskModal, setCustomTaskModal] = useState(() =>
-    makeCustomTaskModal()
+    makeCustomTaskModal(),
   );
   const [creatingCustomTask, setCreatingCustomTask] = useState(false);
 
-  // Comentários (Jira) - Tab "Comentários"
+  // ComentÃ¡rios (Jira) - Tab "ComentÃ¡rios"
   const [jiraCommentsList, setJiraCommentsList] = useState([]);
   const [newJiraCommentText, setNewJiraCommentText] = useState("");
   const [loadingJiraComments, setLoadingJiraComments] = useState(false);
@@ -265,7 +270,7 @@ function ChecklistGMUDTab({
     if (Array.isArray(v)) {
       return v
         .map((x) =>
-          typeof x === "string" ? x : x?.value || x?.name || x?.label || ""
+          typeof x === "string" ? x : x?.value || x?.name || x?.label || "",
         )
         .map((s) => String(s).trim())
         .filter(Boolean);
@@ -287,7 +292,7 @@ function ChecklistGMUDTab({
     }
   }
 
-  // ADF simples para comentário "normal" (sem TAG)
+  // ADF simples para comentÃ¡rio "normal" (sem TAG)
   function adfFromPlainText(text) {
     const raw = String(text ?? "");
     const lines = raw.split(/\r?\n/);
@@ -327,17 +332,17 @@ function ChecklistGMUDTab({
             c?.author?.displayName ||
             c?.updateAuthor?.displayName ||
             c?.author?.name ||
-            "—",
+            "â€”",
           created: c?.created || "",
           updated: c?.updated || "",
           text,
         };
       })
       .filter((c) => c.id && c.text)
-      // remove só o config do Kanban
+      // remove sÃ³ o config do Kanban
       .filter((c) => !/\[GMUD Kanban Config\]/i.test(c.text))
       .sort(
-        (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime()
+        (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime(),
       );
 
     return out;
@@ -353,12 +358,12 @@ function ChecklistGMUDTab({
     try {
       const payload = await getComments(tk);
       setJiraCommentsList(extractAllJiraComments(payload));
-      // também atualiza evidências (contagens) a partir dos comentários
+      // tambÃ©m atualiza evidÃªncias (contagens) a partir dos comentÃ¡rios
       const ev = extractEvidenceByStepFromCommentsPayload(payload);
       setEvidenceByStep(ev);
       setEvidenceCountsByStep(summarizeEvidenceCounts(ev));
     } catch (e) {
-      notify.error("Erro ao atualizar comentários do Jira.", {
+      notify.error("Erro ao atualizar comentÃ¡rios do Jira.", {
         description: e?.message || String(e),
       });
     } finally {
@@ -373,16 +378,16 @@ function ChecklistGMUDTab({
     const text = String(newJiraCommentText || "").trim();
 
     if (!tk) return notify.warning("Informe o ticket do Jira.");
-    if (!text) return notify.warning("Digite um comentário.");
+    if (!text) return notify.warning("Digite um comentÃ¡rio.");
 
     setPostingJiraComment(true);
     try {
       await createComment(tk, adfFromPlainText(text));
       setNewJiraCommentText("");
       await refreshJiraComments();
-      notify.success("Comentário adicionado no Jira.");
+      notify.success("ComentÃ¡rio adicionado no Jira.");
     } catch (e) {
-      notify.error("Erro ao adicionar comentário no Jira.", {
+      notify.error("Erro ao adicionar comentÃ¡rio no Jira.", {
         description: e?.message || String(e),
       });
     } finally {
@@ -416,7 +421,7 @@ function ChecklistGMUDTab({
     const out = [];
     for (const card of col.cards || []) {
       for (const st of card.subtasks || []) {
-        out.push(`${card.title} — ${st.title}`);
+        out.push(`${card.title} â€” ${st.title}`);
       }
     }
     return out;
@@ -440,7 +445,7 @@ function ChecklistGMUDTab({
             ...row,
             id: crypto.randomUUID(),
             pendente: false,
-          }))
+          })),
         );
 
         const tk = String(d.ticketJira || "")
@@ -468,7 +473,7 @@ function ChecklistGMUDTab({
               varsBaselineRef.current = new Set(
                 (cache.varsComment.originalText || "")
                   .split("\n")
-                  .filter(Boolean)
+                  .filter(Boolean),
               );
             }
 
@@ -566,6 +571,26 @@ function ChecklistGMUDTab({
     return computeOverallPct(kanbanCfg, jiraCtx?.subtasksBySummary || {});
   }, [kanbanCfg, jiraCtx]);
 
+  const nextRecommendedAction = useMemo(() => {
+    if (!String(ticketJira || "").trim()) {
+      return "Informe o ticket do Jira e sincronize os dados para iniciar a jornada.";
+    }
+
+    if (!jiraCtx?.ticketKey) {
+      return "Sincronize com o Jira para carregar contexto, comentÃ¡rios e estrutura do fluxo.";
+    }
+
+    if (!kanbanCfg) {
+      return "Monte ou valide a estrutura do Kanban para organizar a execuÃ§Ã£o por etapas.";
+    }
+
+    if (!Object.keys(evidenceCountsByStep || {}).length) {
+      return "Comece a registrar evidÃªncias e comentÃ¡rios por etapa para fechar o histÃ³rico da mudanÃ§a.";
+    }
+
+    return "Continue a execuÃ§Ã£o da etapa ativa e mantenha comentÃ¡rios, evidÃªncias e anexos atualizados.";
+  }, [evidenceCountsByStep, jiraCtx, kanbanCfg, ticketJira]);
+
   useEffect(() => {
     if (typeof onProgressChange === "function") onProgressChange(geralPct);
   }, [geralPct, onProgressChange]);
@@ -604,7 +629,7 @@ function ChecklistGMUDTab({
     }
   }, [ticketJira]); // intencional
 
-  /* ---------- Variáveis helpers ---------- */
+  /* ---------- VariÃ¡veis helpers ---------- */
   function updChave(id, patch) {
     setChaves((prev) => {
       const rows = prev.map((r) => (r.id === id ? { ...r, ...patch } : r));
@@ -649,7 +674,7 @@ function ChecklistGMUDTab({
   }
 
   // ===============================
-  // Helpers: transição do ticket pai
+  // Helpers: transiÃ§Ã£o do ticket pai
   // ===============================
   function normStr(v) {
     return String(v || "")
@@ -663,7 +688,7 @@ function ChecklistGMUDTab({
     const wf = getWorkflow();
     const isFinal = toIdx >= wf.length;
 
-    if (isFinal) return "Concluído";
+    if (isFinal) return "ConcluÃ­do";
 
     const step = wf[toIdx];
     const stepKey = normStr(step?.key);
@@ -672,10 +697,10 @@ function ChecklistGMUDTab({
     const isPosDeploy =
       /(pos)/.test(stepKey) ||
       /(pos)/.test(stepTitle) ||
-      /(p[oó]s)/.test(stepTitle);
+      /(p[oÃ³]s)/.test(stepTitle);
 
     if (/(homolog)/.test(stepKey) || /(homolog)/.test(stepTitle))
-      return "Homologação";
+      return "HomologaÃ§Ã£o";
 
     if (
       !isPosDeploy &&
@@ -696,7 +721,7 @@ function ChecklistGMUDTab({
 
     const byTitle = wf.find((s) => {
       const t = normStr(s?.title);
-      return /deploy/.test(t) && !/(pos|p[oó]s)/.test(t);
+      return /deploy/.test(t) && !/(pos|p[oÃ³]s)/.test(t);
     });
 
     return byTitle?.key || null;
@@ -707,14 +732,14 @@ function ChecklistGMUDTab({
       .trim()
       .toUpperCase();
     const target = String(targetStatusName || "").trim();
-    if (!tk) throw new Error("Ticket pai inválido.");
-    if (!target) throw new Error("Status alvo inválido.");
+    if (!tk) throw new Error("Ticket pai invÃ¡lido.");
+    if (!target) throw new Error("Status alvo invÃ¡lido.");
 
     await transitionToStatusName(tk, target);
     return true;
   }
 
-  /* ---------- Evidências / anexos ---------- */
+  /* ---------- EvidÃªncias / anexos ---------- */
   async function listarAnexos() {
     if (!String(ticketJira || "").trim()) return;
     const data = await listAttachments(ticketJira);
@@ -745,12 +770,12 @@ function ChecklistGMUDTab({
     const tk = String(ticketJira || "")
       .trim()
       .toUpperCase();
-    if (!tk) throw new Error("Ticket inválido.");
+    if (!tk) throw new Error("Ticket invÃ¡lido.");
 
     const existing = evidenceByStep?.[stepKey];
     const merged = mergeEvidenceFiles(
       existing?.files || [],
-      incomingFiles || []
+      incomingFiles || [],
     );
 
     const stepTitle = getStepTitleByKey(stepKey);
@@ -790,7 +815,7 @@ function ChecklistGMUDTab({
 
     const stepKey = String(evidenceStepKey || "").trim();
     if (!stepKey)
-      return notify.warning("Selecione o step para registrar evidência.");
+      return notify.warning("Selecione o step para registrar evidÃªncia.");
 
     setUploading(true);
     const startedAt = Date.now();
@@ -802,13 +827,13 @@ function ChecklistGMUDTab({
       const nextAtt = data.attachments || [];
       setAttachments(nextAtt);
 
-      // tenta identificar recém enviados pelo nome + janela de tempo
+      // tenta identificar recÃ©m enviados pelo nome + janela de tempo
       const names = new Set(previewFiles.map((f) => f?.name).filter(Boolean));
       const incoming = nextAtt
         .filter((a) => {
           const t = new Date(a?.created || 0).getTime();
           const byName = names.has(a?.filename);
-          const byTime = t >= startedAt - 60 * 1000; // tolerância
+          const byTime = t >= startedAt - 60 * 1000; // tolerÃ¢ncia
           return byName && byTime;
         })
         .map((a) => {
@@ -822,7 +847,7 @@ function ChecklistGMUDTab({
           };
         });
 
-      // se não achou pelo filtro, registra pelo nome (sem url)
+      // se nÃ£o achou pelo filtro, registra pelo nome (sem url)
       const fallbackIncoming =
         incoming.length > 0
           ? incoming
@@ -852,9 +877,9 @@ function ChecklistGMUDTab({
       }));
 
       limparPreview();
-      notify.success("Arquivos enviados e evidência registrada.");
+      notify.success("Arquivos enviados e evidÃªncia registrada.");
     } catch (e) {
-      notify.error("Erro ao enviar/registrar evidência.", {
+      notify.error("Erro ao enviar/registrar evidÃªncia.", {
         description: e?.message || String(e),
       });
     } finally {
@@ -888,18 +913,18 @@ function ChecklistGMUDTab({
     const wf = getWorkflow();
     const isFinalizing = toIdx >= wf.length;
 
-    // regra: só pode concluir no final se Deploy estiver 100%
+    // regra: sÃ³ pode concluir no final se Deploy estiver 100%
     if (isFinalizing) {
       const deployKey = findDeployStepKey();
       if (deployKey) {
         const deployStat = computeStepPct(
           kanbanCfg,
           deployKey,
-          jiraCtx?.subtasksBySummary || {}
+          jiraCtx?.subtasksBySummary || {},
         );
         if (!deployStat?.complete) {
           notify.warning(
-            'Não é possível concluir. O step "Deploy" precisa estar 100% concluído.'
+            'NÃ£o Ã© possÃ­vel concluir. O step "Deploy" precisa estar 100% concluÃ­do.',
           );
           setAdvancingStep(false);
           return;
@@ -943,7 +968,7 @@ function ChecklistGMUDTab({
       setKanbanComment({ id: saved.ticketId, originalText: saved.savedText });
 
       setKanbanCfg(
-        applyJiraStatusesToConfig(saved.savedConfig, ensured.nextMap)
+        applyJiraStatusesToConfig(saved.savedConfig, ensured.nextMap),
       );
       setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
       setUnlockedStepIdx(saved.savedConfig.unlockedStepIdx || 0);
@@ -969,11 +994,11 @@ function ChecklistGMUDTab({
           try {
             await transitionParentIssueTo(
               jiraCtx.ticketKey,
-              parentTargetStatus
+              parentTargetStatus,
             );
             parentTransitionOk = true;
             setTicketSideInfo((prev) =>
-              prev ? { ...prev, status: parentTargetStatus } : prev
+              prev ? { ...prev, status: parentTargetStatus } : prev,
             );
           } catch (e) {
             parentTransitionErr = e?.message ? String(e.message) : String(e);
@@ -989,18 +1014,18 @@ function ChecklistGMUDTab({
               ensured.created.length
             }.`
           : `Step "${getStepTitle(
-              toIdx
+              toIdx,
             )}" liberado. Nenhuma subtarefa nova precisou ser criada.`;
 
       const statusMsg =
         parentTargetStatus && parentTransitionOk
           ? ` Status do ticket atualizado para "${parentTargetStatus}".`
           : parentTargetStatus && parentTransitionErr
-          ? ` Atenção: falha ao atualizar status para "${parentTargetStatus}": ${parentTransitionErr}`
-          : "";
+            ? ` AtenÃ§Ã£o: falha ao atualizar status para "${parentTargetStatus}": ${parentTransitionErr}`
+            : "";
 
       showSyncOverlay({
-        title: isFinalizing ? "Fluxo finalizado" : "Próximo step liberado",
+        title: isFinalizing ? "Fluxo finalizado" : "PrÃ³ximo step liberado",
         message: baseMsg + statusMsg,
         done: true,
         created: ensured.created || [],
@@ -1009,7 +1034,7 @@ function ChecklistGMUDTab({
     } catch (e) {
       showSyncOverlay({
         title: "Erro",
-        message: "Erro ao liberar o próximo step.",
+        message: "Erro ao liberar o prÃ³ximo step.",
         error: e?.message ? String(e.message) : String(e),
         done: true,
       });
@@ -1028,7 +1053,7 @@ function ChecklistGMUDTab({
     const stepIdx = getStepIdxByKey(stepKey);
     if (typeof stepIdx === "number" && stepIdx > unlockedStepIdx) {
       return notify.warning(
-        `"${getStepTitle(stepIdx)}" ainda não está liberada.`
+        `"${getStepTitle(stepIdx)}" ainda nÃ£o estÃ¡ liberada.`,
       );
     }
 
@@ -1048,7 +1073,7 @@ function ChecklistGMUDTab({
     const isChecked = jira0 ? isDoneStatus(jira0) : false;
 
     try {
-      // Trabalhe com variáveis locais (fonte única p/ persistência)
+      // Trabalhe com variÃ¡veis locais (fonte Ãºnica p/ persistÃªncia)
       let cfgWork =
         typeof structuredClone === "function"
           ? structuredClone(kanbanCfg)
@@ -1056,20 +1081,20 @@ function ChecklistGMUDTab({
 
       let nextMap = { ...(jiraCtx?.subtasksBySummary || {}) };
 
-      // garante jiraKey/jiraId (se não existir, cria e já persiste o vínculo)
+      // garante jiraKey/jiraId (se nÃ£o existir, cria e jÃ¡ persiste o vÃ­nculo)
       let jiraKey = st.jiraKey || jira0?.key || null;
 
       if (!jiraKey) {
         const created = await createSubtask(
           jiraCtx.projectId,
           jiraCtx.ticketKey,
-          summary
+          summary,
         );
         jiraKey = created.key;
 
-        // grava vínculo no cfgWork
+        // grava vÃ­nculo no cfgWork
         const c2 = cfgWork.columns?.[stepKey]?.cards?.find(
-          (c) => c.id === cardId
+          (c) => c.id === cardId,
         );
         const st2 = c2?.subtasks?.find((x) => x.id === subId);
         if (st2) {
@@ -1085,7 +1110,7 @@ function ChecklistGMUDTab({
           statusCategory: "",
         };
 
-        // persiste vínculo criado
+        // persiste vÃ­nculo criado
         const savedLink = await upsertKanbanConfigDb({
           ticketKey: jiraCtx.ticketKey,
           config: cfgWork,
@@ -1101,7 +1126,7 @@ function ChecklistGMUDTab({
         }));
       }
 
-      // Transição no Jira
+      // TransiÃ§Ã£o no Jira
       const payload = isChecked
         ? await transitionToBacklog(jiraKey)
         : await transitionToDone(jiraKey);
@@ -1109,7 +1134,7 @@ function ChecklistGMUDTab({
       const nextStatus = payload?.status || (isChecked ? "Backlog" : "Done");
       const nextCat = payload?.statusCategory || (isChecked ? "new" : "done");
 
-      // atualiza map (fonte para UI + para sync/persistência)
+      // atualiza map (fonte para UI + para sync/persistÃªncia)
       nextMap = {
         ...nextMap,
         [mapKey]: {
@@ -1120,10 +1145,10 @@ function ChecklistGMUDTab({
         },
       };
 
-      // atualiza cfgWork (isso é o que vai para o Mongo)
+      // atualiza cfgWork (isso Ã© o que vai para o Mongo)
       {
         const c2 = cfgWork.columns?.[stepKey]?.cards?.find(
-          (c) => c.id === cardId
+          (c) => c.id === cardId,
         );
         const st2 = c2?.subtasks?.find((x) => x.id === subId);
         if (st2) {
@@ -1154,7 +1179,7 @@ function ChecklistGMUDTab({
 
       // Atualiza estados (UI consistente com Jira + DB)
       setJiraCtx((prev) =>
-        prev ? { ...prev, subtasksBySummary: nextMap } : prev
+        prev ? { ...prev, subtasksBySummary: nextMap } : prev,
       );
 
       const cfgFinal = saved?.savedConfig || cfgWork;
@@ -1188,21 +1213,21 @@ function ChecklistGMUDTab({
     try {
       if (scriptsComment.id) {
         if (text === scriptsComment.originalText)
-          return notify.info("Sem alterações.");
+          return notify.info("Sem alteraÃ§Ãµes.");
         const updated = await updateComment(
           tk,
           scriptsComment.id,
-          adfFromTagAndText(SCRIPTS_TAG, text)
+          adfFromTagAndText(SCRIPTS_TAG, text),
         );
         setScriptsComment({ id: updated.id, originalText: text });
-        notify.success("Comentário [Scripts alterados] atualizado.");
+        notify.success("ComentÃ¡rio [Scripts alterados] atualizado.");
       } else {
         const created = await createComment(
           tk,
-          adfFromTagAndText(SCRIPTS_TAG, text)
+          adfFromTagAndText(SCRIPTS_TAG, text),
         );
         setScriptsComment({ id: created.id, originalText: text });
-        notify.success("Comentário [Scripts alterados] criado.");
+        notify.success("ComentÃ¡rio [Scripts alterados] criado.");
       }
     } catch (e) {
       notify.error("Erro ao salvar [Scripts alterados].", {
@@ -1213,7 +1238,7 @@ function ChecklistGMUDTab({
     }
   }
 
-  /* ---------- Variáveis ---------- */
+  /* ---------- VariÃ¡veis ---------- */
   async function salvarVariaveis() {
     const tk = String(ticketJira || "")
       .trim()
@@ -1221,7 +1246,7 @@ function ChecklistGMUDTab({
     if (!tk) return notify.warning("Informe o ticket.");
 
     const text = buildVarsText(chaves);
-    if (!text) return notify.warning("Nenhuma variável preenchida.");
+    if (!text) return notify.warning("Nenhuma variÃ¡vel preenchida.");
 
     setSavingVars(true);
     try {
@@ -1229,35 +1254,35 @@ function ChecklistGMUDTab({
 
       if (varsComment.id) {
         if (normalized === varsComment.originalText)
-          return notify.info("Sem alterações.");
+          return notify.info("Sem alteraÃ§Ãµes.");
 
         const updated = await updateComment(
           tk,
           varsComment.id,
-          adfFromTagAndText(VARS_TAG, normalized)
+          adfFromTagAndText(VARS_TAG, normalized),
         );
         varsBaselineRef.current = new Set(
-          normalized.split("\n").filter(Boolean)
+          normalized.split("\n").filter(Boolean),
         );
         setChaves((prev) => prev.map((r) => ({ ...r, pendente: false })));
         setVarsBanner(false);
         setVarsComment({ id: updated.id, originalText: normalized });
-        notify.success("Variáveis atualizadas.");
+        notify.success("VariÃ¡veis atualizadas.");
       } else {
         const created = await createComment(
           tk,
-          adfFromTagAndText(VARS_TAG, normalized)
+          adfFromTagAndText(VARS_TAG, normalized),
         );
         varsBaselineRef.current = new Set(
-          normalized.split("\n").filter(Boolean)
+          normalized.split("\n").filter(Boolean),
         );
         setChaves((prev) => prev.map((r) => ({ ...r, pendente: false })));
         setVarsBanner(false);
         setVarsComment({ id: created.id, originalText: normalized });
-        notify.success("Variáveis salvas.");
+        notify.success("VariÃ¡veis salvas.");
       }
     } catch (e) {
-      notify.error("Erro ao salvar variáveis.", {
+      notify.error("Erro ao salvar variÃ¡veis.", {
         description: e?.message || String(e),
       });
     } finally {
@@ -1265,7 +1290,7 @@ function ChecklistGMUDTab({
     }
   }
 
-  /* ---------- Jira: sincronização ---------- */
+  /* ---------- Jira: sincronizaÃ§Ã£o ---------- */
   async function sincronizarJira() {
     const tk = String(ticketJira || "")
       .trim()
@@ -1305,7 +1330,7 @@ function ChecklistGMUDTab({
           "customfield_13604",
           "customfield_10015",
           "priority",
-        ].join(",")
+        ].join(","),
       );
 
       onRdmTitleChange?.(issue?.fields?.summary || "");
@@ -1331,8 +1356,8 @@ function ChecklistGMUDTab({
         typeof startDateRaw === "string"
           ? fmtDateBr(startDateRaw)
           : startDateRaw?.value
-          ? fmtDateBr(startDateRaw.value)
-          : "";
+            ? fmtDateBr(startDateRaw.value)
+            : "";
 
       const statusTicket = fields?.status?.name || "";
 
@@ -1365,8 +1390,8 @@ function ChecklistGMUDTab({
         typeof customDueRaw === "string"
           ? customDueRaw.trim()
           : customDueRaw?.value
-          ? String(customDueRaw.value).trim()
-          : "";
+            ? String(customDueRaw.value).trim()
+            : "";
 
       const hasCustomDue =
         typeof customDue === "string" && /^\d{4}-\d{2}-\d{2}/.test(customDue);
@@ -1374,7 +1399,7 @@ function ChecklistGMUDTab({
 
       setDataLimite(duePicked);
       setDataLimiteLabel(
-        hasCustomDue ? "Data limite Alterada:" : "Data limite:"
+        hasCustomDue ? "Data limite Alterada:" : "Data limite:",
       );
       onRdmDueDateChange?.(duePicked);
 
@@ -1409,7 +1434,7 @@ function ChecklistGMUDTab({
 
       showSyncOverlay({
         title: "Carregando dados",
-        message: "Carregando comentários e anexos do Jira...",
+        message: "Carregando comentÃ¡rios e anexos do Jira...",
       });
 
       let payload = null;
@@ -1425,7 +1450,7 @@ function ChecklistGMUDTab({
           setEvidenceCountsByStep({});
         }
       } catch (e) {
-        // comentários são opcionais
+        // comentÃ¡rios sÃ£o opcionais
         setJiraCommentsList([]);
       }
 
@@ -1446,7 +1471,7 @@ function ChecklistGMUDTab({
         // ignore: fallback para Jira comment
       }
 
-      // 2) retrocompat: se não tem no Mongo, tenta ler do comentário do Jira e migra p/ Mongo
+      // 2) retrocompat: se nÃ£o tem no Mongo, tenta ler do comentÃ¡rio do Jira e migra p/ Mongo
       if (!cfgLoaded && payload) {
         const cfgFound = extractKanbanConfigFromCommentsPayload(payload);
 
@@ -1474,7 +1499,7 @@ function ChecklistGMUDTab({
               originalText: saved.savedText,
             });
           } catch {
-            // se falhar, ainda dá para seguir usando cfgLoaded em memória
+            // se falhar, ainda dÃ¡ para seguir usando cfgLoaded em memÃ³ria
             setKanbanComment({ id: null, originalText: "" });
           }
         } else {
@@ -1483,11 +1508,11 @@ function ChecklistGMUDTab({
       }
 
       if (cfgLoaded) {
-        // 1) sempre reconciliar Jira -> cfg (inclui done/status/vínculos)
+        // 1) sempre reconciliar Jira -> cfg (inclui done/status/vÃ­nculos)
         const syncRes = syncKanbanConfigWithJira(cfgLoaded, subtasksBySummary);
         let cfgBase = syncRes.nextCfg;
 
-        // step default evidência
+        // step default evidÃªncia
         const wf = cfgBase?.workflow || DEFAULT_KANBAN_WORKFLOW;
         setEvidenceStepKey((prev) => prev || wf?.[0]?.key || "");
 
@@ -1506,7 +1531,7 @@ function ChecklistGMUDTab({
         cfgBase = ensured.nextCfg;
         const nextMap = ensured.nextMap;
 
-        // 3) se houve divergência (Jira != Mongo) OU criou novas subtasks, persiste no Mongo
+        // 3) se houve divergÃªncia (Jira != Mongo) OU criou novas subtasks, persiste no Mongo
         const mustPersist =
           syncRes.changed || (ensured?.created?.length || 0) > 0;
 
@@ -1534,13 +1559,13 @@ function ChecklistGMUDTab({
         setJiraCtx((prev) => ({ ...prev, subtasksBySummary: nextMap }));
 
         showSyncOverlay({
-          title: "Sincronização concluída",
+          title: "SincronizaÃ§Ã£o concluÃ­da",
           message: `Step liberado: ${
             (cfgBase.workflow || DEFAULT_KANBAN_WORKFLOW)[
               cfgBase.unlockedStepIdx || 0
             ]?.title ||
             (cfgBase.workflow || DEFAULT_KANBAN_WORKFLOW)[0]?.title ||
-            "—"
+            "â€”"
           }`,
           done: true,
           created: ensured.created || [],
@@ -1551,14 +1576,14 @@ function ChecklistGMUDTab({
         setBuilderOpen(true);
 
         showSyncOverlay({
-          title: "Estrutura não encontrada",
+          title: "Estrutura nÃ£o encontrada",
           message:
-            "Este ticket ainda não possui estrutura do Kanban. Monte a estrutura no modal para continuar.",
+            "Este ticket ainda nÃ£o possui estrutura do Kanban. Monte a estrutura no modal para continuar.",
           done: true,
         });
       }
 
-      // ===== Scripts / Variáveis / Anexos =====
+      // ===== Scripts / VariÃ¡veis / Anexos =====
       if (payload) {
         // Scripts
         {
@@ -1571,7 +1596,7 @@ function ChecklistGMUDTab({
           }
         }
 
-        // Variáveis
+        // VariÃ¡veis
         {
           const f = findTaggedComment(payload, VARS_TAG);
           if (f.found) {
@@ -1597,7 +1622,7 @@ function ChecklistGMUDTab({
         // ignore
       }
 
-      notify.success("Sincronização concluída.");
+      notify.success("SincronizaÃ§Ã£o concluÃ­da.");
     } catch (e) {
       showSyncOverlay({
         title: "Erro",
@@ -1650,7 +1675,7 @@ function ChecklistGMUDTab({
 
       cfg = ensured.nextCfg;
 
-      // ✅ Tenta salvar no Mongo, mas NÃO depende disso para renderizar
+      // âœ… Tenta salvar no Mongo, mas NÃƒO depende disso para renderizar
       let saved = null;
       try {
         saved = await upsertKanbanConfigDb({
@@ -1665,7 +1690,7 @@ function ChecklistGMUDTab({
         });
       }
 
-      // ✅ Normaliza o config final (fallback para cfg local)
+      // âœ… Normaliza o config final (fallback para cfg local)
       const savedCfg =
         saved?.savedConfig || saved?.config || saved?.kanban?.config || cfg;
 
@@ -1740,9 +1765,9 @@ function ChecklistGMUDTab({
       .map((s) => String(s || "").trim())
       .filter(Boolean);
 
-    if (!stepKey) return notify.warning("Step inválido.");
+    if (!stepKey) return notify.warning("Step invÃ¡lido.");
     if (!title || validSubs.length === 0)
-      return notify.warning("Preencha o título e pelo menos uma subtarefa.");
+      return notify.warning("Preencha o tÃ­tulo e pelo menos uma subtarefa.");
 
     const stepCol = kanbanCfg?.columns?.[stepKey];
     const stepTitle = stepCol?.title || getStepTitleByKey(stepKey) || stepKey;
@@ -1762,7 +1787,7 @@ function ChecklistGMUDTab({
         const res = await createSubtask(
           jiraCtx.projectId,
           jiraCtx.ticketKey,
-          summary
+          summary,
         );
 
         createdJiraTasks.push({
@@ -1817,7 +1842,7 @@ function ChecklistGMUDTab({
       setKanbanCfg(applyJiraStatusesToConfig(saved.savedConfig, nextMap));
       setKanbanComment({ id: saved.commentId, originalText: saved.savedText });
       setJiraCtx((prev) =>
-        prev ? { ...prev, subtasksBySummary: nextMap } : prev
+        prev ? { ...prev, subtasksBySummary: nextMap } : prev,
       );
 
       setCustomTaskModal(makeCustomTaskModal());
@@ -1889,7 +1914,7 @@ function ChecklistGMUDTab({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 30 }}
       transition={{ duration: 0.4, ease: "easeInOut" }}
-      className="rdm-wrap"
+      className="rdm-wrap gmud-module"
     >
       {/* Step gate modal */}
       {stepGate.open && (
@@ -1917,22 +1942,22 @@ function ChecklistGMUDTab({
           >
             <div style={{ fontWeight: 800, fontSize: 16 }}>
               {stepGate.toIdx >= getWorkflow().length
-                ? "Kanban concluído"
-                : "Step concluído"}
+                ? "Kanban concluÃ­do"
+                : "Step concluÃ­do"}
             </div>
 
             <div style={{ marginTop: 6, color: "#555", fontSize: 13 }}>
               {stepGate.toIdx >= getWorkflow().length ? (
                 <>
-                  Você concluiu a última fase:{" "}
+                  VocÃª concluiu a Ãºltima fase:{" "}
                   <strong>{getStepTitle(stepGate.fromIdx)}</strong>.
                 </>
               ) : (
                 <>
-                  Você concluiu a fase:{" "}
+                  VocÃª concluiu a fase:{" "}
                   <strong>{getStepTitle(stepGate.fromIdx)}</strong>.
                   <br />
-                  Clique para liberar o próximo step:{" "}
+                  Clique para liberar o prÃ³ximo step:{" "}
                   <strong>{getStepTitle(stepGate.toIdx)}</strong>.
                 </>
               )}
@@ -1951,7 +1976,7 @@ function ChecklistGMUDTab({
                 }}
               >
                 <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 6 }}>
-                  Itens do próximo step:
+                  Itens do prÃ³ximo step:
                 </div>
                 <ul
                   style={{ margin: "0 0 0 18px", fontSize: 12, color: "#333" }}
@@ -1978,7 +2003,7 @@ function ChecklistGMUDTab({
                 disabled={advancingStep}
                 className="!rounded-xl border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:opacity-60"
               >
-                Agora não
+                Agora nÃ£o
               </Button>
 
               <Button
@@ -1991,14 +2016,14 @@ function ChecklistGMUDTab({
                 <RotateCw
                   className={cn(
                     "mr-2 h-4 w-4",
-                    advancingStep && "animate-spin"
+                    advancingStep && "animate-spin",
                   )}
                 />
                 {advancingStep
                   ? "Liberando..."
                   : stepGate.toIdx >= getWorkflow().length
-                  ? "Ok"
-                  : `Liberar: ${getStepTitle(stepGate.toIdx)}`}
+                    ? "Ok"
+                    : `Liberar: ${getStepTitle(stepGate.toIdx)}`}
               </Button>
             </div>
           </div>
@@ -2070,7 +2095,7 @@ function ChecklistGMUDTab({
                     style={{
                       height: "100%",
                       width: `${Math.round(
-                        (syncOverlay.current / syncOverlay.total) * 100
+                        (syncOverlay.current / syncOverlay.total) * 100,
                       )}%`,
                       background: "#1677ff",
                     }}
@@ -2185,7 +2210,7 @@ function ChecklistGMUDTab({
                 marginBottom: 6,
               }}
             >
-              Título do Card
+              TÃ­tulo do Card
             </label>
             <input
               autoFocus
@@ -2232,7 +2257,7 @@ function ChecklistGMUDTab({
                       border: "1px solid #ddd",
                       outline: "none",
                     }}
-                    placeholder={`Subtarefa ${idx + 1} (ex: Coletar evidência)`}
+                    placeholder={`Subtarefa ${idx + 1} (ex: Coletar evidÃªncia)`}
                     value={st || ""}
                     onChange={(e) =>
                       handleUpdateSubtaskField(idx, e.target.value)
@@ -2312,30 +2337,44 @@ function ChecklistGMUDTab({
         </div>
       )}
 
-      {/* ===== Layout: Conteúdo + Painel lateral ===== */}
+      {/* ===== Layout: ConteÃºdo + Painel lateral ===== */}
       <div className="gmud-shell">
         <div className="gmud-main">
           {/* Topbar */}
           <div className="gmud-topbar">
-            <div className="gmud-deadline" title="Data limite do ticket">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                className="gmud-deadline__icon"
-              >
-                <path d="M12 8v4l3 3" />
-                <circle cx="12" cy="12" r="10" />
-              </svg>
-              <span>
-                {dataLimiteLabel} {dataLimite ? fmtDueDate(dataLimite) : "—"}
-              </span>
+            <div className="gmud-topbar__summary">
+              <div className="gmud-topbar__meta">
+                <span className="gmud-topbar__ticket">
+                  {ticketJira || "Ticket pendente"}
+                </span>
+                {jiraCtx?.ticketKey ? (
+                  <span className="gmud-topbar__status">
+                    Sincronizado com Jira
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="gmud-topbar__next">
+                <span className="gmud-topbar__next-label">Próxima ação</span>
+                <span className="gmud-topbar__next-value">
+                  {nextRecommendedAction}
+                </span>
+              </div>
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="gmud-topbar__actions">
+              <Button
+                onClick={sincronizarJira}
+                disabled={syncing}
+                aria-busy={syncing}
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                <RotateCw
+                  className={cn("mr-2 h-4 w-4", syncing && "animate-spin")}
+                />
+                {syncing ? "Sincronizando..." : "Sincronizar com Jira"}
+              </Button>
+
               <Button
                 type="button"
                 variant="outline"
@@ -2374,8 +2413,8 @@ function ChecklistGMUDTab({
                   !ticketJira?.trim() && !sideOpen
                     ? "Informe o ticket do Jira"
                     : sideOpen
-                    ? "Fechar detalhes"
-                    : "Abrir detalhes"
+                      ? "Fechar detalhes"
+                      : "Abrir detalhes"
                 }
               >
                 <i
@@ -2391,47 +2430,38 @@ function ChecklistGMUDTab({
             </div>
           </div>
 
-          {/* Infos projeto */}
-          <div className="project-info">
-            <div>
-              <label>Projeto</label>
-              <input
-                value={nomeProjeto}
-                onChange={(e) => setNomeProjeto(e.target.value)}
-                placeholder="Ex: Sistema de Cobrança"
-              />
-            </div>
-            <div>
-              <label>Número da OS</label>
-              <input
-                value={numeroGMUD}
-                onChange={(e) => setNumeroGMUD(e.target.value)}
-                placeholder="Ex: GMUD-2025-12345"
-              />
-            </div>
-            <div>
-              <label>Ticket do Jira</label>
-              <input
-                value={ticketJira}
-                onChange={(e) => setTicketJira(e.target.value.toUpperCase())}
-                onBlur={() => ticketJira && listarAnexos()}
-                placeholder="Ex: ICON-1234"
-              />
-            </div>
-            <div style={{ gridColumn: "span 3", textAlign: "right" }}>
-              <Button
-                onClick={sincronizarJira}
-                disabled={syncing}
-                aria-busy={syncing}
-                className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-              >
-                <RotateCw
-                  className={cn("mr-2 h-4 w-4", syncing && "animate-spin")}
+          <SectionCard
+            title="Contexto da mudança"
+            description="Preencha projeto, OS e ticket para seguir com a execução."
+          >
+            <div className="project-info">
+              <div>
+                <label>Projeto</label>
+                <input
+                  value={nomeProjeto}
+                  onChange={(e) => setNomeProjeto(e.target.value)}
+                  placeholder="Ex: Sistema de Cobrança"
                 />
-                {syncing ? "Sincronizando..." : "Sincronizar com Jira"}
-              </Button>
+              </div>
+              <div>
+                <label>Número da OS</label>
+                <input
+                  value={numeroGMUD}
+                  onChange={(e) => setNumeroGMUD(e.target.value)}
+                  placeholder="Ex: GMUD-2025-12345"
+                />
+              </div>
+              <div>
+                <label>Ticket do Jira</label>
+                <input
+                  value={ticketJira}
+                  onChange={(e) => setTicketJira(e.target.value.toUpperCase())}
+                  onBlur={() => ticketJira && listarAnexos()}
+                  placeholder="Ex: ICON-1234"
+                />
+              </div>
             </div>
-          </div>
+          </SectionCard>
 
           {/* Accordions */}
           <div className="accordion">
@@ -2444,7 +2474,7 @@ function ChecklistGMUDTab({
                   ></i>
                   <span>Descrição do Projeto</span>
                 </span>
-                <span className="acc-chevron">▾</span>
+                <span className="acc-chevron">â–¾</span>
               </summary>
               <div className="acc-content">
                 {descricaoProjeto || "Sem descrição no ticket."}
@@ -2458,12 +2488,12 @@ function ChecklistGMUDTab({
                     className="fa-solid fa-clipboard-check acc-icon"
                     aria-hidden="true"
                   ></i>
-                  <span>Critérios de Aceite</span>
+                  <span>Criterios de Aceite</span>
                 </span>
-                <span className="acc-chevron">▾</span>
+                <span className="acc-chevron">â–¾</span>
               </summary>
               <div className="acc-content">
-                {criteriosAceite || "Sem critérios cadastrados no ticket."}
+                {criteriosAceite || "Sem Criterios cadastrados no ticket."}
               </div>
             </details>
           </div>
@@ -2489,7 +2519,7 @@ function ChecklistGMUDTab({
 
             <div className="text-xs text-zinc-500">
               {kanbanView === "timesheet"
-                ? "Lançamentos ficam salvos no ticket."
+                ? "LanÃ§amentos ficam salvos no ticket."
                 : "Fluxo do Jira e subtarefas."}
             </div>
           </div>
@@ -2508,31 +2538,20 @@ function ChecklistGMUDTab({
                 }}
               >
                 {!kanbanCfg ? (
-                  <div
-                    style={{
-                      border: "1px dashed #ccc",
-                      borderRadius: 12,
-                      padding: 30,
-                      background: "#fff",
-                      textAlign: "center",
-                      width: "100%",
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, fontSize: 16 }}>
-                      Sem estrutura de Kanban
-                    </div>
-                    <p style={{ color: "#666", fontSize: 13 }}>
-                      Sincronize com o Jira para visualizar o fluxo.
-                    </p>
-                    <Button
-                      type="button"
-                      onClick={() => setBuilderOpen(true)}
-                      className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-                    >
-                      <Layers3 className="mr-2 h-4 w-4" />
-                      Montar estrutura
-                    </Button>
-                  </div>
+                  <EmptyState
+                    title="Sem estrutura de Kanban"
+                    description="Sincronize com o Jira ou monte a estrutura para orientar a execução por etapas."
+                    action={
+                      <Button
+                        type="button"
+                        onClick={() => setBuilderOpen(true)}
+                        className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                      >
+                        <Layers3 className="mr-2 h-4 w-4" />
+                        Montar estrutura
+                      </Button>
+                    }
+                  />
                 ) : (
                   getWorkflow().map((step, idx) => {
                     const stepKey = step.key;
@@ -2540,10 +2559,10 @@ function ChecklistGMUDTab({
                     const stat = computeStepPct(
                       kanbanCfg,
                       stepKey,
-                      jiraCtx?.subtasksBySummary || {}
+                      jiraCtx?.subtasksBySummary || {},
                     );
                     const evCount = Number(
-                      evidenceCountsByStep?.[stepKey] || 0
+                      evidenceCountsByStep?.[stepKey] || 0,
                     );
 
                     const isDone = idx < unlockedStepIdx;
@@ -2554,8 +2573,8 @@ function ChecklistGMUDTab({
                     const statusColor = isDone
                       ? "#28a745"
                       : isActive
-                      ? "#ee0000"
-                      : "#d1d1d1";
+                        ? "#ee0000"
+                        : "#d1d1d1";
 
                     return (
                       <div
@@ -2623,7 +2642,7 @@ function ChecklistGMUDTab({
                                   fontWeight: 700,
                                   color: "#666",
                                 }}
-                                title={`Evidências registradas no step: ${evCount}`}
+                                title={`EvidÃªncias registradas no step: ${evCount}`}
                               >
                                 <Paperclip className="h-3.5 w-3.5" />
                                 {evCount}
@@ -2636,7 +2655,7 @@ function ChecklistGMUDTab({
                                   color: statusColor,
                                 }}
                               >
-                                {isDone ? "CONCLUÍDO" : `${stat.pct}%`}
+                                {isDone ? "CONCLUÃDO" : `${stat.pct}%`}
                               </span>
                             </div>
                           </div>
@@ -2656,11 +2675,11 @@ function ChecklistGMUDTab({
                               onClick={() =>
                                 openStepGate(
                                   idx,
-                                  hasNext ? idx + 1 : getWorkflow().length
+                                  hasNext ? idx + 1 : getWorkflow().length,
                                 )
                               }
                             >
-                              {hasNext ? `Liberar Próximo` : "Finalizar"}
+                              {hasNext ? `Liberar PrÃ³ximo` : "Finalizar"}
                             </button>
                           )}
                         </div>
@@ -2725,7 +2744,7 @@ function ChecklistGMUDTab({
                                           onToggleKanbanSubtask(
                                             stepKey,
                                             card.id,
-                                            st.id
+                                            st.id,
                                           )
                                         }
                                         style={{
@@ -2769,7 +2788,7 @@ function ChecklistGMUDTab({
                             type="button"
                             onClick={() =>
                               setCustomTaskModal(
-                                makeCustomTaskModal({ open: true, stepKey })
+                                makeCustomTaskModal({ open: true, stepKey }),
                               )
                             }
                             style={{
@@ -2788,7 +2807,7 @@ function ChecklistGMUDTab({
                               className="fas fa-plus"
                               style={{ marginRight: 8 }}
                             />
-                            Adicionar tarefa à parte
+                            Adicionar tarefa Ã  parte
                           </button>
                         )}
                       </div>
@@ -2810,48 +2829,27 @@ function ChecklistGMUDTab({
           )}
 
           {/* ===== Tabs ===== */}
-          <div
-            style={{
-              display: "flex",
-              gap: 24,
-              borderBottom: "1px solid #eee",
-              marginBottom: 20,
-              padding: "0 4px",
-            }}
-          >
+          <div className="gmud-detail-tabs">
             {[
               { id: "scripts", label: "Scripts", icon: "fas fa-code" },
-              { id: "vars", label: "Chaves (Variáveis)", icon: "fas fa-key" },
+              { id: "vars", label: "Chaves (VariÃ¡veis)", icon: "fas fa-key" },
               {
                 id: "evidencias",
-                label: "Evidências",
+                label: "EvidÃªncias",
                 icon: "fas fa-paperclip",
               },
               {
                 id: "comentarios",
-                label: "Comentários",
+                label: "ComentÃ¡rios",
                 icon: "fas fa-comments",
               },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: "12px 0",
-                  border: "none",
-                  background: "none",
-                  cursor: "pointer",
-                  fontSize: 14,
-                  fontWeight: activeTab === tab.id ? 700 : 500,
-                  color: activeTab === tab.id ? "#ee0000" : "#777",
-                  borderBottom: `2px solid ${
-                    activeTab === tab.id ? "#ee0000" : "transparent"
-                  }`,
-                  transition: "all 0.2s",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
+                className={`gmud-detail-tab ${
+                  activeTab === tab.id ? "is-active" : ""
+                }`}
               >
                 <i className={tab.icon} style={{ fontSize: 12 }} />
                 {tab.label}
@@ -2859,8 +2857,8 @@ function ChecklistGMUDTab({
             ))}
           </div>
 
-          {/* ===== Conteúdo das Tabs ===== */}
-          <div style={{ minHeight: 300 }}>
+          {/* ===== ConteÃºdo das Tabs ===== */}
+          <div className="gmud-tab-panel">
             {/* Tab: Scripts */}
             {activeTab === "scripts" && (
               <div className="animate-fade-in">
@@ -2897,7 +2895,7 @@ function ChecklistGMUDTab({
                     <FileCode2
                       className={cn(
                         "mr-2 h-4 w-4",
-                        savingScripts && "animate-spin"
+                        savingScripts && "animate-spin",
                       )}
                     />
                     {savingScripts
@@ -2908,10 +2906,10 @@ function ChecklistGMUDTab({
               </div>
             )}
 
-            {/* Tab: Variáveis */}
+            {/* Tab: VariÃ¡veis */}
             {activeTab === "vars" && (
               <div className="animate-fade-in">
-                {/* Header da seção */}
+                {/* Header da seÃ§Ã£o */}
                 <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
                   <span className="text-[13px] text-zinc-600">
                     <i className="fas fa-info-circle mr-1" />
@@ -2936,7 +2934,7 @@ function ChecklistGMUDTab({
                       <Save
                         className={cn(
                           "mr-2 h-4 w-4",
-                          savingVars && "animate-spin"
+                          savingVars && "animate-spin",
                         )}
                       />
                       {savingVars ? "Salvando..." : "Salvar no Jira"}
@@ -2947,11 +2945,12 @@ function ChecklistGMUDTab({
                 {/* Banner pendente */}
                 {varsBanner && (
                   <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-                    <b>Atenção:</b> Você possui alterações não enviadas ao Jira.
+                    <b>AtenÃ§Ã£o:</b> VocÃª possui alteraÃ§Ãµes nÃ£o enviadas ao
+                    Jira.
                   </div>
                 )}
 
-                {/* Cabeçalho das colunas */}
+                {/* CabeÃ§alho das colunas */}
                 <div className="mb-2 grid grid-cols-[1fr_1.3fr_1fr_44px] gap-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                   <span>Ambiente</span>
                   <span>Nome da chave</span>
@@ -2971,14 +2970,14 @@ function ChecklistGMUDTab({
                         key={row.id}
                         className={cn(
                           "relative grid grid-cols-[1fr_1.3fr_1fr_44px] items-center gap-3 rounded-xl border bg-white p-3",
-                          row.pendente ? "border-amber-200" : "border-zinc-200"
+                          row.pendente ? "border-amber-200" : "border-zinc-200",
                         )}
                       >
                         {/* barra lateral (pendente) */}
                         <div
                           className={cn(
                             "absolute left-0 top-0 h-full w-1 rounded-l-xl",
-                            row.pendente ? "bg-amber-400" : "bg-zinc-200"
+                            row.pendente ? "bg-amber-400" : "bg-zinc-200",
                           )}
                         />
 
@@ -3038,7 +3037,7 @@ function ChecklistGMUDTab({
               </div>
             )}
 
-            {/* Tab: Evidências */}
+            {/* Tab: EvidÃªncias */}
             {activeTab === "evidencias" && (
               <div className="animate-fade-in">
                 <div
@@ -3063,7 +3062,7 @@ function ChecklistGMUDTab({
                     }}
                   >
                     <Paperclip className="h-4 w-4" />
-                    Registrar evidência no step:
+                    Registrar evidÃªncia no step:
                   </div>
 
                   <select
@@ -3093,13 +3092,13 @@ function ChecklistGMUDTab({
                       color: "#666",
                       whiteSpace: "nowrap",
                     }}
-                    title="Contagem de evidências do step selecionado"
+                    title="Contagem de evidÃªncias do step selecionado"
                   >
                     {evidenceStepKey
                       ? `Total: ${Number(
-                          evidenceCountsByStep?.[evidenceStepKey] || 0
+                          evidenceCountsByStep?.[evidenceStepKey] || 0,
                         )}`
-                      : "—"}
+                      : "â€”"}
                   </div>
                 </div>
 
@@ -3166,12 +3165,12 @@ function ChecklistGMUDTab({
                     <UploadCloud
                       className={cn(
                         "mr-2 h-4 w-4",
-                        (uploading || savingEvidence) && "animate-spin"
+                        (uploading || savingEvidence) && "animate-spin",
                       )}
                     />
                     {uploading || savingEvidence
                       ? "Processando..."
-                      : "Enviar + Registrar evidência"}
+                      : "Enviar + Registrar evidÃªncia"}
                   </Button>
 
                   <button
@@ -3197,10 +3196,10 @@ function ChecklistGMUDTab({
                     disabled={
                       loadingJiraComments || !String(ticketJira || "").trim()
                     }
-                    title="Atualizar evidências a partir dos comentários"
+                    title="Atualizar evidÃªncias a partir dos comentÃ¡rios"
                   >
                     <i className="fas fa-rotate" style={{ marginRight: 8 }} />
-                    Evidências
+                    EvidÃªncias
                   </button>
                 </div>
 
@@ -3215,7 +3214,7 @@ function ChecklistGMUDTab({
                         textTransform: "uppercase",
                       }}
                     >
-                      Prévia para Envio
+                      PrÃ©via para Envio
                     </h4>
                     <div
                       style={{
@@ -3262,7 +3261,7 @@ function ChecklistGMUDTab({
                                 className="fas fa-times"
                                 onClick={() =>
                                   setPreviewFiles((prev) =>
-                                    prev.filter((x) => x !== f)
+                                    prev.filter((x) => x !== f),
                                   )
                                 }
                                 style={{ cursor: "pointer", color: "#ccc" }}
@@ -3288,7 +3287,7 @@ function ChecklistGMUDTab({
                   </div>
                 )}
 
-                {/* Resumo evidências por step (rápido) */}
+                {/* Resumo evidÃªncias por step (rÃ¡pido) */}
                 <div
                   style={{
                     border: "1px solid #eee",
@@ -3313,7 +3312,7 @@ function ChecklistGMUDTab({
                         textTransform: "uppercase",
                       }}
                     >
-                      Evidências por step
+                      EvidÃªncias por step
                     </div>
                     <div style={{ fontSize: 12, color: "#666" }}>
                       Total anexos no Jira: <b>{attachments.length}</b>
@@ -3414,10 +3413,10 @@ function ChecklistGMUDTab({
                               {a.filename}
                             </div>
                             <div style={{ fontSize: 11, color: "#999" }}>
-                              {(a.size / 1024).toFixed(1)} KB •{" "}
+                              {(a.size / 1024).toFixed(1)} KB â€¢{" "}
                               {a.created
                                 ? new Date(a.created).toLocaleDateString()
-                                : "—"}
+                                : "â€”"}
                             </div>
                           </div>
                           <a
@@ -3441,7 +3440,7 @@ function ChecklistGMUDTab({
               </div>
             )}
 
-            {/* Tab: Comentários */}
+            {/* Tab: ComentÃ¡rios */}
             {activeTab === "comentarios" && (
               <div className="animate-fade-in">
                 <div
@@ -3457,7 +3456,7 @@ function ChecklistGMUDTab({
                 >
                   <div style={{ fontSize: 13, color: "#666" }}>
                     <i className="fas fa-comments" style={{ marginRight: 6 }} />
-                    {jiraCommentsList.length} comentário(s) no ticket
+                    {jiraCommentsList.length} comentÃ¡rio(s) no ticket
                   </div>
 
                   <button
@@ -3496,13 +3495,13 @@ function ChecklistGMUDTab({
                       color: "#333",
                     }}
                   >
-                    Novo comentário
+                    Novo comentÃ¡rio
                   </label>
 
                   <textarea
                     value={newJiraCommentText}
                     onChange={(e) => setNewJiraCommentText(e.target.value)}
-                    placeholder="Digite aqui o comentário que será adicionado no Jira..."
+                    placeholder="Digite aqui o comentÃ¡rio que serÃ¡ adicionado no Jira..."
                     style={{
                       width: "100%",
                       minHeight: 90,
@@ -3561,12 +3560,12 @@ function ChecklistGMUDTab({
                       <MessageSquarePlus
                         className={cn(
                           "mr-2 h-4 w-4",
-                          postingJiraComment && "animate-spin"
+                          postingJiraComment && "animate-spin",
                         )}
                       />
                       {postingJiraComment
                         ? "Enviando..."
-                        : "Adicionar comentário no Jira"}
+                        : "Adicionar comentÃ¡rio no Jira"}
                     </Button>
                   </div>
 
@@ -3588,7 +3587,7 @@ function ChecklistGMUDTab({
                         background: "#fff",
                       }}
                     >
-                      Nenhum comentário para exibir.
+                      Nenhum comentÃ¡rio para exibir.
                     </div>
                   ) : (
                     jiraCommentsList.map((c) => (
@@ -3648,21 +3647,20 @@ function ChecklistGMUDTab({
             )}
           </div>
 
-          {/* Rodapé */}
-          <div
+          <StickyActionBar
             className="botoes-finais"
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 12,
-            }}
-          >
-            <div style={{ fontSize: 12, color: "#666" }}>
-              Progresso final: <b>{geralPct}%</b>
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
+            title="Ações finais"
+            hint={`Progresso atual: ${geralPct}%. Revise Kanban, evidências e comentários antes de imprimir.`}
+            primaryAction={
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-5 py-3 text-sm font-semibold text-white shadow-md transition hover:from-red-700 hover:to-red-800 hover:shadow-lg active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                GERAR PDF (Imprimir)
+              </button>
+            }
+            secondaryActions={
               <Button
                 type="button"
                 variant="outline"
@@ -3678,19 +3676,8 @@ function ChecklistGMUDTab({
                 <Layers3 className="mr-2 h-4 w-4" />
                 Kanban
               </Button>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-5 py-3 text-sm font-semibold text-white shadow-md transition
-                hover:from-red-700 hover:to-red-800 hover:shadow-lg
-                active:scale-[0.98]
-                focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-              >
-                GERAR PDF (Imprimir)
-              </button>
-            </div>
-          </div>
+            }
+          />
         </div>
 
         {/* Overlay */}
@@ -3716,7 +3703,7 @@ function ChecklistGMUDTab({
 
               <div className="gmud-sidebar-subrow">
                 <span className="gmud-ticket-pill">
-                  {ticketJira ? ticketJira : "—"}
+                  {ticketJira ? ticketJira : "â€”"}
                 </span>
 
                 {ticketSideInfo?.prioridade ? (
@@ -3729,7 +3716,7 @@ function ChecklistGMUDTab({
                 {ticketSideInfo?.status ? (
                   <span
                     className={`gmud-ticket-pill gmud-ticket-pill--status tone-${statusTone(
-                      ticketSideInfo.status
+                      ticketSideInfo.status,
                     )}`}
                     title={`Status: ${ticketSideInfo.status}`}
                   >
@@ -3758,11 +3745,11 @@ function ChecklistGMUDTab({
                 {syncing ? (
                   <>
                     <div className="gmud-side-empty-title">
-                      Carregando dados…
+                      Carregando dadosâ€¦
                     </div>
                     <div className="gmud-side-empty-sub">
                       Sincronizando com o Jira. Assim que concluir, os detalhes
-                      aparecerão aqui.
+                      aparecerÃ£o aqui.
                     </div>
                   </>
                 ) : (
@@ -3772,7 +3759,7 @@ function ChecklistGMUDTab({
                     </div>
                     <div className="gmud-side-empty-sub">
                       Clique em <strong>Sincronizar com Jira</strong> para
-                      exibir: responsável, relator, diretorias, componentes,
+                      exibir: responsÃ¡vel, relator, diretorias, componentes,
                       frente, start date e prioridade.
                     </div>
                   </>
@@ -3788,15 +3775,15 @@ function ChecklistGMUDTab({
 
                   <div className="gmud-side-grid">
                     <div className="gmud-side-row">
-                      <div className="gmud-side-label">Responsável</div>
+                      <div className="gmud-side-label">ResponsÃ¡vel</div>
                       <div className="gmud-side-value">
-                        {ticketSideInfo.responsavel || "—"}
+                        {ticketSideInfo.responsavel || "â€”"}
                       </div>
                     </div>
                     <div className="gmud-side-row">
                       <div className="gmud-side-label">Relator</div>
                       <div className="gmud-side-value">
-                        {ticketSideInfo.relator || "—"}
+                        {ticketSideInfo.relator || "â€”"}
                       </div>
                     </div>
                   </div>
@@ -3812,14 +3799,14 @@ function ChecklistGMUDTab({
                     <div className="gmud-side-row">
                       <div className="gmud-side-label">Frente</div>
                       <div className="gmud-side-value">
-                        {ticketSideInfo.frente || "—"}
+                        {ticketSideInfo.frente || "â€”"}
                       </div>
                     </div>
 
                     <div className="gmud-side-row">
                       <div className="gmud-side-label">Start date</div>
                       <div className="gmud-side-value">
-                        {ticketSideInfo.startDate || "—"}
+                        {ticketSideInfo.startDate || "â€”"}
                       </div>
                     </div>
                   </div>
@@ -3828,7 +3815,7 @@ function ChecklistGMUDTab({
                 <div className="gmud-side-section">
                   <div className="gmud-side-section-title">
                     <i className="fa-solid fa-tag" aria-hidden="true" />
-                    <span>Classificação</span>
+                    <span>ClassificaÃ§Ã£o</span>
                   </div>
 
                   <div className="gmud-side-grid">
@@ -3847,7 +3834,7 @@ function ChecklistGMUDTab({
                             ))}
                           </div>
                         ) : (
-                          "—"
+                          "â€”"
                         )}
                       </div>
                     </div>
@@ -3867,7 +3854,7 @@ function ChecklistGMUDTab({
                             ))}
                           </div>
                         ) : (
-                          "—"
+                          "â€”"
                         )}
                       </div>
                     </div>

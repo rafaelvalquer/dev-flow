@@ -3,6 +3,7 @@ import { Router } from "express";
 import { Readable } from "node:stream";
 import { sendUpstream } from "../utils/sendUpstream.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
+import { fetchWithTimeout } from "../utils/http.js";
 
 /* =========================================================
    JIRA CLIENT (SERVER-SIDE) — use em Jobs/Services internos
@@ -25,13 +26,16 @@ export function createJiraClient(env = process.env) {
     { method = "GET", headers = {}, body, raw = false } = {}
   ) {
     const url = `${JIRA_BASE}${path}`;
-    const r = await fetch(url, {
+    const r = await fetchWithTimeout(url, {
       method,
       headers: jiraHeaders({
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...headers,
       }),
       body: body ? JSON.stringify(body) : undefined,
+      timeoutMs: Number(
+        env.REQUEST_TIMEOUT_MS || process.env.REQUEST_TIMEOUT_MS || 15000
+      ),
     });
 
     if (raw) return r;
@@ -266,8 +270,14 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}?fields=${encodeURIComponent(fields)}`;
-      const r = await fetch(url, { headers: jiraHeaders() });
-      return sendUpstream(res, r);
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao consultar issue no Jira.",
+      });
     } catch (err) {
       console.error("GET issue error:", err);
       return res
@@ -286,8 +296,14 @@ export default function jiraRoutes({ upload, env }) {
         query
       )}&maxResults=${encodeURIComponent(maxResults)}`;
 
-      const r = await fetch(url, { headers: jiraHeaders() });
-      return sendUpstream(res, r);
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao buscar usuários no Jira.",
+      });
     } catch (err) {
       console.error("GET users/search error:", err);
       return res.status(500).json({
@@ -313,8 +329,14 @@ export default function jiraRoutes({ upload, env }) {
         `&query=${encodeURIComponent(query)}` +
         `&maxResults=${encodeURIComponent(maxResults)}`;
 
-      const r = await fetch(url, { headers: jiraHeaders() });
-      return sendUpstream(res, r);
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao buscar usuários atribuíveis no Jira.",
+      });
     } catch (err) {
       console.error("GET users/assignable error:", err);
       return res.status(500).json({
@@ -328,12 +350,16 @@ export default function jiraRoutes({ upload, env }) {
   router.post("/issue", async (req, res) => {
     try {
       const url = `${JIRA_BASE}/rest/api/3/issue`;
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: "POST",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao criar issue no Jira.",
+      });
     } catch (err) {
       console.error("POST issue error:", err);
       return res
@@ -350,8 +376,14 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}/transitions${qs ? `?${qs}` : ""}`;
-      const r = await fetch(url, { headers: jiraHeaders() });
-      return sendUpstream(res, r);
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao buscar transições do Jira.",
+      });
     } catch (err) {
       console.error("GET transitions error:", err);
       return res.status(500).json({
@@ -368,12 +400,16 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}/transitions`;
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: "POST",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao executar transição no Jira.",
+      });
     } catch (err) {
       console.error("POST transitions error:", err);
       return res.status(500).json({
@@ -390,8 +426,14 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}/comment`;
-      const r = await fetch(url, { headers: jiraHeaders() });
-      return sendUpstream(res, r);
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar comentários do Jira.",
+      });
     } catch (err) {
       console.error("GET comments error:", err);
       return res
@@ -407,12 +449,16 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}/comment`;
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: "POST",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao criar comentário no Jira.",
+      });
     } catch (err) {
       console.error("POST comment error:", err);
       return res
@@ -428,12 +474,16 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}/comment/${encodeURIComponent(id)}`;
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: "PUT",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao atualizar comentário no Jira.",
+      });
     } catch (err) {
       console.error("PUT comment error:", err);
       return res
@@ -449,8 +499,15 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
         key
       )}?fields=${encodeURIComponent("attachment")}`;
-      const r = await fetch(url, { headers: jiraHeaders() });
-      if (!r.ok) return sendUpstream(res, r);
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      if (!r.ok)
+        return sendUpstream(res, r, "application/json", {
+          service: "jira",
+          message: "Falha ao listar anexos do Jira.",
+        });
 
       const issue = await r.json();
       const attachments = (issue.fields?.attachment || []).map((a) => ({
@@ -499,12 +556,16 @@ export default function jiraRoutes({ upload, env }) {
         const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
           key
         )}/attachments`;
-        const r = await fetch(url, {
+        const r = await fetchWithTimeout(url, {
           method: "POST",
           headers: jiraHeaders({ "X-Atlassian-Token": "no-check" }),
           body: form,
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
         });
-        return sendUpstream(res, r);
+        return sendUpstream(res, r, "application/json", {
+          service: "jira",
+          message: "Falha ao enviar anexos para o Jira.",
+        });
       } catch (err) {
         console.error("POST attachments error:", err);
         return res
@@ -523,10 +584,15 @@ export default function jiraRoutes({ upload, env }) {
       const metaUrl = `${JIRA_BASE}/rest/api/3/attachment/${encodeURIComponent(
         id
       )}`;
-      const metaResp = await fetch(metaUrl, {
+      const metaResp = await fetchWithTimeout(metaUrl, {
         headers: jiraHeaders({ Accept: "application/json" }),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      if (!metaResp.ok) return sendUpstream(res, metaResp, "text/plain");
+      if (!metaResp.ok)
+        return sendUpstream(res, metaResp, "text/plain", {
+          service: "jira",
+          message: "Falha ao consultar metadados do anexo no Jira.",
+        });
       const meta = await metaResp.json();
 
       const jiraContentUrl = meta.content;
@@ -535,9 +601,10 @@ export default function jiraRoutes({ upload, env }) {
       const sizeHdr =
         meta.size && Number.isFinite(meta.size) ? String(meta.size) : null;
 
-      const first = await fetch(jiraContentUrl, {
+      const first = await fetchWithTimeout(jiraContentUrl, {
         headers: jiraHeaders({ Accept: "*/*" }),
         redirect: "manual",
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
 
       let finalResp = first;
@@ -550,11 +617,17 @@ export default function jiraRoutes({ upload, env }) {
             .type("text/plain")
             .send("Redirect sem Location do Jira.\n" + t.slice(0, 300));
         }
-        finalResp = await fetch(loc, { headers: { Accept: "*/*" } });
+        finalResp = await fetchWithTimeout(loc, {
+          headers: { Accept: "*/*" },
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
+        });
       }
 
       if (!finalResp.ok || !finalResp.body)
-        return sendUpstream(res, finalResp, "text/plain");
+        return sendUpstream(res, finalResp, "text/plain", {
+          service: "jira",
+          message: "Falha ao baixar anexo do Jira.",
+        });
 
       res.setHeader(
         "Content-Disposition",
@@ -585,12 +658,16 @@ export default function jiraRoutes({ upload, env }) {
   router.post("/search/jql", async (req, res) => {
     try {
       const url = `${JIRA_BASE}/rest/api/3/search/jql`;
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: "POST",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao executar busca JQL no Jira.",
+      });
     } catch (err) {
       console.error("POST search/jql error:", err);
       return res.status(500).json({
@@ -605,12 +682,16 @@ export default function jiraRoutes({ upload, env }) {
     try {
       const { key } = req.params;
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(key)}`;
-      const r = await fetch(url, {
+      const r = await fetchWithTimeout(url, {
         method: "PUT",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao atualizar issue no Jira.",
+      });
     } catch (err) {
       console.error("PUT issue error:", err);
       return res

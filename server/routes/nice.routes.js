@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { Readable } from "node:stream";
 import { sendUpstream } from "../utils/sendUpstream.js";
+import { fetchWithTimeout } from "../utils/http.js";
 
 export default function niceRoutes({ env }) {
   const router = Router();
@@ -53,11 +54,15 @@ export default function niceRoutes({ env }) {
   // health do serviço puppeteer
   router.get("/health", async (_req, res) => {
     try {
-      const r = await fetch(`${NICE_PUP_BASE}/health`, {
+      const r = await fetchWithTimeout(`${NICE_PUP_BASE}/health`, {
         method: "GET",
         headers: headersAny("application/json"),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao consultar a saúde do serviço NICE.",
+      });
     } catch (err) {
       return res.status(503).json({
         ok: false,
@@ -78,13 +83,17 @@ export default function niceRoutes({ env }) {
           .json({ ok: false, error: "cluster deve ser 1 ou 2" });
       }
 
-      const r = await fetch(`${NICE_PUP_BASE}/sessions`, {
+      const r = await fetchWithTimeout(`${NICE_PUP_BASE}/sessions`, {
         method: "POST",
         headers: headersJson(),
         body: JSON.stringify({ cluster: c }),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao iniciar sessão no serviço NICE.",
+      });
     } catch (err) {
       console.error("NICE proxy /session/start error:", err);
       return res.status(500).json({
@@ -112,16 +121,20 @@ export default function niceRoutes({ env }) {
         });
       }
 
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/login`,
         {
           method: "POST",
           headers: headersJson(),
           body: JSON.stringify({ username, password }),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
         },
       );
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao autenticar sessão no serviço NICE.",
+      });
     } catch (err) {
       console.error("NICE proxy /session/login error:", err);
       return res.status(500).json({
@@ -142,12 +155,19 @@ export default function niceRoutes({ env }) {
           .json({ ok: false, error: "sessionId é obrigatório" });
       }
 
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/state`,
-        { method: "GET", headers: headersAny("application/json") },
+        {
+          method: "GET",
+          headers: headersAny("application/json"),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
+        },
       );
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao consultar o estado da sessão NICE.",
+      });
     } catch (err) {
       console.error("NICE proxy /session/state error:", err);
       return res.status(500).json({
@@ -168,12 +188,19 @@ export default function niceRoutes({ env }) {
           .json({ ok: false, error: "sessionId é obrigatório" });
       }
 
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/duo-code`,
-        { method: "GET", headers: headersAny("application/json") },
+        {
+          method: "GET",
+          headers: headersAny("application/json"),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
+        },
       );
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao consultar o código Duo da sessão NICE.",
+      });
     } catch (err) {
       console.error("NICE proxy /session/duo-code error:", err);
       return res.status(500).json({
@@ -194,12 +221,20 @@ export default function niceRoutes({ env }) {
           .json({ ok: false, error: "sessionId é obrigatório" });
       }
 
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/screenshot`,
-        { method: "GET", headers: headersAny("image/png") },
+        {
+          method: "GET",
+          headers: headersAny("image/png"),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
+        },
       );
 
-      if (!r.ok) return sendUpstream(res, r, "text/plain");
+      if (!r.ok)
+        return sendUpstream(res, r, "text/plain", {
+          service: "nice",
+          message: "Falha ao capturar screenshot da sessão NICE.",
+        });
 
       res.status(r.status);
       res.setHeader(
@@ -247,12 +282,19 @@ export default function niceRoutes({ env }) {
 
       console.log(qs);
 
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}/studio/tree?${qs.toString()}`,
-        { method: "GET", headers: headersAny("application/json") },
+        {
+          method: "GET",
+          headers: headersAny("application/json"),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
+        },
       );
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao carregar a árvore do NICE Studio.",
+      });
     } catch (err) {
       console.error("NICE proxy /studio/tree error:", err);
       return res.status(500).json({
@@ -273,15 +315,19 @@ export default function niceRoutes({ env }) {
           .json({ ok: false, error: "sessionId é obrigatório" });
       }
 
-      const r = await fetch(
+      const r = await fetchWithTimeout(
         `${NICE_PUP_BASE}/sessions/${encodeURIComponent(sessionId)}`,
         {
           method: "DELETE",
           headers: headersAny("application/json"),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
         },
       );
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "nice",
+        message: "Falha ao encerrar sessão no serviço NICE.",
+      });
     } catch (err) {
       console.error("NICE proxy /session/stop error:", err);
       return res.status(500).json({

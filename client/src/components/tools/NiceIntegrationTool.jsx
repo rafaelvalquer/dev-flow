@@ -65,12 +65,13 @@ function hasValidDuoCode(codeDigits) {
 }
 
 function safeEntryType(e) {
-  const t = String(e?.type || e?.kind || "").toLowerCase();
-  if (t.includes("folder") || t.includes("dir")) return "folder";
-  if (t.includes("script") || t.includes("file")) return "script";
-  // fallback: se vier sem type, tenta inferir pela flag
-  if (e?.isFolder === true) return "folder";
-  return "script";
+  const md = String(e?.modifyDate || "").trim();
+  const mb = String(e?.modifiedBy || "").trim();
+
+  // regra nova (conforme você descreveu):
+  // se tiver dados de modificação => script; vazio => pasta
+  if (md || mb) return "script";
+  return "folder";
 }
 
 export default function NiceIntegrationTool() {
@@ -768,36 +769,61 @@ export default function NiceIntegrationTool() {
                   const type = safeEntryType(it);
                   const isFolder = type === "folder";
 
+                  const modifyDate = String(it?.modifyDate || "").trim();
+                  const modifiedBy = String(it?.modifiedBy || "").trim();
+
                   return (
                     <button
                       key={`${name}-${idx}`}
                       type="button"
                       className={cn(
-                        "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50",
+                        "grid w-full grid-cols-1 gap-2 px-3 py-2 text-left hover:bg-zinc-50 sm:grid-cols-[minmax(0,1fr)_170px_260px] sm:items-center",
                         studioBusy ? "opacity-60" : "",
+                        !isFolder ? "cursor-default" : "",
                       )}
                       onClick={() => {
                         if (studioBusy) return;
-                        openFolder(name); // agora toda navegação é por dblclick no back
+                        if (isFolder) openFolder(name);
                       }}
                       disabled={studioBusy}
-                      title={isFolder ? "Abrir pasta" : "Selecionar script"}
+                      title={
+                        isFolder ? "Abrir pasta" : "Script (não navegável)"
+                      }
                     >
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
-                        {isFolder ? (
-                          <Folder className="h-4 w-4 text-zinc-800" />
-                        ) : (
-                          <FileText className="h-4 w-4 text-zinc-800" />
-                        )}
-                      </span>
+                      {/* Coluna 1: Nome */}
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
+                          {isFolder ? (
+                            <Folder className="h-4 w-4 text-zinc-800" />
+                          ) : (
+                            <FileText className="h-4 w-4 text-zinc-800" />
+                          )}
+                        </span>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-zinc-900">
-                          {name}
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-zinc-900">
+                            {name}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {isFolder ? "Pasta" : "Script"}
+                          </div>
                         </div>
-                        <div className="text-xs text-zinc-500">
-                          {isFolder ? "Pasta" : "Script"}
-                        </div>
+                      </div>
+
+                      {/* Coluna 2: Modificado */}
+                      <div className="text-xs text-zinc-700 sm:text-right">
+                        <span className="sm:hidden text-zinc-500">
+                          Modificado:{" "}
+                        </span>
+                        {modifyDate || "—"}
+                      </div>
+
+                      {/* Coluna 3: Usuário */}
+                      <div className="truncate text-xs text-zinc-700 sm:text-right">
+                        <span className="sm:hidden text-zinc-500">
+                          Usuário:{" "}
+                        </span>
+                        {modifiedBy || "—"}
                       </div>
                     </button>
                   );

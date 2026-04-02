@@ -1,214 +1,276 @@
-// src/App.jsx
-import React, { useEffect, useState } from "react";
+﻿import React, { useMemo, useState } from "react";
+import {
+  Blocks,
+  ChevronRight,
+  FileText,
+  LayoutDashboard,
+  Sparkles,
+} from "lucide-react";
+import { Toaster } from "sonner";
+
 import "./App.css";
+import "./module-primitives.css";
+import "./theme-overrides.css";
 import ChecklistGMUDTab from "./components/ChecklistGMUDTab";
 import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
-import ToolsTab from "./components/ToolsTab"; // ✅ NOVO
-import { CONFIG_KEY } from "./utils/gmudUtils";
-import "react-day-picker/dist/style.css";
-import { Toaster } from "sonner";
+import ToolsTab from "./components/ToolsTab";
 
-const TAB_TITLES = {
-  gmud: "Central do Desenvolvedor",
-  rdm: "RDM – Requisição de Mudança",
-  am: "Painel de Acompanhamento (PO)",
-  tools: "Ferramentas",
-};
+import "react-day-picker/dist/style.css";
+
+const MAIN_TABS = [
+  {
+    id: "gmud",
+    title: "Central do Desenvolvedor",
+    eyebrow: "Fluxo operacional assistido",
+    subtitle:
+      "Organize tickets, scripts, variáveis, evidências e o Kanban da mudança em um só lugar.",
+    badge: "GMUD",
+    icon: Blocks,
+    nextStep: "Sincronize o ticket e avance pela jornada de execução.",
+  },
+  {
+    id: "rdm",
+    title: "RDM • Requisição de Mudança",
+    eyebrow: "Documentação pronta para entrega",
+    subtitle:
+      "Monte uma RDM clara, bem distribuída e com leitura executiva, sem alterar o fluxo que já existe.",
+    badge: "RDM",
+    icon: FileText,
+    nextStep: "Preencha os blocos essenciais e valide no preview antes de exportar.",
+  },
+  {
+    id: "am",
+    title: "Painel de Acompanhamento (PO)",
+    eyebrow: "Operação com visão executiva",
+    subtitle:
+      "Acompanhe tickets, calendário, Gantt e dashboard com uma experiência mais limpa e orientada à decisão.",
+    badge: "Jira",
+    icon: LayoutDashboard,
+    nextStep: "Use a visão certa para decidir rápido e agir sem trocar de contexto.",
+  },
+  {
+    id: "tools",
+    title: "Ferramentas",
+    eyebrow: "Utilitários essenciais",
+    subtitle:
+      "Transcrição, TTS, automação e integrações em uma área mais direta e limpa.",
+    badge: "URA",
+    icon: Sparkles,
+    nextStep: "Escolha a ferramenta e execute sem sair do fluxo.",
+  },
+];
 
 export default function App() {
   const [mainTab, setMainTab] = useState("gmud");
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
-
-  // NOVO: título que será enviado para a aba RDM
   const [rdmTitle, setRdmTitle] = useState("");
   const [rdmDueDate, setRdmDueDate] = useState("");
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsEmail, setSettingsEmail] = useState("");
-  const [settingsToken, setSettingsToken] = useState("");
+  const currentTab = useMemo(
+    () => MAIN_TABS.find((tab) => tab.id === mainTab) || MAIN_TABS[0],
+    [mainTab]
+  );
 
-  useEffect(() => {
-    const c = localStorage.getItem(CONFIG_KEY);
-    if (c) {
-      try {
-        const { email, token } = JSON.parse(c);
-        setSettingsEmail(email || "");
-        setSettingsToken(token || "");
-      } catch {}
-    }
-  }, []);
+  const tabMeta = useMemo(
+    () => ({
+      gmud: {
+        status:
+          gmudProgressPct > 0
+            ? `${gmudProgressPct}% concluído`
+            : "Aguardando ticket",
+        helper:
+          gmudProgressPct > 0
+            ? "Jornada operacional já iniciada."
+            : "Preencha projeto, OS e ticket para começar.",
+      },
+      rdm: {
+        status: rdmTitle ? "Rascunho em andamento" : "Ainda não iniciada",
+        helper: rdmDueDate
+          ? `Janela definida para ${rdmDueDate}.`
+          : "Estruture a documentação em blocos curtos.",
+      },
+      am: {
+        status: "Monitoramento ativo",
+        helper: "Alertas, calendário, Gantt e dashboard no mesmo fluxo.",
+      },
+      tools: {
+        status: "Utilitários disponíveis",
+        helper: "Acesso rápido às integrações do ambiente.",
+      },
+    }),
+    [gmudProgressPct, rdmDueDate, rdmTitle]
+  );
 
-  useEffect(() => {
-    function onKey(e) {
-      if (e.key === "Escape") setSettingsOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  const contentClassName = [
+    "app-module",
+    mainTab === "am" ? "app-module--flush" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  function toggleSettings(force) {
-    setSettingsOpen((v) => (typeof force === "boolean" ? force : !v));
-  }
-
-  function salvarConfiguracoes() {
-    localStorage.setItem(
-      CONFIG_KEY,
-      JSON.stringify({ email: settingsEmail, token: settingsToken })
-    );
-    toggleSettings(false);
-  }
+  const CurrentIcon = currentTab.icon;
 
   return (
     <>
-      {/* ABAS PRINCIPAIS - FORA DO CONTAINER */}
-      <div className="main-tabs top" role="tablist" aria-label="Módulos">
-        <button
-          role="tab"
-          aria-selected={mainTab === "gmud"}
-          className={`main-tab ${mainTab === "gmud" ? "active" : ""}`}
-          onClick={() => setMainTab("gmud")}
-        >
-          Central do Desenvolvedor
-        </button>
+      <div className={`app-shell app-shell--${mainTab}`}>
+        <div className="app-shell__backdrop" aria-hidden="true">
+          <span className="app-shell__orb app-shell__orb--primary" />
+          <span className="app-shell__orb app-shell__orb--secondary" />
+          <span className="app-shell__grid" />
+        </div>
 
-        <button
-          role="tab"
-          aria-selected={mainTab === "rdm"}
-          className={`main-tab ${mainTab === "rdm" ? "active" : ""}`}
-          onClick={() => setMainTab("rdm")}
-        >
-          RDM – Requisição de Mudança
-        </button>
+        <div className="app-frame">
+          <aside className="app-sidebar">
+            <div className="app-brand">
+              <span className="app-brand__badge">Claro Dev Flow</span>
 
-        <button
-          role="tab"
-          aria-selected={mainTab === "am"}
-          className={`main-tab ${mainTab === "am" ? "active" : ""}`}
-          onClick={() => setMainTab("am")}
-        >
-          Painel de Acompanhamento (PO)
-        </button>
+              <div className="app-brand__row">
+                <img
+                  className="app-brand__logo"
+                  src="https://upload.wikimedia.org/wikipedia/commons/0/0c/Claro.svg"
+                  alt="Logo Claro"
+                />
 
-        {/* ✅ Aba Ferramentas */}
-        <button
-          role="tab"
-          aria-selected={mainTab === "tools"}
-          className={`main-tab ${mainTab === "tools" ? "active" : ""}`}
-          onClick={() => setMainTab("tools")}
-        >
-          Ferramentas
-        </button>
-      </div>
-
-      {/* CONTAINER PRINCIPAL */}
-      <div className="container">
-        <header>
-          <div>
-            <img
-              className="logo"
-              src="https://upload.wikimedia.org/wikipedia/commons/0/0c/Claro.svg"
-              alt="Logo Claro"
-            />
-            <h1>{TAB_TITLES[mainTab] || "Módulo"}</h1>
-
-            {mainTab === "gmud" && (
-              <div className="progress-general">
-                <div className="bar" style={{ width: `${gmudProgressPct}%` }} />
+                <div>
+                  <p className="app-brand__eyebrow">Plataforma operacional</p>
+                  <h1 className="app-brand__title">Experiência unificada</h1>
+                </div>
               </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => toggleSettings(true)}
-            aria-expanded={settingsOpen}
-            className="btn-primary btn-primary--sm"
-          >
-            <span aria-hidden="true">⚙</span>
-            Configurações
-          </button>
-        </header>
-
-        {/* Conteúdo das abas */}
-        {mainTab === "rdm" && (
-          <RDMTab initialTitle={rdmTitle} initialDueDate={rdmDueDate} />
-        )}
-
-        {mainTab === "gmud" && (
-          <ChecklistGMUDTab
-            onProgressChange={setGmudProgressPct}
-            onRdmTitleChange={setRdmTitle}
-            onRdmDueDateChange={setRdmDueDate}
-          />
-        )}
-
-        {mainTab === "am" && (
-          <AMPanelTab
-            settingsEmail={settingsEmail}
-            settingsToken={settingsToken}
-          />
-        )}
-
-        {/* ✅ NOVO: Ferramentas */}
-        {mainTab === "tools" && <ToolsTab />}
-
-        {/* Painel de Configurações */}
-        <div
-          id="settings-panel"
-          className={`settings-panel ${settingsOpen ? "aberta" : ""}`}
-        >
-          <div
-            className="settings-header"
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12,
-            }}
-          >
-            <span>Configurações</span>
-            <button
-              type="button"
-              className="close-settings"
-              onClick={() => toggleSettings(false)}
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="settings-body" style={{ display: "grid", gap: 10 }}>
-            <label htmlFor="settingsEmail">E-mail (uso local)</label>
-            <input
-              id="settingsEmail"
-              type="email"
-              value={settingsEmail}
-              onChange={(e) => setSettingsEmail(e.target.value)}
-              placeholder="seu.email@dominio"
-            />
-
-            <label htmlFor="settingsToken">
-              Token (não é usado pelo navegador)
-            </label>
-            <input
-              id="settingsToken"
-              value={settingsToken}
-              onChange={(e) => setSettingsToken(e.target.value)}
-              placeholder="Token de acesso"
-            />
-
-            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-              <button
-                type="button"
-                className="primary"
-                onClick={salvarConfiguracoes}
-              >
-                Salvar configurações
-              </button>
             </div>
-          </div>
+
+            <nav className="app-nav" role="tablist" aria-label="Módulos">
+              {MAIN_TABS.map((tab) => {
+                const TabIcon = tab.icon;
+                const isActive = tab.id === mainTab;
+                const meta = tabMeta[tab.id];
+
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    className={`app-nav__item ${isActive ? "is-active" : ""}`}
+                    onClick={() => setMainTab(tab.id)}
+                  >
+                    <span className="app-nav__icon">
+                      <TabIcon className="h-5 w-5" />
+                    </span>
+
+                    <span className="app-nav__content">
+                      <span className="app-nav__label">{tab.title}</span>
+                      <span className="app-nav__caption">{meta.status}</span>
+                    </span>
+
+                    <ChevronRight className="app-nav__chevron h-4 w-4" />
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className="app-sidebar__note">
+              <strong>Foco da experiência</strong>
+              <br />
+              Navegue por módulos com contexto, estado atual e próxima ação
+              sempre visíveis.
+            </div>
+          </aside>
+
+          <main className="app-main">
+            <section className={`app-hero ${mainTab === "am" || mainTab === "tools" || mainTab === "gmud" ? "app-hero--compact" : ""}`}>
+              <div className="app-hero__copy">
+                <span className="app-hero__eyebrow">{currentTab.eyebrow}</span>
+
+                <div className="app-hero__heading">
+                  <div className="app-hero__icon">
+                    <CurrentIcon className="h-6 w-6" />
+                  </div>
+
+                  <div>
+                    <h2>{currentTab.title}</h2>
+                    <p>{currentTab.subtitle}</p>
+                  </div>
+                </div>
+
+                <div className="app-hero__chips app-hero__chips--overview">
+                  <span className="app-chip app-chip--solid">
+                    {currentTab.badge}
+                  </span>
+                  {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" ? (
+                    <>
+                      <span className="app-chip">{tabMeta[mainTab].status}</span>
+                      <span className="app-chip">{tabMeta[mainTab].helper}</span>
+                    </>
+                  ) : mainTab === "tools" ? (
+                    <span className="app-chip">{tabMeta[mainTab].status}</span>
+                  ) : null}
+                </div>
+
+                {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" ? (
+                  <div className="app-hero__focus">
+                    <span className="app-hero__focus-label">Próxima ação</span>
+                    <strong>{currentTab.nextStep}</strong>
+                  </div>
+                ) : null}
+
+                {mainTab === "rdm" ? (
+                  <div className="app-hero__meta-row">
+                    <span className="app-chip">
+                      {rdmTitle ? "Título definido" : "Sem título"}
+                    </span>
+                    <span className="app-chip">
+                      {rdmDueDate ? "Janela informada" : "Sem data limite"}
+                    </span>
+                  </div>
+                ) : null}
+
+              </div>
+
+              {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" ? (
+                <div className="app-hero__panel">
+                  <div className="app-hero__panel-card">
+                    <span className="app-hero__panel-label">Estado atual</span>
+                    <strong>{tabMeta[mainTab].status}</strong>
+                    <p>{tabMeta[mainTab].helper}</p>
+                  </div>
+
+                  <div className="app-hero__panel-card">
+                    <span className="app-hero__panel-label">
+                      Direção de layout
+                    </span>
+                    <strong>Menos densidade, mais foco</strong>
+                    <p>
+                      Headers contextuais, áreas sticky e blocos reutilizáveis em
+                      todos os módulos.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            <section className={contentClassName}>
+              {mainTab === "rdm" ? (
+                <RDMTab initialTitle={rdmTitle} initialDueDate={rdmDueDate} />
+              ) : null}
+
+              {mainTab === "gmud" ? (
+                <ChecklistGMUDTab
+                  onProgressChange={setGmudProgressPct}
+                  onRdmTitleChange={setRdmTitle}
+                  onRdmDueDateChange={setRdmDueDate}
+                />
+              ) : null}
+
+              {mainTab === "am" ? <AMPanelTab /> : null}
+
+              {mainTab === "tools" ? <ToolsTab /> : null}
+            </section>
+          </main>
         </div>
       </div>
+
+      <Toaster richColors position="top-right" />
     </>
   );
 }

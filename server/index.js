@@ -1,15 +1,23 @@
 // server/index.js
-import mongoose from "mongoose";
 import createApp from "./app.js";
-import { env } from "./config/env.js";
+import { env, validateEnv } from "./config/env.js";
+import { connectMongo } from "./db/mongo.js";
 import { startAutomationJob } from "./jobs/automationJob.js";
 
 async function main() {
-  if (!env.MONGO_URI) {
-    throw new Error("Defina MONGO_URL no .env");
+  const validation = validateEnv(env);
+  validation.warnings.forEach((issue) => {
+    console.warn(`[env:${issue.level}] ${issue.key} - ${issue.message}`);
+  });
+
+  if (!validation.ok) {
+    const formatted = validation.errors
+      .map((issue) => `${issue.key}: ${issue.message}`)
+      .join("\n");
+    throw new Error(`Falha na validação de ambiente:\n${formatted}`);
   }
 
-  await mongoose.connect(env.MONGO_URI);
+  await connectMongo(env);
 
   // Recomendado: não iniciar jobs dentro do createApp
   const app = createApp({ startJobs: false });

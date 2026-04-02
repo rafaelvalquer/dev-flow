@@ -1,6 +1,5 @@
 // server/utils/cronogramaParser.js
 
-// Mantém IDs padronizados iguais ao front (seu cronograma.js)
 export const ATIVIDADES_PADRAO = [
   { id: "devUra", name: "Desenvolvimento de URA" },
   { id: "rdm", name: "Preenchimento RDM" },
@@ -22,7 +21,7 @@ function normalizeIdFromName(name) {
   const v = normalizeKey(name)
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  return v || "—";
+  return v || "atividade";
 }
 
 const ATIVIDADES_MAP = new Map(
@@ -41,9 +40,7 @@ function parseRiscoFlag(raw) {
 function adfText(node) {
   if (!node) return "";
   if (typeof node === "string") return node;
-
   if (Array.isArray(node)) return node.map(adfText).join("");
-
   if (node.type === "text") return String(node.text || "");
 
   const content = node.content;
@@ -69,8 +66,6 @@ function findFirstTable(adf) {
   return walk(adf);
 }
 
-// adicione/garanta exports no server/utils/cronogramaParser.js
-
 export function toYMDLocal(d) {
   const dt = d instanceof Date ? d : new Date(d);
   const y = dt.getFullYear();
@@ -83,7 +78,6 @@ export function parseDateRangeBR(text, base = new Date()) {
   const s = String(text || "").trim();
   if (!s) return null;
 
-  // captura 1 ou 2 datas no formato dd/mm(/aaaa)?
   const matches = [...s.matchAll(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/g)].map(
     (m) => ({
       d: Number(m[1]),
@@ -96,7 +90,7 @@ export function parseDateRangeBR(text, base = new Date()) {
 
   const normalizeYear = (y) => {
     if (!y) return base.getFullYear();
-    if (y < 100) return 2000 + y; // 26 -> 2026
+    if (y < 100) return 2000 + y;
     return y;
   };
 
@@ -110,8 +104,6 @@ export function parseDateRangeBR(text, base = new Date()) {
   const end = new Date(y2, b.mo - 1, b.d, 23, 59, 59, 999);
 
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-
-  // se vier invertido, normaliza
   if (end < start) return { start: end, end: start };
 
   return { start, end };
@@ -128,10 +120,10 @@ export function parseCronogramaADF(adf) {
 
   const bodyRows = rows.slice(1);
   const list = [];
+  const usedIds = new Map();
 
   for (const row of bodyRows) {
     const cells = Array.isArray(row?.content) ? row.content : [];
-
     const getCellText = (cell) => adfText(cell).replace(/\s+/g, " ").trim();
 
     const atividadeName = getCellText(cells[0]);
@@ -143,10 +135,14 @@ export function parseCronogramaADF(adf) {
     const labelRaw = String(atividadeName || "");
     const label = labelRaw.split("(")[0].trim();
     const atividadeDef = ATIVIDADES_MAP.get(normalizeKey(label));
+    const baseId = atividadeDef?.id || normalizeIdFromName(label);
+    const seen = usedIds.get(baseId) || 0;
+    const id = seen === 0 ? baseId : `${baseId}_${seen + 1}`;
+    usedIds.set(baseId, seen + 1);
     const riskFlag = parseRiscoFlag(riscoText);
 
     list.push({
-      id: atividadeDef?.id || normalizeIdFromName(label),
+      id,
       name: atividadeDef?.name || label || "—",
       data: String(dateText || "")
         .replace(/\s+/g, " ")
@@ -156,26 +152,6 @@ export function parseCronogramaADF(adf) {
       risco: riskFlag ? "Risco" : "",
       risk: riskFlag,
     });
-  }
-
-  // garante todas atividades padrão
-  const byId = new Map(list.map((a) => [a.id, a]));
-  for (const def of ATIVIDADES_PADRAO) {
-    if (!def?.id) continue;
-    if (byId.has(def.id)) continue;
-
-    const empty = {
-      id: def.id,
-      name: def.name,
-      data: "",
-      recurso: "Sem recurso",
-      area: "—",
-      risco: "",
-      risk: false,
-    };
-
-    list.push(empty);
-    byId.set(empty.id, empty);
   }
 
   return list;

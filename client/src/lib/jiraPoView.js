@@ -32,8 +32,10 @@ export const PO_JQL_BODY = {
     "customfield_10988",
     "duedate",
     "customfield_11519",
+    "customfield_11520",
     "resolutiondate",
     "customfield_11993",
+    "components",
   ],
 };
 
@@ -60,7 +62,7 @@ export async function fetchPoDoneLast30Days() {
 
 // campos necessários no detalhe
 const ISSUE_FIELDS =
-  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519,priority,customfield_10988,resolutiondate,customfield_11993";
+  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519,customfield_11520,priority,customfield_10988,resolutiondate,customfield_11993,components";
 
 function pickText(v) {
   if (!v) return "";
@@ -103,6 +105,8 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       priorityName: issue?.fields?.priority?.name ?? null,
       sizeValue: issue?.fields?.customfield_10988?.value ?? null,
       resolutionDateRaw: issue?.fields?.resolutiondate || "",
+      customfield_11520: issue?.fields?.customfield_11520 || [],
+      components: issue?.fields?.components || [],
       reporterName: pickText(issue?.fields?.customfield_11993) || "—",
     };
   });

@@ -1,12 +1,39 @@
 // server/utils/sendUpstream.js
-export function sendUpstream(res, r, fallbackType = "application/json") {
-  res.status(r.status);
+import { AppError, readResponseBody, sendError } from "./http.js";
 
-  const ct = r.headers.get("content-type") || fallbackType;
+export async function sendUpstream(
+  res,
+  response,
+  fallbackType = "application/json",
+  context = {}
+) {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) res.setHeader("Retry-After", retryAfter);
+
+  if (!response.ok) {
+    const body = await readResponseBody(response).catch(() => null);
+    return sendError(
+      res,
+      new AppError({
+        status: response.status >= 500 ? 502 : response.status,
+        code: "UPSTREAM_ERROR",
+        message:
+          context.message ||
+          `Falha na comunicação com ${context.service || "serviço externo"}.`,
+        details: {
+          service: context.service || "upstream",
+          upstreamStatus: response.status,
+          upstreamBody: body,
+        },
+      })
+    );
+  }
+
+  res.status(response.status);
+
+  const ct = response.headers.get("content-type") || fallbackType;
   res.type(ct);
 
-  const ra = r.headers.get("retry-after");
-  if (ra) res.setHeader("Retry-After", ra);
-
-  return r.text().then((t) => res.send(t));
+  const text = await response.text();
+  return res.send(text);
 }

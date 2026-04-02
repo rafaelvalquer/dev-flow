@@ -61,6 +61,8 @@ import {
   ArrowUpDown,
   CalendarDays,
   Check,
+  ChevronDown,
+  ChevronUp,
   ChevronsUpDown,
   Clock,
   ExternalLink,
@@ -68,15 +70,22 @@ import {
   History,
   ListChecks,
   Loader2,
+  Plus,
   Play,
   RefreshCcw,
   Search,
+  Trash2,
   UserX,
   LayoutDashboard,
 } from "lucide-react";
 
 import AMCalendarTab from "./AMCalendarTab";
 import AMDashboardTab from "./AMDashboardTab";
+import {
+  POActionsHub,
+  POPortfolioHub,
+  POPresetBar,
+} from "./POManagementViews";
 
 import { DateValuePicker } from "@/components/ui/date-range-picker";
 import {
@@ -87,7 +96,16 @@ import {
   jiraSearchJqlAll,
   jiraSearchDoneLastNDays,
 } from "../lib/jiraClient";
-import { buildCronogramaADF } from "../utils/cronograma";
+import {
+  ATIVIDADES_PADRAO,
+  buildCronogramaADF,
+  parseCronogramaADF,
+} from "../utils/cronograma";
+import {
+  buildPoInsights,
+  filterPoViewData,
+  getScopedIssueKeysFromPreset,
+} from "../lib/poInsights";
 
 import {
   applyEventChangeToAtividades,
@@ -119,6 +137,23 @@ const CLAMP_2 = {
 };
 
 const DEFAULT_JIRA_BROWSE_BASE = "https://clarobr-jsw-tecnologia.atlassian.net";
+const STANDARD_CRONOGRAMA_IDS = new Set(
+  ATIVIDADES_PADRAO.map((atividade) => atividade.id)
+);
+
+function createCustomCronogramaActivity() {
+  const nonce = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id: `custom_${nonce}`,
+    name: "",
+    data: "",
+    recurso: "",
+    area: "",
+    risk: false,
+    risco: "",
+    isCustom: true,
+  };
+}
 
 function inferJiraBaseFromSelf(selfUrl) {
   try {
@@ -390,9 +425,11 @@ function diffDays(a, b) {
    //#region COMPONENT
 ========================= */
 export default function AMPanelTab() {
-  const [subView, setSubView] = useState("alertas"); // alertas | calendario | gant | dashboard
+  const [subView, setSubView] = useState("acoes"); // acoes | portfolio | calendario | gantt | dashboard
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [activePreset, setActivePreset] = useState("all");
+  const [ownerFocus, setOwnerFocus] = useState("");
 
   const [rawIssues, setRawIssues] = useState([]);
   const [viewData, setViewData] = useState({
@@ -514,10 +551,67 @@ export default function AMPanelTab() {
     () => viewData.criarCronograma || [],
     [viewData]
   );
+  const poInsights = useMemo(
+    () =>
+      buildPoInsights({
+        rawIssues,
+        viewData,
+        doneRows,
+        ownerFocus,
+      }),
+    [rawIssues, viewData, doneRows, ownerFocus]
+  );
+  const scopedIssueKeys = useMemo(
+    () =>
+      getScopedIssueKeysFromPreset({
+        insights: poInsights,
+        activePreset,
+        ownerFocus,
+      }),
+    [poInsights, activePreset, ownerFocus]
+  );
+  const scopedViewData = useMemo(
+    () => filterPoViewData(viewData, scopedIssueKeys),
+    [viewData, scopedIssueKeys]
+  );
+  const scopedRawIssues = useMemo(
+    () =>
+      rawIssues.filter((issue) =>
+        scopedIssueKeys.has(String(issue?.key || "").trim().toUpperCase())
+      ),
+    [rawIssues, scopedIssueKeys]
+  );
+  const scopedDoneRows = useMemo(
+    () =>
+      doneRows.filter((issue) =>
+        scopedIssueKeys.has(String(issue?.key || "").trim().toUpperCase())
+      ),
+    [doneRows, scopedIssueKeys]
+  );
+  const scopedAlertas = useMemo(
+    () => scopedViewData.alertas || [],
+    [scopedViewData]
+  );
+  const scopedCriarCronograma = useMemo(
+    () => scopedViewData.criarCronograma || [],
+    [scopedViewData]
+  );
+  const ticketMetaMap = useMemo(
+    () =>
+      new Map(
+        (poInsights?.items || []).map((item) => [String(item.key || ""), item])
+      ),
+    [poInsights]
+  );
 
   function openEditor(issue) {
     setEditorIssue(issue);
-    setDraft(makeDefaultCronogramaDraft());
+    setDraft(
+      makeDefaultCronogramaDraft().map((atividade) => ({
+        ...atividade,
+        isCustom: !STANDARD_CRONOGRAMA_IDS.has(atividade.id),
+      }))
+    );
     setDueDateDraft(
       String(issue?.dueDateRaw || issue?.fields?.duedate || "").slice(0, 10)
     );
@@ -531,12 +625,12 @@ export default function AMPanelTab() {
     setDueDateDraft("");
   }
 
-  async function saveEditor() {
+  async function saveEditor(nextDraft = draft) {
     if (!editorIssue) return;
     setLoading(true);
     setErr("");
     try {
-      await saveCronogramaToJira(editorIssue.key, draft, {
+      await saveCronogramaToJira(editorIssue.key, nextDraft, {
         dueDate: dueDateDraft,
       });
       closeEditor();
@@ -1012,14 +1106,9 @@ export default function AMPanelTab() {
                   <ListChecks className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h1 className="text-lg font-semibold tracking-tight text-zinc-900">
-                      Painel de Tickets
-                    </h1>
-                    <Badge className="border border-red-200 bg-red-50 text-red-700">
-                      Jira
-                    </Badge>
-                  </div>
+                  <h1 className="text-lg font-semibold tracking-tight text-zinc-900">
+                    Painel
+                  </h1>
                 </div>
               </div>
 
@@ -1028,12 +1117,23 @@ export default function AMPanelTab() {
                 <Button
                   type="button"
                   variant="outline"
-                  className={topNavButtonClasses(subView === "alertas")}
-                  onClick={() => setSubView("alertas")}
-                  aria-pressed={subView === "alertas"}
+                  className={topNavButtonClasses(subView === "acoes")}
+                  onClick={() => setSubView("acoes")}
+                  aria-pressed={subView === "acoes"}
                 >
                   <ListChecks className="mr-2 h-4 w-4" />
-                  Tickets
+                  Ações
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={topNavButtonClasses(subView === "portfolio")}
+                  onClick={() => setSubView("portfolio")}
+                  aria-pressed={subView === "portfolio"}
+                >
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
+                  Portfólio
                 </Button>
 
                 <Button
@@ -1091,15 +1191,35 @@ export default function AMPanelTab() {
             </div>
           )}
 
+          <div className="mb-4">
+            <POPresetBar
+              activePreset={activePreset}
+              setActivePreset={setActivePreset}
+              presetCounts={poInsights?.presetCounts}
+              ownerFocus={ownerFocus}
+              setOwnerFocus={setOwnerFocus}
+            />
+          </div>
+
           {/* =========================
-            TICKETS (Dashboard)
+            AÇÕES DO P.O
         ========================= */}
-          {subView === "alertas" && (
+          {subView === "acoes" && (
             <div className="grid gap-4">
+              <POActionsHub
+                insights={poInsights}
+                onOpenDetails={(key) => {
+                  setDetailsKey(key);
+                  setDetailsOpen(true);
+                }}
+                onOpenSchedule={(ticket) => openEditor(ticket)}
+              />
+
               <TicketDashboardPage
-                rows={rawIssues || []}
-                alertas={filteredAlertas || []}
-                missingSchedule={filteredCriarCronograma || []}
+                rows={scopedRawIssues || []}
+                alertas={scopedAlertas || []}
+                missingSchedule={scopedCriarCronograma || []}
+                ticketMetaMap={ticketMetaMap}
                 loading={loading}
                 dashTab={dashTab}
                 setDashTab={setDashTab}
@@ -1123,12 +1243,24 @@ export default function AMPanelTab() {
             </div>
           )}
 
+          {subView === "portfolio" && (
+            <section className="grid gap-3">
+              <POPortfolioHub
+                insights={poInsights}
+                onOpenDetails={(key) => {
+                  setDetailsKey(key);
+                  setDetailsOpen(true);
+                }}
+              />
+            </section>
+          )}
+
           {/* =========================
             CALENDÁRIO (3 modos + filtro)
         ========================= */}
           {subView === "calendario" && (
             <AMCalendarTab
-              viewData={viewData}
+              viewData={scopedViewData}
               busy={busy}
               colorMode={colorMode}
               setColorMode={setColorMode}
@@ -1145,7 +1277,7 @@ export default function AMPanelTab() {
             <section className="grid gap-3">
               <GanttTab
                 loading={loading}
-                viewData={viewData}
+                viewData={scopedViewData}
                 colorMode={colorMode}
                 setColorMode={setColorMode}
                 filterText={calendarFilter}
@@ -1166,8 +1298,8 @@ export default function AMPanelTab() {
           {subView === "dashboard" && (
             <section className="grid gap-3">
               <AMDashboardTab
-                rows={rows}
-                doneRows={doneRows}
+                rows={scopedRawIssues}
+                doneRows={scopedDoneRows}
                 loading={loading}
               />
             </section>
@@ -1207,6 +1339,7 @@ export default function AMPanelTab() {
             open={detailsOpen}
             onOpenChange={setDetailsOpen}
             issueKey={detailsKey}
+            ticketMetaMap={ticketMetaMap}
             onMarkedStarted={async () => {
               // cria comentário [INICIADO] sem mudar status
               if (!detailsKey) return;
@@ -1227,6 +1360,7 @@ function TicketDashboardPage({
   rows,
   alertas,
   missingSchedule,
+  ticketMetaMap,
   loading,
   dashTab,
   setDashTab,
@@ -1510,6 +1644,7 @@ function TicketDashboardPage({
                   : "Visão completa com busca, filtros e ordenação."
               }
               rows={sectionRows}
+              ticketMetaMap={ticketMetaMap}
               missingScheduleSet={missingSet}
               loading={loading}
               onStart={onStart}
@@ -1705,6 +1840,7 @@ function TicketSection({
   title,
   subtitle,
   rows,
+  ticketMetaMap,
   missingScheduleSet,
   loading,
   onStart,
@@ -1782,6 +1918,7 @@ function TicketSection({
               <TicketCard
                 key={t.key}
                 ticket={t}
+                meta={ticketMetaMap?.get?.(t.key)}
                 isNew={String(t?.statusName || "").toUpperCase() === "PRE SAVE"}
                 missingSchedule={missingScheduleSet?.has(t.key)}
                 onStart={() => onStart?.(t)}
@@ -1805,6 +1942,7 @@ function TicketSection({
 ========================= */
 const TicketCard = memo(function TicketCard({
   ticket,
+  meta,
   isNew,
   missingSchedule,
   onStart,
@@ -1820,7 +1958,6 @@ const TicketCard = memo(function TicketCard({
       : "Sem responsável"
   );
 
-  console.log(ticket);
 
   // ✅ created vem do retorno da API: fields.created
   const createdRaw =
@@ -1886,6 +2023,13 @@ const TicketCard = memo(function TicketCard({
   const daysLate = isDueOverdue
     ? Math.max(1, diffDays(today0, effectiveDueDate))
     : 0;
+  const actionFlags = [
+    !meta?.hasOwner ? "Sem responsável" : null,
+    !meta?.hasStarted ? "Sem início" : null,
+    meta?.hasRisk ? "Com risco" : null,
+    meta?.hasCapacityConflict ? "Conflito de recurso" : null,
+    !effectiveDueDate ? "Sem data limite" : null,
+  ].filter(Boolean);
 
   return (
     <motion.div
@@ -2007,6 +2151,26 @@ const TicketCard = memo(function TicketCard({
               <p className="text-[10px] text-zinc-500">Responsável</p>
             </div>
           </div>
+
+          {actionFlags.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {actionFlags.slice(0, 4).map((flag) => (
+                <Badge
+                  key={`${key}-${flag}`}
+                  className="rounded-full border border-zinc-200 bg-white text-[10px] text-zinc-700"
+                >
+                  {flag}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+
+          {meta?.nextMilestone ? (
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+              <span className="font-semibold text-zinc-900">Próximo marco:</span>{" "}
+              {meta.nextMilestone.label}
+            </div>
+          ) : null}
 
           {/* Botões de Ação - Layout Estável */}
           <div className="grid grid-cols-2 gap-2 mt-auto">
@@ -2133,6 +2297,7 @@ function TicketDetailsDialog({
   open,
   onOpenChange,
   issueKey,
+  ticketMetaMap,
   onMarkedStarted,
 }) {
   const [loading, setLoading] = useState(false);
@@ -2152,7 +2317,7 @@ function TicketDetailsDialog({
     Promise.allSettled([
       getIssue(
         issueKey,
-        "summary,status,assignee,created,updated,project,description,customfield_14017"
+        "summary,status,assignee,created,updated,project,description,duedate,customfield_11519,customfield_14017,components,customfield_11520"
       ),
       getComments(issueKey),
     ])
@@ -2208,6 +2373,58 @@ function TicketDetailsDialog({
   );
 
   const assigneeFull = userName(f?.assignee) || "Sem responsável";
+  const meta = ticketMetaMap?.get?.(String(issueKey || "").trim().toUpperCase());
+  const cronogramaActivities = useMemo(
+    () => parseCronogramaADF(f?.customfield_14017),
+    [f?.customfield_14017]
+  );
+  const allocatedResources = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          cronogramaActivities
+            .map((activity) => String(activity?.recurso || "").trim())
+            .filter(Boolean)
+        )
+      ),
+    [cronogramaActivities]
+  );
+  const riskActivities = useMemo(
+    () =>
+      cronogramaActivities.filter(
+        (activity) =>
+          Boolean(activity?.risk) ||
+          /risco/i.test(String(activity?.risco || "").trim())
+      ),
+    [cronogramaActivities]
+  );
+  const directorateLabels = useMemo(
+    () => toNamesArray(f?.customfield_11520),
+    [f?.customfield_11520]
+  );
+  const componentLabels = useMemo(
+    () =>
+      Array.isArray(f?.components)
+        ? f.components
+            .map((component) => component?.name || component)
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+        : [],
+    [f?.components]
+  );
+  const latestComment = comments?.length ? comments[comments.length - 1] : null;
+  const latestCommentText = safeText(latestComment?.body) || "Sem avanço recente";
+  const latestCommentDate = latestComment
+    ? fmtUpdatedBR(latestComment?.created || latestComment?.updated)
+    : "Sem comentários";
+  const dueLabel = meta?.overdueDays
+    ? `Atrasado ${meta.overdueDays}d`
+    : f?.duedate
+    ? fmtDateBr(f?.duedate)
+    : "Sem data limite";
+  const progressLabel = meta?.hasStarted
+    ? latestCommentText
+    : "Sem comentário de início";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2233,7 +2450,7 @@ function TicketDetailsDialog({
             </Tooltip>
           </DialogTitle>
           <DialogDescription className="text-sm text-zinc-600">
-            Visualização rápida (descrição, cronograma e comentários).
+            Visualização rápida com contexto decisório, cronograma e comentários.
           </DialogDescription>
         </DialogHeader>
 
@@ -2259,6 +2476,22 @@ function TicketDetailsDialog({
                   <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
                     Projeto: {f?.project?.key || f?.project?.name || "—"}
                   </Badge>
+                  {directorateLabels.slice(0, 2).map((label) => (
+                    <Badge
+                      key={`dir-${label}`}
+                      className="rounded-full border border-zinc-200 bg-white text-zinc-700"
+                    >
+                      Diretoria: {label}
+                    </Badge>
+                  ))}
+                  {componentLabels.slice(0, 2).map((label) => (
+                    <Badge
+                      key={`component-${label}`}
+                      className="rounded-full border border-zinc-200 bg-white text-zinc-700"
+                    >
+                      Componente: {label}
+                    </Badge>
+                  ))}
                 </div>
 
                 <div className="flex flex-wrap gap-2 text-zinc-700">
@@ -2274,6 +2507,102 @@ function TicketDetailsDialog({
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Próximo marco
+              </div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">
+                {meta?.nextMilestone?.label || "Sem marco planejado"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Prazo
+              </div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">
+                {dueLabel}
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">
+                {meta?.dueSoon ? "Vence nos próximos 7 dias" : "Leitura da data limite atual"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Alocação
+              </div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">
+                {allocatedResources.length
+                  ? allocatedResources.slice(0, 2).join(", ")
+                  : "Sem recurso definido"}
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">
+                {meta?.hasCapacityConflict
+                  ? "Conflito de agenda detectado"
+                  : `${allocatedResources.length || 0} recurso(s) mapeado(s)`}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Último avanço
+              </div>
+              <div className="mt-2 text-sm font-semibold text-zinc-900">
+                {latestCommentDate}
+              </div>
+              <div className="mt-1 line-clamp-2 text-xs text-zinc-500">
+                {progressLabel}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="mb-2 text-sm font-semibold text-zinc-900">
+                Riscos e bloqueios
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                  {riskActivities.length} atividade(s) com risco
+                </Badge>
+                {meta?.isBlocked ? (
+                  <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                    Bloqueado
+                  </Badge>
+                ) : null}
+                {meta?.isAtRisk ? (
+                  <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
+                    Em risco
+                  </Badge>
+                ) : null}
+                {meta?.hasCapacityConflict ? (
+                  <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                    Conflito de recurso
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="mt-3 text-xs text-zinc-500">
+                {(meta?.actionReasons || []).length
+                  ? meta.actionReasons.join(" • ")
+                  : "Sem alertas operacionais adicionais."}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-3">
+              <div className="mb-2 text-sm font-semibold text-zinc-900">
+                Histórico resumido
+              </div>
+              <div className="text-sm font-semibold text-zinc-900">
+                {latestCommentDate}
+              </div>
+              <div className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-700">
+                {latestCommentText}
+              </div>
+            </div>
           </div>
 
           {/* descrição */}
@@ -2315,8 +2644,37 @@ function TicketDetailsDialog({
                 <Skeleton className="h-4 w-2/5" />
               </div>
             ) : (
-              <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                {hasCronograma ? infoAdicText : "—"}
+              <div className="grid gap-3">
+                {cronogramaActivities.length ? (
+                  <div className="grid gap-2">
+                    {cronogramaActivities.slice(0, 6).map((activity) => (
+                      <div
+                        key={`${issueKey}-${activity.id}`}
+                        className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-zinc-900">
+                            {activity.name}
+                          </div>
+                          {activity.risk ? (
+                            <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
+                              Risco
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-3 text-xs text-zinc-600">
+                          <span>{activity.data || "Sem data"}</span>
+                          <span>{activity.recurso || "Sem recurso"}</span>
+                          <span>{activity.area || "Sem área"}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">
+                  {hasCronograma ? infoAdicText : "—"}
+                </div>
               </div>
             )}
           </div>
@@ -3002,6 +3360,10 @@ function CronogramaEditorModal({
     return Number.isNaN(d.getTime()) ? null : d;
   }
 
+  function deriveIsCustom(activity) {
+    return Boolean(activity?.isCustom) || !STANDARD_CRONOGRAMA_IDS.has(activity?.id);
+  }
+
   function getAtividadeImplantacaoEndDate(draftList, refYear) {
     const list = Array.isArray(draftList) ? draftList : [];
     const impl =
@@ -3024,13 +3386,12 @@ function CronogramaEditorModal({
 
     if (!start || !end) return null;
 
-    // se o intervalo virou "ao contrário", assume virada de ano
     if (end.getTime() < start.getTime()) {
       end = new Date(end);
       end.setFullYear(end.getFullYear() + 1);
     }
 
-    return end; // inclusive
+    return end;
   }
 
   const dueDateObj = useMemo(
@@ -3044,6 +3405,18 @@ function CronogramaEditorModal({
   }, [draft, dueDateObj]);
 
   const missingDueDate = !String(dueDateDraft || "").trim();
+  const preparedDraft = useMemo(
+    () =>
+      (draft || []).map((activity) => ({
+        ...activity,
+        isCustom: deriveIsCustom(activity),
+        name: String(activity?.name || "").trim(),
+      })),
+    [draft]
+  );
+  const invalidCustomActivity = preparedDraft.find(
+    (activity) => activity.isCustom && !activity.name
+  );
 
   const dueBeforeImplant =
     !!dueDateObj &&
@@ -3053,9 +3426,37 @@ function CronogramaEditorModal({
   function setCell(idx, key, value) {
     setDraft((prev) => {
       const next = prev.map((x) => ({ ...x }));
+      if (!next[idx]) return prev;
       next[idx][key] = value;
+      if (key === "name") next[idx].isCustom = deriveIsCustom(next[idx]);
       return next;
     });
+  }
+
+  function moveRow(idx, direction) {
+    setDraft((prev) => {
+      const target = idx + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = prev.map((item) => ({ ...item }));
+      const [row] = next.splice(idx, 1);
+      next.splice(target, 0, row);
+      return next;
+    });
+  }
+
+  function removeRow(idx, id) {
+    setDraft((prev) => prev.filter((_, currentIndex) => currentIndex !== idx));
+    setModeById((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function addCustomRow() {
+    const row = createCustomCronogramaActivity();
+    setDraft((prev) => [...prev, row]);
+    setModeById((prev) => ({ ...prev, [row.id]: "range" }));
   }
 
   function inferMode(v) {
@@ -3074,14 +3475,14 @@ function CronogramaEditorModal({
   });
 
   useEffect(() => {
-    // quando trocar de issue, recalcula modos iniciais a partir do draft atual
-    const next = {};
-    (draft || []).forEach((a) => {
-      next[a.id] = inferMode(a.data);
+    setModeById((prev) => {
+      const next = {};
+      (draft || []).forEach((a) => {
+        next[a.id] = prev[a.id] || inferMode(a.data);
+      });
+      return next;
     });
-    setModeById(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issue?.key]);
+  }, [draft, issue?.key]);
 
   return (
     <Dialog
@@ -3090,7 +3491,7 @@ function CronogramaEditorModal({
         if (!o) onClose?.();
       }}
     >
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-start gap-2 min-w-0">
             <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
@@ -3118,7 +3519,6 @@ function CronogramaEditorModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Data limite */}
         <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Data limite</CardTitle>
@@ -3140,18 +3540,15 @@ function CronogramaEditorModal({
                 )}
               />
 
-              {/* alerta: sem data limite */}
               {saveAttempted && missingDueDate && (
                 <div className="mt-1 rounded-xl border border-red-200 bg-red-50 p-2 text-xs font-semibold text-red-700">
-                  ⚠️ A data limite não foi preenchida.
+                  A data limite não foi preenchida.
                 </div>
               )}
 
-              {/* alerta: data limite menor que implantação */}
               {!missingDueDate && dueBeforeImplant && (
                 <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
-                  ⚠️ A data limite ({fmtDateBr(dueDateDraft)}) é menor que a
-                  Implantação ({fmtDateBrFull(implantEndDate)}).
+                  A data limite ({fmtDateBr(dueDateDraft)}) é menor que a Implantação ({fmtDateBrFull(implantEndDate)}).
                 </div>
               )}
             </div>
@@ -3159,56 +3556,84 @@ function CronogramaEditorModal({
         </Card>
 
         <div className="grid gap-4">
-          {/* Seção: Atividades */}
           <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm">
-                Atividades do cronograma
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Preencha Data, Recurso e Área.
-              </CardDescription>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <CardTitle className="text-sm">Atividades do cronograma</CardTitle>
+                  <CardDescription className="text-xs">
+                    Preencha Data, Recurso e Área. Atividades customizadas podem ser renomeadas, reordenadas e excluídas.
+                  </CardDescription>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-zinc-200 bg-white"
+                  onClick={addCustomRow}
+                  disabled={loading}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Adicionar atividade
+                </Button>
+              </div>
             </CardHeader>
 
             <CardContent className="grid gap-3">
+              {saveAttempted && invalidCustomActivity && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+                  Toda atividade customizada precisa ter um nome antes de salvar.
+                </div>
+              )}
+
               <div className="overflow-x-auto overflow-y-hidden md:overflow-visible rounded-2xl border border-zinc-200">
-                <div className="min-w-0">
-                  <div
-                    className="sticky top-0 z-10 hidden md:grid
-  md:grid-cols-[minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)]
-  gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700"
-                  >
+                <div className="min-w-[920px] md:min-w-0">
+                  <div className="sticky top-0 z-10 hidden md:grid md:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)_110px] gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700">
                     <div>Atividade</div>
                     <div>Data</div>
                     <div>Recurso</div>
                     <div>Área</div>
+                    <div>Ações</div>
                   </div>
 
-                  {/* Rows */}
                   <div className="grid">
-                    {draft.map((a, idx) => {
+                    {preparedDraft.map((a, idx) => {
                       const mode = modeById[a.id] || inferMode(a.data);
+                      const isCustom = deriveIsCustom(a);
+                      const disableUp = idx === 0 || loading;
+                      const disableDown = idx === preparedDraft.length - 1 || loading;
 
                       return (
                         <div
                           key={a.id}
                           className={cn(
                             "border-t border-zinc-200 px-3 py-2",
-                            "md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)] md:items-start md:gap-2",
+                            "md:grid md:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)_110px] md:items-start md:gap-2",
                             "grid gap-3"
                           )}
                         >
-                          {/* Atividade */}
                           <div className="min-w-0">
                             <div className="md:hidden text-[11px] font-semibold text-zinc-600">
                               Atividade
                             </div>
-                            <div className="truncate text-sm font-semibold text-zinc-900">
-                              {a.name}
-                            </div>
+                            {isCustom ? (
+                              <Input
+                                value={a.name || ""}
+                                onChange={(e) => setCell(idx, "name", e.target.value)}
+                                placeholder="Nome da atividade"
+                                disabled={loading}
+                                className={cn(
+                                  "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
+                                  saveAttempted && !a.name && "border-red-300"
+                                )}
+                              />
+                            ) : (
+                              <div className="flex h-10 items-center truncate rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-900">
+                                {a.name}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Data */}
                           <div className="min-w-0">
                             <div className="md:hidden text-[10px] font-bold uppercase text-zinc-400 mb-1">
                               Data
@@ -3225,36 +3650,71 @@ function CronogramaEditorModal({
                             />
                           </div>
 
-                          {/* Recurso */}
                           <div className="min-w-0">
                             <div className="md:hidden text-[11px] font-semibold text-zinc-600">
                               Recurso
                             </div>
                             <Input
                               value={a.recurso || ""}
-                              onChange={(e) =>
-                                setCell(idx, "recurso", e.target.value)
-                              }
+                              onChange={(e) => setCell(idx, "recurso", e.target.value)}
                               placeholder="ex.: João"
                               disabled={loading}
                               className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
                             />
                           </div>
 
-                          {/* Área */}
                           <div className="min-w-0">
                             <div className="md:hidden text-[11px] font-semibold text-zinc-600">
                               Área
                             </div>
                             <Input
                               value={a.area || ""}
-                              onChange={(e) =>
-                                setCell(idx, "area", e.target.value)
-                              }
+                              onChange={(e) => setCell(idx, "area", e.target.value)}
                               placeholder="ex.: TI"
                               disabled={loading}
                               className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
                             />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                              Ações
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10 rounded-xl border-zinc-200"
+                                onClick={() => moveRow(idx, -1)}
+                                disabled={disableUp}
+                                aria-label={`Mover ${a.name || "atividade"} para cima`}
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10 rounded-xl border-zinc-200"
+                                onClick={() => moveRow(idx, 1)}
+                                disabled={disableDown}
+                                aria-label={`Mover ${a.name || "atividade"} para baixo`}
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="h-10 w-10 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                onClick={() => removeRow(idx, a.id)}
+                                disabled={loading}
+                                aria-label={`Excluir ${a.name || "atividade"}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -3265,7 +3725,6 @@ function CronogramaEditorModal({
             </CardContent>
           </Card>
 
-          {/* Prévia ADF (colapsável) */}
           <details className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
             <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50">
               Prévia do ADF gerado
@@ -3273,7 +3732,7 @@ function CronogramaEditorModal({
             <div className="px-4 pb-4">
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
                 <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap font-mono text-xs text-zinc-800">
-                  {JSON.stringify(buildCronogramaADF(draft), null, 2)}
+                  {JSON.stringify(buildCronogramaADF(preparedDraft), null, 2)}
                 </pre>
               </div>
             </div>
@@ -3296,8 +3755,9 @@ function CronogramaEditorModal({
             className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
             onClick={() => {
               setSaveAttempted(true);
-              if (!String(dueDateDraft || "").trim()) return; // bloqueia sem data limite
-              onSave?.();
+              if (!String(dueDateDraft || "").trim()) return;
+              if (invalidCustomActivity) return;
+              onSave?.(preparedDraft);
             }}
             disabled={loading}
           >

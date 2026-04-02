@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { Readable } from "node:stream";
 import { sendUpstream } from "../utils/sendUpstream.js";
+import { fetchWithTimeout } from "../utils/http.js";
 
 export default function sttRoutes({ upload, env }) {
   const router = Router();
@@ -21,13 +22,17 @@ export default function sttRoutes({ upload, env }) {
       });
       form.append("file", blob, req.file.originalname);
 
-      const r = await fetch(`${STT_PY_BASE}/transcribe`, {
+      const r = await fetchWithTimeout(`${STT_PY_BASE}/transcribe`, {
         method: "POST",
         headers: { Accept: "application/json" },
         body: form,
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
 
-      return sendUpstream(res, r);
+      return sendUpstream(res, r, "application/json", {
+        service: "stt",
+        message: "Falha ao transcrever áudio no serviço STT.",
+      });
     } catch (err) {
       console.error("STT proxy error:", err);
       return res
@@ -50,13 +55,18 @@ export default function sttRoutes({ upload, env }) {
       });
       form.append("file", blob, req.file.originalname);
 
-      const r = await fetch(`${STT_PY_BASE}/convert`, {
+      const r = await fetchWithTimeout(`${STT_PY_BASE}/convert`, {
         method: "POST",
         headers: { Accept: "*/*" },
         body: form,
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
 
-      if (!r.ok) return sendUpstream(res, r, "text/plain");
+      if (!r.ok)
+        return sendUpstream(res, r, "text/plain", {
+          service: "stt",
+          message: "Falha ao converter áudio no serviço STT.",
+        });
 
       res.status(r.status);
       res.setHeader(
@@ -92,13 +102,18 @@ export default function sttRoutes({ upload, env }) {
         return res.status(400).json({ error: "Campo 'text' é obrigatório" });
       }
 
-      const r = await fetch(`${STT_PY_BASE}/tts`, {
+      const r = await fetchWithTimeout(`${STT_PY_BASE}/tts`, {
         method: "POST",
         headers: { Accept: "*/*", "Content-Type": "application/json" },
         body: JSON.stringify({ text, voice, rate, volume }),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
 
-      if (!r.ok) return sendUpstream(res, r, "text/plain");
+      if (!r.ok)
+        return sendUpstream(res, r, "text/plain", {
+          service: "stt",
+          message: "Falha ao gerar TTS no serviço STT.",
+        });
 
       res.status(r.status);
       res.setHeader(
@@ -125,13 +140,18 @@ export default function sttRoutes({ upload, env }) {
         return res.status(400).json({ error: "Campo 'text' é obrigatório" });
       }
 
-      const r = await fetch(`${STT_PY_BASE}/tts_ulaw`, {
+      const r = await fetchWithTimeout(`${STT_PY_BASE}/tts_ulaw`, {
         method: "POST",
         headers: { Accept: "*/*", "Content-Type": "application/json" },
         body: JSON.stringify({ text, voice, rate, volume }),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
 
-      if (!r.ok) return sendUpstream(res, r, "text/plain");
+      if (!r.ok)
+        return sendUpstream(res, r, "text/plain", {
+          service: "stt",
+          message: "Falha ao gerar TTS ULAW no serviço STT.",
+        });
 
       res.status(r.status);
       res.setHeader(

@@ -18,6 +18,26 @@ const MAX_TICKETS = Number(process.env.AUTOMATION_JOB_MAX_TICKETS || 200);
 const MAX_EXEC = Number(process.env.AUTOMATION_MAX_EXECUTIONS || 200);
 const MAX_ERRS = Number(process.env.AUTOMATION_MAX_ERRORS || 50);
 const CRONO_FIELD = process.env.JIRA_CRONOGRAMA_FIELD_ID || "customfield_14017";
+const DEFAULT_INTERVAL_MS = Number(
+  process.env.AUTOMATION_JOB_INTERVAL_MS || 60000
+);
+
+const jobState = {
+  enabled: true,
+  running: false,
+  intervalMs: DEFAULT_INTERVAL_MS,
+  lastStartedAt: null,
+  lastFinishedAt: null,
+  lastDurationMs: null,
+  lastRun: null,
+  totals: {
+    runs: 0,
+    processedTickets: 0,
+    skippedByLock: 0,
+    acquiredLocks: 0,
+    failures: 0,
+  },
+};
 
 function lockKeyTicket(ticketKey) {
   return `automation:ticket:${ticketKey}`;
@@ -235,6 +255,19 @@ let running = false;
 async function tick() {
   if (running) return; // evita reentrância se o tick anterior atrasar
   running = true;
+  jobState.running = true;
+  jobState.lastStartedAt = new Date().toISOString();
+  const startedAt = Date.now();
+  const runStats = {
+    startedAt: jobState.lastStartedAt,
+    finishedAt: null,
+    durationMs: null,
+    candidates: 0,
+    processedTickets: 0,
+    acquiredLocks: 0,
+    skippedByLock: 0,
+    failures: [],
+  };
 
   const jira = createJiraClient(process.env);
 
@@ -243,6 +276,7 @@ async function tick() {
       "data.automation.enabled": true,
       "data.automation.rules.0": { $exists: true },
     }).limit(MAX_TICKETS);
+    runStats.candidates = candidates.length;
 
     for (const t of candidates) {
       const key = lockKeyTicket(t.ticketKey);
@@ -254,22 +288,54 @@ async function tick() {
         ok = false;
       }
 
-      if (!ok) continue;
+      if (!ok) {
+        runStats.skippedByLock += 1;
+        jobState.totals.skippedByLock += 1;
+        continue;
+      }
+
+      runStats.acquiredLocks += 1;
+      jobState.totals.acquiredLocks += 1;
 
       try {
         await processTicket(t, jira);
+        runStats.processedTickets += 1;
+        jobState.totals.processedTickets += 1;
+      } catch (error) {
+        runStats.failures.push({
+          ticketKey: t.ticketKey,
+          message: String(error?.message || error),
+        });
+        jobState.totals.failures += 1;
+        throw error;
       } finally {
         await releaseLock(key);
       }
     }
   } finally {
     running = false;
+    jobState.running = false;
+    jobState.totals.runs += 1;
+    runStats.finishedAt = new Date().toISOString();
+    runStats.durationMs = Date.now() - startedAt;
+    jobState.lastFinishedAt = runStats.finishedAt;
+    jobState.lastDurationMs = runStats.durationMs;
+    jobState.lastRun = runStats;
   }
 }
 
 export function startAutomationJob() {
-  const interval = Number(process.env.AUTOMATION_JOB_INTERVAL_MS || 60000);
+  const interval = DEFAULT_INTERVAL_MS;
+  jobState.enabled = true;
+  jobState.intervalMs = interval;
 
   tick().catch(() => {});
   setInterval(() => tick().catch(() => {}), interval);
+}
+
+export function getAutomationJobStatus() {
+  return {
+    ...jobState,
+    running,
+  };
 }

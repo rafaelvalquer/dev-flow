@@ -4,6 +4,7 @@ import Ticket from "../models/Ticket.js";
 import { createJiraClient } from "./jira.routes.js";
 import { parseCronogramaADF } from "../utils/cronogramaParser.js";
 import { evaluateRules, hasExecuted } from "../utils/automationEngine.js";
+import { getAutomationJobStatus } from "../jobs/automationJob.js";
 
 const router = express.Router();
 
@@ -12,6 +13,13 @@ function normTicketKey(v) {
     .trim()
     .toUpperCase();
 }
+
+router.get("/status", (_req, res) => {
+  return res.json({
+    ok: true,
+    job: getAutomationJobStatus(),
+  });
+});
 
 // POST /api/automation/dry-run
 router.post("/dry-run", async (req, res) => {

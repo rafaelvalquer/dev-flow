@@ -206,7 +206,7 @@ export default function KanbanBuilderModal({
                           className="kb-checkbox"
                           style={{ accentColor: "#ee0000" }}
                         />
-                        <div style={{ flex: 1 }}>
+                        <div className="kb-card-copy">
                           <div className="kb-card-title">{card.title}</div>
                           <div style={{ fontSize: "11px", color: "#888" }}>
                             {(card.subtasks || []).length} subtarefas

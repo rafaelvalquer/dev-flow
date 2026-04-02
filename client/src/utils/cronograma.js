@@ -1,7 +1,6 @@
 // src/utils/cronograma.js
 import { adfCellText } from "../lib/adf";
 
-// atividades padronizadas
 export const ATIVIDADES_PADRAO = [
   { id: "devUra", name: "Desenvolvimento de URA" },
   { id: "rdm", name: "Preenchimento RDM" },
@@ -15,18 +14,16 @@ function pad2(n) {
 }
 
 function parseBRDateToken(token, now = new Date()) {
-  // suporta DD/MM ou DD/MM/YYYY
   const m = token.trim().match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
   if (!m) return null;
   const d = Number(m[1]);
   const mo = Number(m[2]);
   let y = m[3] ? Number(m[3]) : now.getFullYear();
 
-  // heurística simples: se cair “muito no passado”, joga pro próximo ano
   const dt = new Date(y, mo - 1, d);
   const diffDays = Math.floor((dt - now) / (1000 * 60 * 60 * 24));
   if (!m[3] && diffDays < -180) {
-    y = y + 1;
+    y += 1;
     return new Date(y, mo - 1, d);
   }
 
@@ -37,14 +34,12 @@ export function parseDateRangeBR(raw, now = new Date()) {
   const v = (raw || "").trim();
   if (!v) return null;
 
-  // "DD/MM a DD/MM" (com ou sem ano)
   const range = v.match(/^(.+?)\s+a\s+(.+?)$/i);
   if (range) {
     const start = parseBRDateToken(range[1], now);
     const end = parseBRDateToken(range[2], now);
     if (!start || !end) return null;
 
-    // ✅ range cruzando ano (ex: 20/12 a 10/01)
     const hasYearLeft = /\d{4}/.test(range[1]);
     const hasYearRight = /\d{4}/.test(range[2]);
 
@@ -54,7 +49,6 @@ export function parseDateRangeBR(raw, now = new Date()) {
       return { kind: "range", start, end: fixedEnd };
     }
 
-    // ✅ se um lado tem ano e o outro não, herda o ano do que tem
     if (hasYearLeft && !hasYearRight) {
       const fixedEnd = new Date(end);
       fixedEnd.setFullYear(start.getFullYear());
@@ -86,7 +80,7 @@ export function formatDateRangeBR(start, end) {
   return `${s} a ${e}`;
 }
 
-function normalizeHeader(s) {
+function normalizeKey(s) {
   return (s || "")
     .toLowerCase()
     .normalize("NFD")
@@ -95,13 +89,11 @@ function normalizeHeader(s) {
     .trim();
 }
 
-function normalizeKey(s) {
-  return (s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function normalizeIdFromName(name) {
+  const v = normalizeKey(name)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return v || "atividade";
 }
 
 const ATIVIDADES_MAP = new Map(
@@ -120,16 +112,8 @@ function parseRiscoFlag(raw) {
     .trim()
     .toLowerCase();
   if (!s) return false;
-
-  // se alguém escrever explicitamente "não", "false", etc
   if (/(nao|não|false|0|no)/i.test(s)) return false;
-
-  // qualquer valor preenchido vira risco
   return true;
-}
-
-function riscoTextFromFlag(flag) {
-  return flag ? "Risco" : "";
 }
 
 function findFirstTable(adf) {
@@ -152,7 +136,6 @@ function findFirstTable(adf) {
 export function parseCronogramaADF(adf) {
   if (!adf || typeof adf !== "object") return [];
 
-  // ✅ mais robusto: acha a primeira table em qualquer nível
   const table = findFirstTable(adf);
   if (!table) return [];
 
@@ -161,11 +144,10 @@ export function parseCronogramaADF(adf) {
 
   const bodyRows = rows.slice(1);
   const list = [];
+  const usedIds = new Map();
 
   for (const row of bodyRows) {
     const cells = Array.isArray(row?.content) ? row.content : [];
-
-    // ✅ usa seu helper importado (suporta múltiplos parágrafos)
     const getCellText = (cell) => {
       try {
         return String(adfCellText(cell) || "").trim();
@@ -178,54 +160,29 @@ export function parseCronogramaADF(adf) {
     const dateText = getCellText(cells[1]);
     const recursoText = getCellText(cells[2]);
     const areaText = getCellText(cells[3]);
-
-    // ✅ NOVO: risco
-    const riscoText = getCellText(cells[4]); // <-- coluna Risco
+    const riscoText = getCellText(cells[4]);
 
     const labelRaw = String(atividadeName || "");
     const label = labelRaw.split("(")[0].trim();
-
     const atividadeKey = String(label || "").trim();
-
-    // ✅ CORREÇÃO: normaliza a chave
     const atividadeDef = ATIVIDADES_MAP.get(normalizeKey(atividadeKey));
-
+    const baseId = atividadeDef?.id || normalizeIdFromName(atividadeKey);
+    const seen = usedIds.get(baseId) || 0;
+    const id = seen === 0 ? baseId : `${baseId}_${seen + 1}`;
+    usedIds.set(baseId, seen + 1);
     const riskFlag = parseRiscoFlag(riscoText);
 
     list.push({
-      id: atividadeDef?.id || atividadeKey || "—",
+      id,
       name: atividadeDef?.name || label || atividadeKey || "—",
       data: String(dateText || "")
         .replace(/\s+/g, " ")
         .trim(),
       recurso: recursoText || "Sem recurso",
       area: areaText || "—",
-
-      // ✅ importante: manter os dois
       risco: riskFlag ? "Risco" : "",
       risk: riskFlag,
     });
-  }
-
-  // garante todas atividades padrão
-  const byId = new Map(list.map((a) => [a.id, a]));
-
-  for (const atividadeDef of ATIVIDADES_PADRAO) {
-    if (!atividadeDef?.id) continue;
-    if (byId.has(atividadeDef.id)) continue;
-
-    const empty = {
-      id: atividadeDef.id,
-      name: atividadeDef.name,
-      data: "",
-      recurso: "Sem recurso",
-      area: "—",
-      risco: "",
-      risk: false,
-    };
-
-    list.push(empty);
-    byId.set(empty.id, empty);
   }
 
   return list;
@@ -263,7 +220,7 @@ export function buildCronogramaADF(atividades) {
         { type: "tableCell", content: [textCell(a.data || "")] },
         { type: "tableCell", content: [textCell(a.recurso || "")] },
         { type: "tableCell", content: [textCell(a.area || "")] },
-        { type: "tableCell", content: [textCell(riscoCell)] }, // ✅ escreve
+        { type: "tableCell", content: [textCell(riscoCell)] },
       ],
     };
   });
@@ -287,7 +244,7 @@ export function buildCronogramaADF(atividades) {
 export function toCalendarEvents(issueKey, atividades, now = new Date()) {
   const events = [];
 
-  for (const a of atividades || []) {
+  for (const [index, a] of (atividades || []).entries()) {
     const parsed = parseDateRangeBR(a.data, now);
     if (!parsed) continue;
 
@@ -309,14 +266,14 @@ export function toCalendarEvents(issueKey, atividades, now = new Date()) {
     endExclusive.setDate(endExclusive.getDate() + 1);
 
     events.push({
-      id: `${issueKey}::${a.id}`,
+      id: `${issueKey}::${a.id || index}`,
       title: `${issueKey} - ${a.name}`,
       start: toYMDLocal(start),
       end: toYMDLocal(endExclusive),
       allDay: true,
       extendedProps: {
         issueKey,
-        activityId: a.id,
+        activityId: a.id || `atividade_${index + 1}`,
         activityName: a.name,
         recurso: a.recurso || "",
         area: a.area || "",

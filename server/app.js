@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 
 import { env } from "./config/env.js";
 import { createUpload } from "./middlewares/upload.js";
+import { requestContext } from "./middlewares/requestContext.js";
 
 import sttRoutes from "./routes/stt.routes.js";
 import jiraRoutes from "./routes/jira.routes.js";
@@ -14,9 +15,11 @@ import dbRoutes from "./routes/db.routes.js";
 import ticketsRouter from "./routes/tickets.js";
 import automationRouter from "./routes/automation.js";
 import niceRoutes from "./routes/nice.routes.js";
+import healthRoutes from "./routes/health.routes.js";
 
 import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
 import { startAutomationJob } from "./jobs/automationJob.js";
+import { AppError, createErrorPayload } from "./utils/http.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,6 +42,7 @@ function startAutomationJobOnce() {
 export default function createApp({ startJobs = true } = {}) {
   const app = express();
 
+  app.use(requestContext);
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
 
@@ -50,6 +54,7 @@ export default function createApp({ startJobs = true } = {}) {
   registerRdmCopilotRoutes(app, upload, env);
 
   // APIs (mantém paths /api/* iguais)
+  app.use("/health", healthRoutes({ env }));
   app.use("/api/stt", sttRoutes({ upload, env }));
   app.use("/api/jira", jiraRoutes({ upload, env }));
   app.use("/api/db", dbRoutes);
@@ -84,6 +89,31 @@ export default function createApp({ startJobs = true } = {}) {
   // catch-all para qualquer rota que NÃO comece com /api
   app.get(/^(?!\/api\/).*/, (_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
+  });
+
+  app.use((req, res) => {
+    res.status(404).json(
+      createErrorPayload(
+        new AppError({
+          status: 404,
+          code: "NOT_FOUND",
+          message: "Route not found",
+          details: { path: req.originalUrl, method: req.method },
+        }),
+        req.id
+      )
+    );
+  });
+
+  app.use((err, req, res, _next) => {
+    const status = Number(err?.status || 500);
+    req.log?.(status >= 500 ? "error" : "warn", "request.error", {
+      status,
+      code: err?.code || "INTERNAL_ERROR",
+      error: err?.message || String(err),
+    });
+
+    return res.status(status).json(createErrorPayload(err, req.id));
   });
 
   return app;

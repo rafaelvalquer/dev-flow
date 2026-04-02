@@ -17,6 +17,14 @@ const STUDIO_URL_RE = /\/studio\/#\/home\/scripts/i;
 const SCRIPT_CELL_SPAN =
   '.ag-center-cols-container [col-id="scriptName"] stx-agcell-script-name span.ng-star-inserted';
 
+const GRID_ROW_SEL = ".ag-center-cols-container [role='row'][row-id]";
+
+const NAME_IN_ROW_SEL =
+  "[col-id='scriptName'] stx-agcell-script-name span.ng-star-inserted";
+
+const MODIFY_DATE_CELL_SEL = "[col-id='modifyDate']";
+const MODIFIED_BY_CELL_SEL = "[col-id='modifiedBy']";
+
 async function isStudioOpen(page) {
   const mainUrl = String(page.url?.() || "");
   if (STUDIO_URL_RE.test(mainUrl)) return true;
@@ -179,6 +187,158 @@ async function collectStudioItems(page) {
   });
 
   return out;
+}
+
+async function extractAllGridEntries(
+  page,
+  { maxScrolls = 250, settleMs = 250, noNewLimit = 8, timeoutMs = 30_000 } = {},
+) {
+  const waitAnyInScope = async (scope, selectors, timeout) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      for (const sel of selectors) {
+        const h = await scope.$(sel).catch(() => null);
+        if (h) return { selector: sel, handle: h };
+      }
+      await sleep(scope, 250);
+    }
+    throw new Error(
+      `Timeout waiting for selectors in scope: ${selectors.join(", ")}`,
+    );
+  };
+
+  const waitConditionInScope = async (scope, fn, timeout, ...args) => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const ok = await scope.evaluate(fn, ...args).catch(() => false);
+      if (ok) return true;
+      await sleep(scope, 250);
+    }
+    return false;
+  };
+
+  // 1) Descobre onde está o grid (page ou iframe)
+  const gridFound = await waitForAnySelectorDeep(
+    page,
+    [".ag-root-wrapper-body", ".ag-root", ".ag-center-cols-container"],
+    { timeout: timeoutMs, visible: false },
+  ).catch(() => null);
+
+  if (!gridFound?.scope) {
+    throw new Error(
+      "AG-Grid not found (no .ag-root/.ag-center-cols-container)",
+    );
+  }
+
+  const scope = gridFound.scope;
+
+  // 2) Viewport rolável do grid
+  const viewportCandidates = [
+    ".ag-body-viewport",
+    ".ag-center-cols-viewport",
+    ".ag-body-viewport-wrapper",
+  ];
+
+  const viewport = await waitAnyInScope(scope, viewportCandidates, timeoutMs);
+  const viewportSel = viewport.selector;
+
+  // 3) Espera aparecer pelo menos 1 item (nome)
+  const hasAtLeastOne = await waitConditionInScope(
+    scope,
+    (rowSel, nameSel) => {
+      const rows = Array.from(document.querySelectorAll(rowSel));
+      return rows.some((r) => {
+        const n = r.querySelector(nameSel);
+        return (n?.textContent || "").trim().length > 0;
+      });
+    },
+    timeoutMs,
+    GRID_ROW_SEL,
+    NAME_IN_ROW_SEL,
+  );
+
+  if (!hasAtLeastOne) return [];
+
+  // 4) Coleta + scroll incremental (grid virtualizado)
+  const seen = new Map(); // key = nameLower -> entry
+  let noNewCount = 0;
+
+  for (let i = 0; i < maxScrolls; i++) {
+    const batch = await scope
+      .$$eval(
+        GRID_ROW_SEL,
+        (rows, nameSel, modSel, bySel) => {
+          const norm = (s) =>
+            String(s || "")
+              .replace(/\s+/g, " ")
+              .trim();
+
+          return rows
+            .map((row) => {
+              const nameEl = row.querySelector(nameSel);
+              const name = norm(nameEl?.textContent);
+
+              if (!name) return null;
+
+              const modifyDate = norm(row.querySelector(modSel)?.textContent);
+              const modifiedBy = norm(row.querySelector(bySel)?.textContent);
+
+              return { name, modifyDate, modifiedBy };
+            })
+            .filter(Boolean);
+        },
+        NAME_IN_ROW_SEL,
+        MODIFY_DATE_CELL_SEL,
+        MODIFIED_BY_CELL_SEL,
+      )
+      .catch(() => []);
+
+    const before = seen.size;
+
+    for (const it of batch) {
+      const key = normalizeText(it.name).toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, {
+          name: normalizeText(it.name),
+          modifyDate: normalizeText(it.modifyDate || ""),
+          modifiedBy: normalizeText(it.modifiedBy || ""),
+        });
+      } else {
+        // atualiza caso venha preenchido depois (spinner etc)
+        const prev = seen.get(key);
+        const next = {
+          name: prev.name,
+          modifyDate: normalizeText(it.modifyDate || prev.modifyDate || ""),
+          modifiedBy: normalizeText(it.modifiedBy || prev.modifiedBy || ""),
+        };
+        seen.set(key, next);
+      }
+    }
+
+    if (seen.size === before) noNewCount++;
+    else noNewCount = 0;
+
+    if (noNewCount >= noNewLimit) break;
+
+    const moved = await scope
+      .evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+
+        const prev = el.scrollTop;
+        const delta = Math.max(200, Math.floor(el.clientHeight * 0.85));
+
+        el.scrollTop = Math.min(prev + delta, el.scrollHeight);
+        return el.scrollTop !== prev;
+      }, viewportSel)
+      .catch(() => false);
+
+    if (!moved) break;
+
+    await sleep(scope, settleMs);
+  }
+
+  return Array.from(seen.values());
 }
 
 async function extractAllScriptNames(
@@ -1337,16 +1497,18 @@ niceRouter.get("/sessions/:id/studio/tree", async (req, res) => {
       });
     }
 
-    // 3) Retorna lista atual do GRID (scripts/pastas mostradas no AG-Grid)
-    const names = await extractAllScriptNames(session.page, {
+    const entries = await extractAllGridEntries(session.page, {
       timeoutMs: 30_000,
       maxScrolls: 250,
       settleMs: 250,
       noNewLimit: 8,
     });
 
-    // ✅ Para o front conseguir “clicar e navegar” sempre, trate como folder navegável
-    const items = (names || []).map((n) => ({ name: n, type: "folder" }));
+    const items = (entries || []).map((e) => ({
+      name: e.name,
+      modifyDate: e.modifyDate || "",
+      modifiedBy: e.modifiedBy || "",
+    }));
 
     const studio = ensureStudioState(session);
 
