@@ -376,6 +376,13 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
     () => totalsByDev.reduce((acc, d) => acc + (d.hours || 0), 0),
     [totalsByDev]
   );
+  const selectedDeveloperName =
+    devFilter === "all"
+      ? "Todos"
+      : developers.find((dev) => dev.id === devFilter)?.name || devFilter;
+  const formattedUpdatedAt = timesheet?.updatedAt
+    ? new Date(timesheet.updatedAt).toLocaleString("pt-BR")
+    : "Ainda não salvo";
 
   // Load once per ticket
   useEffect(() => {
@@ -587,6 +594,49 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="mb-3 text-sm font-semibold text-zinc-900">
+                  Resumo do lançamento
+                </div>
+
+                <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Total do período
+                    </div>
+                    <div className="mt-2 text-2xl font-bold text-zinc-900">
+                      {totalPeriodHours.toFixed(2).replace(/\.00$/, "")}h
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {from === to ? "Lançamento diário" : "Lançamento semanal"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      Contexto atual
+                    </div>
+                    <div className="mt-2 text-sm font-semibold text-zinc-900">
+                      {selectedDeveloperName}
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {tasks.length} tarefa(s) do Kanban • {formattedUpdatedAt}
+                    </div>
+                  </div>
+                </div>
+
+                <details className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-zinc-900">
+                        Leituras do período
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        Distribuição por dev e tarefa
+                      </div>
+                    </div>
+                  </summary>
+
+                  <div className="mt-3">
                 <div className="mb-2 flex items-center justify-between">
                   <div className="text-sm font-semibold text-zinc-900">
                     Desenvolvedores
@@ -711,10 +761,13 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                  </div>
+                </details>
               </div>
             </div>
 
-            <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+            <details className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+              <summary className="cursor-pointer list-none">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-sm font-semibold text-zinc-900">
                   Progresso por Tarefa
@@ -723,6 +776,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                   Atual vs Estimativa (total no ticket)
                 </div>
               </div>
+              </summary>
 
               {taskProgressData.length === 0 ? (
                 <div className="py-6 text-center text-sm text-zinc-500">
@@ -794,7 +848,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                   </ResponsiveContainer>
                 </div>
               )}
-            </div>
+            </details>
           </CardHeader>
 
           <CardContent className="pt-0">
@@ -814,20 +868,20 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                 Sem tarefas para apontar. Sincronize o Kanban com o Jira.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
-                <table className="min-w-[980px] w-full text-sm border-collapse">
+              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                <table className="w-full table-fixed text-sm border-collapse">
                   <thead className="bg-zinc-50">
                     <tr className="border-b border-zinc-200">
-                      <th className="p-3 text-left font-semibold text-zinc-700">
+                      <th className="w-[27%] p-2.5 text-left font-semibold text-zinc-700">
                         Tarefa
                       </th>
-                      <th className="p-3 text-left font-semibold text-zinc-700 w-[140px]">
+                        <th className="w-[10%] p-2.5 text-left font-semibold text-zinc-700">
                         Estimativa (h)
                       </th>
                       {days.map((iso) => (
                         <th
                           key={iso}
-                          className="p-3 text-center font-semibold text-zinc-700 w-[110px]"
+                          className="w-[7%] p-2 text-center font-semibold text-zinc-700"
                         >
                           <div className="text-[11px] uppercase tracking-wide text-zinc-500">
                             {isoDow(iso)}
@@ -837,10 +891,10 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                           </div>
                         </th>
                       ))}
-                      <th className="p-3 text-center font-semibold text-zinc-700 w-[120px]">
+                      <th className="w-[6%] p-2.5 text-center font-semibold text-zinc-700">
                         Total
                       </th>
-                      <th className="p-3 text-center font-semibold text-zinc-700 w-[120px]">
+                      <th className="w-[8%] p-2.5 text-center font-semibold text-zinc-700">
                         Progresso
                       </th>
                     </tr>
@@ -861,10 +915,10 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                           key={t.taskKey}
                           className="border-b border-zinc-100 hover:bg-zinc-50"
                         >
-                          <td className="p-3 align-top">
-                            <div className="flex flex-col gap-1">
+                          <td className="p-2.5 align-top">
+                            <div className="flex max-w-full flex-col gap-1">
                               <div className="flex flex-wrap items-center gap-2">
-                                <div className="font-semibold text-zinc-900">
+                                <div className="break-words font-semibold text-zinc-900">
                                   {t.title}
                                 </div>
                                 {t.done ? (
@@ -877,14 +931,14 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                                   </Badge>
                                 ) : null}
                               </div>
-                              <div className="text-xs text-zinc-500">
+                              <div className="break-words text-xs text-zinc-500">
                                 {t.stepTitle}
                                 {t.cardTitle ? ` · ${t.cardTitle}` : ""}
                               </div>
                             </div>
                           </td>
 
-                          <td className="p-3 align-top">
+                          <td className="p-2.5 align-top">
                             <Input
                               type="number"
                               min={0}
@@ -894,7 +948,8 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                               onChange={(e) =>
                                 setEstimateLocal(t.taskKey, e.target.value)
                               }
-                              className="h-9 w-[120px] rounded-xl"
+                              inputMode="decimal"
+                              className="timesheet-estimate-input mx-auto h-10 w-full max-w-[120px] rounded-xl px-3 text-center text-sm"
                               aria-label={`Estimativa ${t.title}`}
                               disabled={!ticketKey}
                             />
@@ -918,7 +973,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                             return (
                               <td
                                 key={iso}
-                                className="p-3 text-center align-top"
+                                className="p-2 text-center align-top"
                               >
                                 {devFilter === "all" ? (
                                   <div className="text-xs text-zinc-600">
@@ -950,7 +1005,7 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                                           )
                                         }
                                         className={cn(
-                                          "h-9 w-[90px] rounded-xl text-center",
+                                          "timesheet-cell-input mx-auto h-10 w-full max-w-[96px] rounded-xl px-2.5 text-center text-sm",
                                           !canEdit && "opacity-60"
                                         )}
                                         aria-label={`Horas em ${iso} para ${t.title}`}
@@ -972,12 +1027,12 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                             );
                           })}
 
-                          <td className="p-3 text-center align-top font-semibold text-zinc-900">
+                          <td className="p-2.5 text-center align-top font-semibold text-zinc-900">
                             {rowTotal
                               ? rowTotal.toFixed(2).replace(/\.00$/, "")
                               : "0"}
                           </td>
-                          <td className="p-3 align-top">
+                          <td className="p-2.5 align-top">
                             <div className="relative h-4 w-full rounded bg-zinc-200 overflow-hidden">
                               <div
                                 className="absolute left-0 top-0 h-full bg-green-500"
@@ -1002,24 +1057,24 @@ export default function TimesheetPanel({ ticketKey, kanbanCfg, jiraCtx }) {
                     })}
 
                     <tr className="bg-zinc-50">
-                      <td className="p-3 font-semibold text-zinc-900">
+                      <td className="p-2.5 font-semibold text-zinc-900">
                         Totais
                       </td>
-                      <td className="p-3 text-zinc-600"></td>
+                      <td className="p-2.5 text-zinc-600"></td>
                       {days.map((iso) => (
                         <td
                           key={iso}
-                          className="p-3 text-center font-semibold text-zinc-900"
+                          className="p-2.5 text-center font-semibold text-zinc-900"
                         >
                           {(totalsByDay[iso] || 0)
                             .toFixed(2)
                             .replace(/\.00$/, "")}
                         </td>
                       ))}
-                      <td className="p-3 text-center font-semibold text-zinc-900">
+                      <td className="p-2.5 text-center font-semibold text-zinc-900">
                         {totalPeriodHours.toFixed(2).replace(/\.00$/, "")}
                       </td>
-                      <td className="p-3 text-zinc-600"></td>
+                      <td className="p-2.5 text-zinc-600"></td>
                     </tr>
                   </tbody>
                 </table>

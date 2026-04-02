@@ -779,6 +779,350 @@ textarea {
   box-shadow: 0 12px 24px -22px rgba(63, 20, 29, 0.14);
 }
 
+.gmud-execution-shell,
+.gmud-secondary-shell {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(161, 17, 35, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 28px -24px rgba(63, 20, 29, 0.16);
+}
+
+.gmud-execution-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gmud-execution-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gmud-execution-copy__eyebrow,
+.gmud-secondary-shell__eyebrow {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--claro-red);
+}
+
+.gmud-execution-copy__title-row {
+  display: grid;
+  gap: 6px;
+}
+
+.gmud-execution-copy__title,
+.gmud-secondary-shell__title {
+  margin: 0;
+  color: var(--ink-900);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.gmud-execution-copy__hint,
+.gmud-secondary-shell__description {
+  margin: 0;
+  color: var(--ink-700);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.gmud-execution-switch {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.gmud-execution-switch__label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.gmud-execution-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gmud-execution-metric {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(161, 17, 35, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 248, 249, 0.88));
+}
+
+.gmud-execution-metric__label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+}
+
+.gmud-execution-metric__value {
+  color: var(--ink-900);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.gmud-execution-metric__helper {
+  color: var(--ink-700);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.gmud-execution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.gmud-kanban-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(280px, 1fr);
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gmud-kanban-board::-webkit-scrollbar {
+  height: 8px;
+}
+
+.gmud-kanban-board::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(207, 0, 19, 0.26);
+}
+
+.gmud-kanban-step {
+  display: grid;
+  gap: 14px;
+  min-height: 100%;
+  padding: 16px;
+  border-radius: 22px;
+  border: 1px solid rgba(161, 17, 35, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(255, 249, 249, 0.9));
+  box-shadow: 0 16px 30px -28px rgba(63, 20, 29, 0.16);
+}
+
+.gmud-kanban-step.is-active {
+  border-color: rgba(207, 0, 19, 0.18);
+  box-shadow:
+    0 22px 36px -28px rgba(207, 0, 19, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+}
+
+.gmud-kanban-step.is-complete {
+  border-color: rgba(22, 163, 74, 0.22);
+  background: linear-gradient(180deg, rgba(244, 253, 247, 0.98), rgba(255, 255, 255, 0.92));
+}
+
+.gmud-kanban-step.is-locked {
+  background: rgba(248, 244, 245, 0.92);
+  opacity: 0.72;
+}
+
+.gmud-kanban-step__head,
+.gmud-kanban-step__title-row {
+  display: grid;
+  gap: 10px;
+}
+
+.gmud-kanban-step__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-900);
+  font-weight: 700;
+}
+
+.gmud-kanban-step__pct {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(207, 0, 19, 0.08);
+  color: var(--claro-red);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.gmud-kanban-step__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gmud-kanban-step__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(24, 24, 27, 0.04);
+  color: var(--ink-700);
+  font-size: 0.78rem;
+}
+
+.gmud-kanban-step__advance,
+.gmud-kanban-step__add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border-radius: 14px;
+  border: 1px solid rgba(161, 17, 35, 0.12);
+  background: #fff;
+  color: var(--ink-900);
+  font-weight: 700;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.gmud-kanban-step__advance:hover,
+.gmud-kanban-step__add:hover {
+  transform: translateY(-1px);
+  border-color: rgba(207, 0, 19, 0.16);
+  box-shadow: 0 14px 24px -22px rgba(207, 0, 19, 0.4);
+}
+
+.gmud-kanban-step__cards,
+.gmud-kanban-card__subtasks {
+  display: grid;
+  gap: 10px;
+}
+
+.gmud-kanban-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(161, 17, 35, 0.08);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.gmud-kanban-card__title {
+  color: var(--ink-900);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.gmud-kanban-subtask {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 248, 248, 0.9);
+  color: var(--ink-700);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.gmud-kanban-subtask.is-done {
+  background: rgba(236, 253, 245, 0.96);
+  color: #166534;
+}
+
+.gmud-kanban-subtask.is-readonly {
+  opacity: 0.7;
+}
+
+.gmud-kanban-step__empty {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px dashed rgba(161, 17, 35, 0.16);
+  color: var(--ink-500);
+  font-size: 0.84rem;
+  text-align: center;
+}
+
+.gmud-timesheet-shell {
+  padding: 4px 0 0;
+}
+
+.timesheet-estimate-input,
+.timesheet-cell-input {
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.timesheet-estimate-input::-webkit-outer-spin-button,
+.timesheet-estimate-input::-webkit-inner-spin-button,
+.timesheet-cell-input::-webkit-outer-spin-button,
+.timesheet-cell-input::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.gmud-secondary-shell__head {
+  display: grid;
+  gap: 8px;
+}
+
+.gmud-secondary-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gmud-secondary-tab {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(161, 17, 35, 0.08);
+  background: rgba(255, 255, 255, 0.82);
+  text-align: left;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.gmud-secondary-tab:hover,
+.gmud-secondary-tab.is-active {
+  transform: translateY(-1px);
+  border-color: rgba(207, 0, 19, 0.14);
+  background: linear-gradient(180deg, rgba(255, 252, 252, 0.98), rgba(255, 244, 246, 0.94));
+  box-shadow: 0 14px 24px -22px rgba(207, 0, 19, 0.32);
+}
+
+.gmud-secondary-tab__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-900);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.gmud-secondary-tab__summary {
+  color: var(--ink-700);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .gmud-sidebar-overlay {
   background: rgba(24, 12, 16, 0.36);
   backdrop-filter: blur(6px);
@@ -1177,6 +1521,24 @@ textarea {
 
   .gmud-topbar__actions > * {
     flex: 1 1 auto;
+  }
+
+  .gmud-execution-header,
+  .gmud-execution-switch {
+    justify-items: stretch;
+  }
+
+  .gmud-execution-metrics,
+  .gmud-secondary-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .gmud-execution-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .gmud-kanban-board {
+    grid-auto-columns: minmax(260px, 88vw);
   }
 }
 

@@ -118,7 +118,7 @@ function ChecklistGMUDTab({
   const [attachments, setAttachments] = useState([]);
   const [previewFiles, setPreviewFiles] = useState([]);
 
-  // EvidÃªncias (por step)
+  // evidências (por step)
   const [evidenceByStep, setEvidenceByStep] = useState({});
   const [evidenceCountsByStep, setEvidenceCountsByStep] = useState({});
   const [evidenceStepKey, setEvidenceStepKey] = useState("");
@@ -149,7 +149,7 @@ function ChecklistGMUDTab({
   const fileInputRef = useRef(null);
 
   // UI
-  const [activeTab, setActiveTab] = useState("scripts"); // scripts | vars | evidencias | comentarios
+  const [activeTab, setActiveTab] = useState(""); // scripts | vars | evidencias | comentarios
 
   // Loading
   const [syncing, setSyncing] = useState(false);
@@ -203,7 +203,7 @@ function ChecklistGMUDTab({
   );
   const [creatingCustomTask, setCreatingCustomTask] = useState(false);
 
-  // ComentÃ¡rios (Jira) - Tab "ComentÃ¡rios"
+  // comentários (Jira) - Tab "comentários"
   const [jiraCommentsList, setJiraCommentsList] = useState([]);
   const [newJiraCommentText, setNewJiraCommentText] = useState("");
   const [loadingJiraComments, setLoadingJiraComments] = useState(false);
@@ -358,12 +358,12 @@ function ChecklistGMUDTab({
     try {
       const payload = await getComments(tk);
       setJiraCommentsList(extractAllJiraComments(payload));
-      // tambÃ©m atualiza evidÃªncias (contagens) a partir dos comentÃ¡rios
+      // tambÃ©m atualiza evidências (contagens) a partir dos comentários
       const ev = extractEvidenceByStepFromCommentsPayload(payload);
       setEvidenceByStep(ev);
       setEvidenceCountsByStep(summarizeEvidenceCounts(ev));
     } catch (e) {
-      notify.error("Erro ao atualizar comentÃ¡rios do Jira.", {
+      notify.error("Erro ao atualizar comentários do Jira.", {
         description: e?.message || String(e),
       });
     } finally {
@@ -577,7 +577,7 @@ function ChecklistGMUDTab({
     }
 
     if (!jiraCtx?.ticketKey) {
-      return "Sincronize com o Jira para carregar contexto, comentÃ¡rios e estrutura do fluxo.";
+      return "Sincronize com o Jira para carregar contexto, comentários e estrutura do fluxo.";
     }
 
     if (!kanbanCfg) {
@@ -585,11 +585,36 @@ function ChecklistGMUDTab({
     }
 
     if (!Object.keys(evidenceCountsByStep || {}).length) {
-      return "Comece a registrar evidÃªncias e comentÃ¡rios por etapa para fechar o histÃ³rico da mudanÃ§a.";
+      return "Comece a registrar evidências e comentários por etapa para fechar o histórico da mudança.";
     }
 
-    return "Continue a execuÃ§Ã£o da etapa ativa e mantenha comentÃ¡rios, evidÃªncias e anexos atualizados.";
+    return "Continue a execuÃ§Ã£o da etapa ativa e mantenha comentários, evidências e anexos atualizados.";
   }, [evidenceCountsByStep, jiraCtx, kanbanCfg, ticketJira]);
+
+  const workflowSteps = useMemo(() => getWorkflow(), [kanbanCfg]);
+  const activeStep = useMemo(() => {
+    if (!workflowSteps.length) return null;
+    const safeIndex = Math.min(unlockedStepIdx, workflowSteps.length - 1);
+    return workflowSteps[safeIndex] || null;
+  }, [workflowSteps, unlockedStepIdx]);
+  const totalKanbanSubtasks = useMemo(() => {
+    return Object.values(kanbanCfg?.columns || {}).reduce((acc, col) => {
+      return (
+        acc +
+        (col?.cards || []).reduce(
+          (cardAcc, card) =>
+            cardAcc + Number((card?.subtasks || []).length || 0),
+          0,
+        )
+      );
+    }, 0);
+  }, [kanbanCfg]);
+  const evidenceTotal = useMemo(() => {
+    return Object.values(evidenceCountsByStep || {}).reduce(
+      (acc, value) => acc + Number(value || 0),
+      0,
+    );
+  }, [evidenceCountsByStep]);
 
   useEffect(() => {
     if (typeof onProgressChange === "function") onProgressChange(geralPct);
@@ -739,7 +764,7 @@ function ChecklistGMUDTab({
     return true;
   }
 
-  /* ---------- EvidÃªncias / anexos ---------- */
+  /* ---------- evidências / anexos ---------- */
   async function listarAnexos() {
     if (!String(ticketJira || "").trim()) return;
     const data = await listAttachments(ticketJira);
@@ -1434,7 +1459,7 @@ function ChecklistGMUDTab({
 
       showSyncOverlay({
         title: "Carregando dados",
-        message: "Carregando comentÃ¡rios e anexos do Jira...",
+        message: "Carregando comentários e anexos do Jira...",
       });
 
       let payload = null;
@@ -1450,7 +1475,7 @@ function ChecklistGMUDTab({
           setEvidenceCountsByStep({});
         }
       } catch (e) {
-        // comentÃ¡rios sÃ£o opcionais
+        // comentários sÃ£o opcionais
         setJiraCommentsList([]);
       }
 
@@ -2498,45 +2523,115 @@ function ChecklistGMUDTab({
             </details>
           </div>
 
-          {/* ===== Kanban | Timesheet ===== */}
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 px-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-extrabold uppercase tracking-wide text-zinc-500">
-                Visão
-              </span>
+          <section className="gmud-execution-shell">
+            <div className="gmud-execution-header">
+              <div className="gmud-execution-copy">
+                <div className="gmud-execution-copy__eyebrow">
+                  Execução da mudança
+                </div>
+                <div className="gmud-execution-copy__title-row">
+                  <h3 className="gmud-execution-copy__title">
+                    {kanbanView === "kanban"
+                      ? "Kanban operacional"
+                      : "Timesheet de execução"}
+                  </h3>
+                  <span className="gmud-execution-copy__hint">
+                    {kanbanView === "kanban"
+                      ? "Acompanhe o fluxo, conclua subtarefas e libere o próximo step."
+                      : "Registre horas rapidamente sem perder o contexto da execução."}
+                  </span>
+                </div>
+              </div>
 
-              <Tabs value={kanbanView} onValueChange={setKanbanView}>
-                <TabsList className="h-9 rounded-xl border border-zinc-200 bg-white shadow-sm">
-                  <TabsTrigger value="kanban" className="rounded-lg">
-                    Kanban
-                  </TabsTrigger>
-                  <TabsTrigger value="timesheet" className="rounded-lg">
-                    Timesheet
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <div className="gmud-execution-switch">
+                <span className="gmud-execution-switch__label">Modo</span>
+                <Tabs value={kanbanView} onValueChange={setKanbanView}>
+                  <TabsList className="h-9 rounded-xl border border-zinc-200 bg-white shadow-sm">
+                    <TabsTrigger value="kanban" className="rounded-lg">
+                      Kanban
+                    </TabsTrigger>
+                    <TabsTrigger value="timesheet" className="rounded-lg">
+                      Timesheet
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
             </div>
 
-            <div className="text-xs text-zinc-500">
-              {kanbanView === "timesheet"
-                ? "LanÃ§amentos ficam salvos no ticket."
-                : "Fluxo do Jira e subtarefas."}
+            <div className="gmud-execution-metrics">
+              <div className="gmud-execution-metric">
+                <span className="gmud-execution-metric__label">Progresso</span>
+                <strong className="gmud-execution-metric__value">
+                  {geralPct}%
+                </strong>
+                <span className="gmud-execution-metric__helper">
+                  Jornada consolidada da mudança
+                </span>
+              </div>
+              <div className="gmud-execution-metric">
+                <span className="gmud-execution-metric__label">
+                  Etapa ativa
+                </span>
+                <strong className="gmud-execution-metric__value">
+                  {kanbanCfg
+                    ? activeStep?.title || "Fluxo concluído"
+                    : "Estrutura pendente"}
+                </strong>
+                <span className="gmud-execution-metric__helper">
+                  {kanbanCfg
+                    ? `${totalKanbanSubtasks} subtarefas mapeadas no fluxo`
+                    : "Monte o Kanban para orientar a execução"}
+                </span>
+              </div>
+              <div className="gmud-execution-metric">
+                <span className="gmud-execution-metric__label">
+                  Próxima ação
+                </span>
+                <strong className="gmud-execution-metric__value">
+                  {nextRecommendedAction}
+                </strong>
+              </div>
             </div>
-          </div>
 
-          {kanbanView === "kanban" ? (
-            <>
-              {/* ===== Kanban UI Wrapper (Scroll Horizontal) ===== */}
-              <div
-                style={{
-                  marginTop: 20,
-                  overflowX: "auto",
-                  paddingBottom: 10,
-                  display: "flex",
-                  gap: 16,
-                  scrollbarWidth: "thin",
-                }}
+            <div className="gmud-execution-actions">
+              <Button
+                type="button"
+                onClick={() => setBuilderOpen(true)}
+                disabled={!String(ticketJira || "").trim()}
+                className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
+                title={
+                  !String(ticketJira || "").trim()
+                    ? "Informe o ticket do Jira"
+                    : "Abrir configurador do Kanban"
+                }
               >
+                <Layers3 className="mr-2 h-4 w-4" />
+                Configurar Kanban
+              </Button>
+
+              {kanbanView === "kanban" && activeStep?.key ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setCustomTaskModal(
+                      makeCustomTaskModal({
+                        open: true,
+                        stepKey: activeStep.key,
+                      }),
+                    )
+                  }
+                  className="rounded-xl"
+                  disabled={!kanbanCfg}
+                >
+                  <i className="fas fa-plus mr-2" aria-hidden="true" />
+                  Adicionar tarefa
+                </Button>
+              ) : null}
+            </div>
+
+            {kanbanView === "kanban" ? (
+              <div className="gmud-kanban-board">
                 {!kanbanCfg ? (
                   <EmptyState
                     title="Sem estrutura de Kanban"
@@ -2553,7 +2648,7 @@ function ChecklistGMUDTab({
                     }
                   />
                 ) : (
-                  getWorkflow().map((step, idx) => {
+                  workflowSteps.map((step, idx) => {
                     const stepKey = step.key;
                     const col = kanbanCfg.columns?.[stepKey];
                     const stat = computeStepPct(
@@ -2568,147 +2663,69 @@ function ChecklistGMUDTab({
                     const isDone = idx < unlockedStepIdx;
                     const isActive = idx === unlockedStepIdx;
                     const isLocked = idx > unlockedStepIdx;
-                    const hasNext = idx + 1 < getWorkflow().length;
+                    const hasNext = idx + 1 < workflowSteps.length;
 
-                    const statusColor = isDone
-                      ? "#28a745"
+                    const toneClass = isDone
+                      ? "is-complete"
                       : isActive
-                        ? "#ee0000"
-                        : "#d1d1d1";
+                        ? "is-active"
+                        : isLocked
+                          ? "is-locked"
+                          : "";
 
                     return (
                       <div
                         key={stepKey}
-                        style={{
-                          flex: "0 0 280px",
-                          display: "flex",
-                          flexDirection: "column",
-                          opacity: isLocked ? 0.6 : 1,
-                        }}
+                        className={`gmud-kanban-step ${toneClass}`}
                       >
-                        <div
-                          style={{
-                            padding: "0 4px 12px 4px",
-                            borderBottom: `2px solid ${
-                              isActive ? "#ee0000" : "#eee"
-                            }`,
-                            marginBottom: 12,
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              gap: 10,
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 6,
-                              }}
-                            >
-                              <i
-                                className={step.icon}
-                                style={{ color: statusColor, fontSize: 14 }}
-                              />
-                              <span
-                                style={{
-                                  fontWeight: 800,
-                                  fontSize: 13,
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.5px",
-                                }}
-                              >
-                                {step.title}
-                              </span>
+                        <div className="gmud-kanban-step__head">
+                          <div className="gmud-kanban-step__title-row">
+                            <div className="gmud-kanban-step__title">
+                              <i className={step.icon} aria-hidden="true" />
+                              <span>{step.title}</span>
                             </div>
-
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 10,
-                              }}
-                            >
-                              <span
-                                style={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 6,
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  color: "#666",
-                                }}
-                                title={`EvidÃªncias registradas no step: ${evCount}`}
-                              >
-                                <Paperclip className="h-3.5 w-3.5" />
-                                {evCount}
-                              </span>
-
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  color: statusColor,
-                                }}
-                              >
-                                {isDone ? "CONCLUÃDO" : `${stat.pct}%`}
-                              </span>
-                            </div>
+                            <span className="gmud-kanban-step__pct">
+                              {isDone ? "Concluído" : `${stat.pct}%`}
+                            </span>
                           </div>
 
-                          {isActive && stat.complete && (
+                          <div className="gmud-kanban-step__meta">
+                            <span className="gmud-kanban-step__meta-item">
+                              <Paperclip className="h-3.5 w-3.5" />
+                              {evCount} evidência(s)
+                            </span>
+                            <span className="gmud-kanban-step__meta-item">
+                              {(col?.cards || []).length} card(s)
+                            </span>
+                          </div>
+
+                          {isActive && stat.complete ? (
                             <button
                               type="button"
-                              className="primary"
-                              style={{
-                                width: "100%",
-                                marginTop: 8,
-                                padding: "4px 8px",
-                                fontSize: 11,
-                                borderRadius: 6,
-                              }}
+                              className="gmud-kanban-step__advance"
                               disabled={!jiraCtx || advancingStep}
                               onClick={() =>
                                 openStepGate(
                                   idx,
-                                  hasNext ? idx + 1 : getWorkflow().length,
+                                  hasNext ? idx + 1 : workflowSteps.length,
                                 )
                               }
                             >
-                              {hasNext ? `Liberar PrÃ³ximo` : "Finalizar"}
+                              {hasNext
+                                ? "Liberar próximo step"
+                                : "Finalizar fluxo"}
                             </button>
-                          )}
+                          ) : null}
                         </div>
 
-                        <div style={{ display: "grid", gap: 10 }}>
+                        <div className="gmud-kanban-step__cards">
                           {(col?.cards || []).map((card) => (
-                            <div
-                              key={card.id}
-                              style={{
-                                background: "#fff",
-                                border: "1px solid #e1e1e1",
-                                borderLeft: `4px solid ${statusColor}`,
-                                borderRadius: "4px 8px 8px 4px",
-                                padding: "10px 12px",
-                                transition: "transform 0.2s",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  fontWeight: 700,
-                                  fontSize: 13,
-                                  color: "#333",
-                                  marginBottom: 6,
-                                }}
-                              >
+                            <div key={card.id} className="gmud-kanban-card">
+                              <div className="gmud-kanban-card__title">
                                 {card.title}
                               </div>
 
-                              <div style={{ display: "grid", gap: 4 }}>
+                              <div className="gmud-kanban-card__subtasks">
                                 {(card.subtasks || []).map((st) => {
                                   const summary = buildKanbanSummary({
                                     stepTitle: col.title,
@@ -2725,16 +2742,9 @@ function ChecklistGMUDTab({
                                   return (
                                     <label
                                       key={st.id}
-                                      style={{
-                                        display: "flex",
-                                        gap: 8,
-                                        alignItems: "flex-start",
-                                        fontSize: 12,
-                                        cursor: isActive
-                                          ? "pointer"
-                                          : "default",
-                                        color: checked ? "#999" : "#444",
-                                      }}
+                                      className={`gmud-kanban-subtask ${
+                                        checked ? "is-done" : ""
+                                      } ${isActive ? "is-editable" : "is-readonly"}`}
                                     >
                                       <input
                                         type="checkbox"
@@ -2747,20 +2757,9 @@ function ChecklistGMUDTab({
                                             st.id,
                                           )
                                         }
-                                        style={{
-                                          marginTop: 2,
-                                          accentColor: "#ee0000",
-                                        }}
+                                        style={{ accentColor: "#ee0000" }}
                                       />
-                                      <span
-                                        style={{
-                                          textDecoration: checked
-                                            ? "line-through"
-                                            : "none",
-                                        }}
-                                      >
-                                        {st.title}
-                                      </span>
+                                      <span>{st.title}</span>
                                     </label>
                                   );
                                 })}
@@ -2768,22 +2767,14 @@ function ChecklistGMUDTab({
                             </div>
                           ))}
 
-                          {!(col?.cards || []).length && (
-                            <div
-                              style={{
-                                fontSize: 11,
-                                color: "#999",
-                                textAlign: "center",
-                                padding: 10,
-                                border: "1px dashed #eee",
-                              }}
-                            >
-                              Nenhuma subtarefa
+                          {!(col?.cards || []).length ? (
+                            <div className="gmud-kanban-step__empty">
+                              Nenhuma subtarefa neste step.
                             </div>
-                          )}
+                          ) : null}
                         </div>
 
-                        {isActive && (
+                        {isActive ? (
                           <button
                             type="button"
                             onClick={() =>
@@ -2791,421 +2782,616 @@ function ChecklistGMUDTab({
                                 makeCustomTaskModal({ open: true, stepKey }),
                               )
                             }
-                            style={{
-                              width: "100%",
-                              padding: "10px",
-                              marginTop: "12px",
-                              background: "transparent",
-                              border: "1px dashed #ccc",
-                              borderRadius: "8px",
-                              color: "#666",
-                              cursor: "pointer",
-                              fontSize: "13px",
-                            }}
+                            className="gmud-kanban-step__add"
                           >
                             <i
                               className="fas fa-plus"
                               style={{ marginRight: 8 }}
                             />
-                            Adicionar tarefa Ã  parte
+                            Adicionar tarefa à parte
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     );
                   })
                 )}
               </div>
-            </>
-          ) : (
-            <div style={{ marginTop: 20 }}>
-              <TimesheetPanel
-                ticketKey={
-                  jiraCtx?.ticketKey || String(ticketJira || "").trim()
-                }
-                kanbanCfg={kanbanCfg}
-                jiraCtx={jiraCtx}
-              />
-            </div>
-          )}
-
-          {/* ===== Tabs ===== */}
-          <div className="gmud-detail-tabs">
-            {[
-              { id: "scripts", label: "Scripts", icon: "fas fa-code" },
-              { id: "vars", label: "Chaves (VariÃ¡veis)", icon: "fas fa-key" },
-              {
-                id: "evidencias",
-                label: "EvidÃªncias",
-                icon: "fas fa-paperclip",
-              },
-              {
-                id: "comentarios",
-                label: "ComentÃ¡rios",
-                icon: "fas fa-comments",
-              },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`gmud-detail-tab ${
-                  activeTab === tab.id ? "is-active" : ""
-                }`}
-              >
-                <i className={tab.icon} style={{ fontSize: 12 }} />
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* ===== ConteÃºdo das Tabs ===== */}
-          <div className="gmud-tab-panel">
-            {/* Tab: Scripts */}
-            {activeTab === "scripts" && (
-              <div className="animate-fade-in">
-                <textarea
-                  style={{
-                    width: "100%",
-                    height: 180,
-                    padding: 14,
-                    borderRadius: 12,
-                    border: "1px solid #e1e1e1",
-                    fontFamily: "'Fira Code', monospace",
-                    fontSize: 13,
-                    lineHeight: "1.5",
-                    outline: "none",
-                    backgroundColor: "#fcfcfc",
-                  }}
-                  value={scriptsAlterados}
-                  onChange={(e) => setScriptsAlterados(e.target.value)}
-                  placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV..."
+            ) : (
+              <div className="gmud-timesheet-shell">
+                <TimesheetPanel
+                  ticketKey={
+                    jiraCtx?.ticketKey || String(ticketJira || "").trim()
+                  }
+                  kanbanCfg={kanbanCfg}
+                  jiraCtx={jiraCtx}
                 />
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    marginTop: 12,
-                  }}
-                >
-                  <Button
-                    onClick={salvarScripts}
-                    disabled={savingScripts}
-                    aria-busy={savingScripts}
-                    className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-2.5"
-                  >
-                    <FileCode2
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        savingScripts && "animate-spin",
-                      )}
-                    />
-                    {savingScripts
-                      ? "Processando..."
-                      : "Salvar Scripts no Jira"}
-                  </Button>
-                </div>
               </div>
             )}
+          </section>
 
-            {/* Tab: VariÃ¡veis */}
-            {activeTab === "vars" && (
-              <div className="animate-fade-in">
-                {/* Header da seÃ§Ã£o */}
-                <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                  <span className="text-[13px] text-zinc-600">
-                    <i className="fas fa-info-circle mr-1" />
-                    Gerencie chaves de ambiente para este projeto.
-                  </span>
-
-                  <div className="flex gap-2">
-                    <button
-                      className="secondary"
-                      onClick={addChave}
-                      style={{ padding: "8px 14px" }}
-                    >
-                      + Adicionar
-                    </button>
-
-                    <Button
-                      onClick={salvarVariaveis}
-                      disabled={savingVars}
-                      aria-busy={savingVars}
-                      className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-4 py-2"
-                    >
-                      <Save
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          savingVars && "animate-spin",
-                        )}
-                      />
-                      {savingVars ? "Salvando..." : "Salvar no Jira"}
-                    </Button>
-                  </div>
+          <section className="gmud-secondary-shell">
+            <div className="gmud-secondary-shell__head">
+              <div>
+                <div className="gmud-secondary-shell__eyebrow">
+                  Apoio da mudança
                 </div>
+                <h3 className="gmud-secondary-shell__title">
+                  Conteúdos complementares
+                </h3>
+                <p className="gmud-secondary-shell__description">
+                  Evidências, comentários, scripts e chaves continuam
+                  disponíveis, mas sem disputar foco com a execução.
+                </p>
+              </div>
+            </div>
 
-                {/* Banner pendente */}
-                {varsBanner && (
-                  <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-                    <b>AtenÃ§Ã£o:</b> VocÃª possui alteraÃ§Ãµes nÃ£o enviadas ao
-                    Jira.
+            <div className="gmud-secondary-tabs">
+              {[
+                {
+                  id: "evidencias",
+                  label: "Evidências",
+                  icon: "fas fa-paperclip",
+                  summary: `${evidenceTotal} registro(s) • ${attachments.length} anexo(s)`,
+                },
+                {
+                  id: "comentarios",
+                  label: "Comentários",
+                  icon: "fas fa-comments",
+                  summary: `${jiraCommentsList.length} comentário(s) no ticket`,
+                },
+                {
+                  id: "scripts",
+                  label: "Scripts",
+                  icon: "fas fa-code",
+                  summary: scriptsAlterados.trim()
+                    ? "Scripts preenchidos para a mudança"
+                    : "Sem scripts registrados",
+                },
+                {
+                  id: "vars",
+                  label: "Chaves",
+                  icon: "fas fa-key",
+                  summary: `${chaves.length} chave(s) cadastrada(s)`,
+                },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() =>
+                    setActiveTab((prev) => (prev === tab.id ? "" : tab.id))
+                  }
+                  className={`gmud-secondary-tab ${
+                    activeTab === tab.id ? "is-active" : ""
+                  }`}
+                >
+                  <div className="gmud-secondary-tab__title">
+                    <i className={tab.icon} style={{ fontSize: 12 }} />
+                    <span>{tab.label}</span>
+                  </div>
+                  <div className="gmud-secondary-tab__summary">
+                    {tab.summary}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {activeTab ? (
+              <div className="gmud-tab-panel">
+                {/* Tab: Scripts */}
+                {activeTab === "scripts" && (
+                  <div className="animate-fade-in">
+                    <textarea
+                      style={{
+                        width: "100%",
+                        height: 180,
+                        padding: 14,
+                        borderRadius: 12,
+                        border: "1px solid #e1e1e1",
+                        fontFamily: "'Fira Code', monospace",
+                        fontSize: 13,
+                        lineHeight: "1.5",
+                        outline: "none",
+                        backgroundColor: "#fcfcfc",
+                      }}
+                      value={scriptsAlterados}
+                      onChange={(e) => setScriptsAlterados(e.target.value)}
+                      placeholder="Ex: DEV\TRANSFERENCIA_URA_OPER_DEV..."
+                    />
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        marginTop: 12,
+                      }}
+                    >
+                      <Button
+                        onClick={salvarScripts}
+                        disabled={savingScripts}
+                        aria-busy={savingScripts}
+                        className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-5 py-2.5"
+                      >
+                        <FileCode2
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            savingScripts && "animate-spin",
+                          )}
+                        />
+                        {savingScripts
+                          ? "Processando..."
+                          : "Salvar Scripts no Jira"}
+                      </Button>
+                    </div>
                   </div>
                 )}
 
-                {/* CabeÃ§alho das colunas */}
-                <div className="mb-2 grid grid-cols-[1fr_1.3fr_1fr_44px] gap-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  <span>Ambiente</span>
-                  <span>Nome da chave</span>
-                  <span>Valor</span>
-                  <span className="text-right"> </span>
-                </div>
+                {/* Tab: VariÃ¡veis */}
+                {activeTab === "vars" && (
+                  <div className="animate-fade-in">
+                    {/* Header da seÃ§Ã£o */}
+                    <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                      <span className="text-[13px] text-zinc-600">
+                        <i className="fas fa-info-circle mr-1" />
+                        Gerencie chaves de ambiente para este projeto.
+                      </span>
 
-                {/* Lista */}
-                <div className="grid gap-2">
-                  {!chaves.length ? (
-                    <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
-                      Nenhuma chave adicionada ainda.
+                      <div className="flex gap-2">
+                        <button
+                          className="secondary"
+                          onClick={addChave}
+                          style={{ padding: "8px 14px" }}
+                        >
+                          + Adicionar
+                        </button>
+
+                        <Button
+                          onClick={salvarVariaveis}
+                          disabled={savingVars}
+                          aria-busy={savingVars}
+                          className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 px-4 py-2"
+                        >
+                          <Save
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              savingVars && "animate-spin",
+                            )}
+                          />
+                          {savingVars ? "Salvando..." : "Salvar no Jira"}
+                        </Button>
+                      </div>
                     </div>
-                  ) : (
-                    chaves.map((row) => (
+
+                    {/* Banner pendente */}
+                    {varsBanner && (
+                      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
+                        <b>AtenÃ§Ã£o:</b> VocÃª possui alteraÃ§Ãµes nÃ£o
+                        enviadas ao Jira.
+                      </div>
+                    )}
+
+                    {/* CabeÃ§alho das colunas */}
+                    <div className="mb-2 grid grid-cols-[1fr_1.3fr_1fr_44px] gap-3 px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <span>Ambiente</span>
+                      <span>Nome da chave</span>
+                      <span>Valor</span>
+                      <span className="text-right"> </span>
+                    </div>
+
+                    {/* Lista */}
+                    <div className="grid gap-2">
+                      {!chaves.length ? (
+                        <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-6 text-center text-sm text-zinc-500">
+                          Nenhuma chave adicionada ainda.
+                        </div>
+                      ) : (
+                        chaves.map((row) => (
+                          <div
+                            key={row.id}
+                            className={cn(
+                              "relative grid grid-cols-[1fr_1.3fr_1fr_44px] items-center gap-3 rounded-xl border bg-white p-3",
+                              row.pendente
+                                ? "border-amber-200"
+                                : "border-zinc-200",
+                            )}
+                          >
+                            {/* barra lateral (pendente) */}
+                            <div
+                              className={cn(
+                                "absolute left-0 top-0 h-full w-1 rounded-l-xl",
+                                row.pendente ? "bg-amber-400" : "bg-zinc-200",
+                              )}
+                            />
+
+                            {/* Ambiente */}
+                            <div className="pl-1">
+                              <input
+                                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 outline-none
+                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
+                                placeholder="Ex: PROD"
+                                value={row.ambiente}
+                                onChange={(e) =>
+                                  updChave(row.id, { ambiente: e.target.value })
+                                }
+                              />
+                            </div>
+
+                            {/* Nome */}
+                            <div>
+                              <input
+                                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none
+                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
+                                placeholder="Ex: API_URL"
+                                value={row.nome}
+                                onChange={(e) =>
+                                  updChave(row.id, { nome: e.target.value })
+                                }
+                              />
+                            </div>
+
+                            {/* Valor */}
+                            <div>
+                              <input
+                                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 outline-none
+                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
+                                placeholder="Ex: https://..."
+                                value={row.valor}
+                                onChange={(e) =>
+                                  updChave(row.id, { valor: e.target.value })
+                                }
+                              />
+                            </div>
+
+                            {/* Remover */}
+                            <button
+                              type="button"
+                              onClick={() => rmChave(row.id)}
+                              title="Remover"
+                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400
+                         hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab: evidências */}
+                {activeTab === "evidencias" && (
+                  <div className="animate-fade-in">
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        alignItems: "center",
+                        marginBottom: 14,
+                        padding: 12,
+                        background: "#f8f9fa",
+                        borderRadius: 10,
+                      }}
+                    >
                       <div
-                        key={row.id}
-                        className={cn(
-                          "relative grid grid-cols-[1fr_1.3fr_1fr_44px] items-center gap-3 rounded-xl border bg-white p-3",
-                          row.pendente ? "border-amber-200" : "border-zinc-200",
-                        )}
+                        style={{
+                          fontSize: 13,
+                          color: "#444",
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
                       >
-                        {/* barra lateral (pendente) */}
-                        <div
+                        <Paperclip className="h-4 w-4" />
+                        Registrar evidÃªncia no step:
+                      </div>
+
+                      <select
+                        value={evidenceStepKey}
+                        onChange={(e) => setEvidenceStepKey(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: "10px",
+                          borderRadius: 10,
+                          border: "1px solid #e1e1e1",
+                          outline: "none",
+                          background: "#fff",
+                          fontSize: 13,
+                        }}
+                      >
+                        <option value="">Selecione...</option>
+                        {getWorkflow().map((s, idx) => (
+                          <option key={s.key} value={s.key}>
+                            {idx + 1}. {s.title}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#666",
+                          whiteSpace: "nowrap",
+                        }}
+                        title="Contagem de evidências do step selecionado"
+                      >
+                        {evidenceStepKey
+                          ? `Total: ${Number(
+                              evidenceCountsByStep?.[evidenceStepKey] || 0,
+                            )}`
+                          : "â€”"}
+                      </div>
+                    </div>
+
+                    {/* Upload Zone */}
+                    <div
+                      style={{
+                        border: "2px dashed #eee",
+                        padding: 24,
+                        borderRadius: 12,
+                        textAlign: "center",
+                        background: "#fafafa",
+                        marginBottom: 16,
+                      }}
+                    >
+                      <input
+                        type="file"
+                        multiple
+                        ref={fileInputRef}
+                        onChange={(e) =>
+                          setPreviewFiles(Array.from(e.target.files || []))
+                        }
+                        style={{ display: "none" }}
+                        id="upload-input"
+                      />
+                      <label
+                        htmlFor="upload-input"
+                        style={{ cursor: "pointer" }}
+                      >
+                        <i
+                          className="fas fa-cloud-upload-alt"
+                          style={{
+                            fontSize: 32,
+                            color: "#ccc",
+                            marginBottom: 10,
+                          }}
+                        />
+                        <div style={{ fontWeight: 600, color: "#555" }}>
+                          Clique para anexar arquivos
+                        </div>
+                        <div style={{ fontSize: 12, color: "#999" }}>
+                          Imagens, logs ou documentos
+                        </div>
+                      </label>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        marginBottom: 18,
+                        alignItems: "center",
+                      }}
+                    >
+                      <Button
+                        type="button"
+                        onClick={enviarArquivosComEvidencia}
+                        disabled={
+                          uploading ||
+                          savingEvidence ||
+                          !previewFiles.length ||
+                          !String(ticketJira || "").trim()
+                        }
+                        aria-busy={uploading || savingEvidence}
+                        className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                        title={
+                          !String(ticketJira || "").trim()
+                            ? "Informe o ticket do Jira"
+                            : ""
+                        }
+                      >
+                        <UploadCloud
                           className={cn(
-                            "absolute left-0 top-0 h-full w-1 rounded-l-xl",
-                            row.pendente ? "bg-amber-400" : "bg-zinc-200",
+                            "mr-2 h-4 w-4",
+                            (uploading || savingEvidence) && "animate-spin",
                           )}
                         />
+                        {uploading || savingEvidence
+                          ? "Processando..."
+                          : "Enviar + Registrar evidÃªncia"}
+                      </Button>
 
-                        {/* Ambiente */}
-                        <div className="pl-1">
-                          <input
-                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-900 outline-none
-                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
-                            placeholder="Ex: PROD"
-                            value={row.ambiente}
-                            onChange={(e) =>
-                              updChave(row.id, { ambiente: e.target.value })
-                            }
-                          />
-                        </div>
+                      <button
+                        className="secondary"
+                        onClick={limparPreview}
+                        disabled={!previewFiles.length}
+                      >
+                        Limpar
+                      </button>
 
-                        {/* Nome */}
-                        <div>
-                          <input
-                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none
-                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
-                            placeholder="Ex: API_URL"
-                            value={row.nome}
-                            onChange={(e) =>
-                              updChave(row.id, { nome: e.target.value })
-                            }
-                          />
-                        </div>
+                      <button
+                        className="secondary"
+                        onClick={listarAnexos}
+                        style={{ marginLeft: "auto" }}
+                        title="Atualizar anexos"
+                      >
+                        <i className="fas fa-sync" />
+                      </button>
 
-                        {/* Valor */}
-                        <div>
-                          <input
-                            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700 outline-none
-                           focus:border-red-500 focus:ring-2 focus:ring-red-500/25"
-                            placeholder="Ex: https://..."
-                            value={row.valor}
-                            onChange={(e) =>
-                              updChave(row.id, { valor: e.target.value })
-                            }
-                          />
-                        </div>
+                      <button
+                        className="secondary"
+                        onClick={refreshJiraComments}
+                        disabled={
+                          loadingJiraComments ||
+                          !String(ticketJira || "").trim()
+                        }
+                        title="Atualizar evidências a partir dos comentários"
+                      >
+                        <i
+                          className="fas fa-rotate"
+                          style={{ marginRight: 8 }}
+                        />
+                        evidências
+                      </button>
+                    </div>
 
-                        {/* Remover */}
-                        <button
-                          type="button"
-                          onClick={() => rmChave(row.id)}
-                          title="Remover"
-                          className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-400
-                         hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                    {/* Grid de Previews Locais */}
+                    {previewFiles.length > 0 && (
+                      <div style={{ marginBottom: 22 }}>
+                        <h4
+                          style={{
+                            fontSize: 13,
+                            marginBottom: 12,
+                            color: "#888",
+                            textTransform: "uppercase",
+                          }}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                          PrÃ©via para Envio
+                        </h4>
+                        <div
+                          style={{
+                            display: "grid",
+                            gap: 12,
+                            gridTemplateColumns:
+                              "repeat(auto-fill, minmax(200px, 1fr))",
+                          }}
+                        >
+                          {previewFiles.map((f) => {
+                            const isImg = /^image\//i.test(f.type);
+                            const url = URL.createObjectURL(f);
+                            return (
+                              <div
+                                key={f.name}
+                                style={{
+                                  border: "1px solid #eee",
+                                  borderRadius: 10,
+                                  padding: 8,
+                                  background: "#fff",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    marginBottom: 6,
+                                    gap: 8,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                      maxWidth: "160px",
+                                    }}
+                                  >
+                                    {f.name}
+                                  </span>
+                                  <i
+                                    className="fas fa-times"
+                                    onClick={() =>
+                                      setPreviewFiles((prev) =>
+                                        prev.filter((x) => x !== f),
+                                      )
+                                    }
+                                    style={{ cursor: "pointer", color: "#ccc" }}
+                                    title="Remover"
+                                  />
+                                </div>
+                                {isImg && (
+                                  <img
+                                    src={url}
+                                    style={{
+                                      width: "100%",
+                                      height: 100,
+                                      objectFit: "cover",
+                                      borderRadius: 6,
+                                    }}
+                                    alt=""
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
+                    )}
 
-            {/* Tab: EvidÃªncias */}
-            {activeTab === "evidencias" && (
-              <div className="animate-fade-in">
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    alignItems: "center",
-                    marginBottom: 14,
-                    padding: 12,
-                    background: "#f8f9fa",
-                    borderRadius: 10,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: "#444",
-                      fontWeight: 700,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <Paperclip className="h-4 w-4" />
-                    Registrar evidÃªncia no step:
-                  </div>
-
-                  <select
-                    value={evidenceStepKey}
-                    onChange={(e) => setEvidenceStepKey(e.target.value)}
-                    style={{
-                      flex: 1,
-                      padding: "10px",
-                      borderRadius: 10,
-                      border: "1px solid #e1e1e1",
-                      outline: "none",
-                      background: "#fff",
-                      fontSize: 13,
-                    }}
-                  >
-                    <option value="">Selecione...</option>
-                    {getWorkflow().map((s, idx) => (
-                      <option key={s.key} value={s.key}>
-                        {idx + 1}. {s.title}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: "#666",
-                      whiteSpace: "nowrap",
-                    }}
-                    title="Contagem de evidÃªncias do step selecionado"
-                  >
-                    {evidenceStepKey
-                      ? `Total: ${Number(
-                          evidenceCountsByStep?.[evidenceStepKey] || 0,
-                        )}`
-                      : "â€”"}
-                  </div>
-                </div>
-
-                {/* Upload Zone */}
-                <div
-                  style={{
-                    border: "2px dashed #eee",
-                    padding: 24,
-                    borderRadius: 12,
-                    textAlign: "center",
-                    background: "#fafafa",
-                    marginBottom: 16,
-                  }}
-                >
-                  <input
-                    type="file"
-                    multiple
-                    ref={fileInputRef}
-                    onChange={(e) =>
-                      setPreviewFiles(Array.from(e.target.files || []))
-                    }
-                    style={{ display: "none" }}
-                    id="upload-input"
-                  />
-                  <label htmlFor="upload-input" style={{ cursor: "pointer" }}>
-                    <i
-                      className="fas fa-cloud-upload-alt"
-                      style={{ fontSize: 32, color: "#ccc", marginBottom: 10 }}
-                    />
-                    <div style={{ fontWeight: 600, color: "#555" }}>
-                      Clique para anexar arquivos
+                    {/* Resumo evidências por step (rÃ¡pido) */}
+                    <div
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: 12,
+                        background: "#fff",
+                        padding: 12,
+                        marginBottom: 18,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "baseline",
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontWeight: 800,
+                            fontSize: 12,
+                            color: "#333",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          evidências por step
+                        </div>
+                        <div style={{ fontSize: 12, color: "#666" }}>
+                          Total anexos no Jira: <b>{attachments.length}</b>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                        {getWorkflow().map((s) => {
+                          const n = Number(evidenceCountsByStep?.[s.key] || 0);
+                          return (
+                            <div
+                              key={s.key}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                padding: "8px 10px",
+                                borderRadius: 10,
+                                border: "1px solid #f1f1f1",
+                                background: n ? "#fff" : "#fafafa",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                }}
+                              >
+                                <Paperclip className="h-4 w-4" />
+                                <span style={{ fontSize: 13, fontWeight: 700 }}>
+                                  {s.title}
+                                </span>
+                              </div>
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  color: n ? "#111" : "#777",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {n}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "#999" }}>
-                      Imagens, logs ou documentos
-                    </div>
-                  </label>
-                </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    marginBottom: 18,
-                    alignItems: "center",
-                  }}
-                >
-                  <Button
-                    type="button"
-                    onClick={enviarArquivosComEvidencia}
-                    disabled={
-                      uploading ||
-                      savingEvidence ||
-                      !previewFiles.length ||
-                      !String(ticketJira || "").trim()
-                    }
-                    aria-busy={uploading || savingEvidence}
-                    className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-                    title={
-                      !String(ticketJira || "").trim()
-                        ? "Informe o ticket do Jira"
-                        : ""
-                    }
-                  >
-                    <UploadCloud
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        (uploading || savingEvidence) && "animate-spin",
-                      )}
-                    />
-                    {uploading || savingEvidence
-                      ? "Processando..."
-                      : "Enviar + Registrar evidÃªncia"}
-                  </Button>
-
-                  <button
-                    className="secondary"
-                    onClick={limparPreview}
-                    disabled={!previewFiles.length}
-                  >
-                    Limpar
-                  </button>
-
-                  <button
-                    className="secondary"
-                    onClick={listarAnexos}
-                    style={{ marginLeft: "auto" }}
-                    title="Atualizar anexos"
-                  >
-                    <i className="fas fa-sync" />
-                  </button>
-
-                  <button
-                    className="secondary"
-                    onClick={refreshJiraComments}
-                    disabled={
-                      loadingJiraComments || !String(ticketJira || "").trim()
-                    }
-                    title="Atualizar evidÃªncias a partir dos comentÃ¡rios"
-                  >
-                    <i className="fas fa-rotate" style={{ marginRight: 8 }} />
-                    EvidÃªncias
-                  </button>
-                </div>
-
-                {/* Grid de Previews Locais */}
-                {previewFiles.length > 0 && (
-                  <div style={{ marginBottom: 22 }}>
+                    {/* Lista de Anexos no Jira */}
                     <h4
                       style={{
                         fontSize: 13,
@@ -3214,438 +3400,290 @@ function ChecklistGMUDTab({
                         textTransform: "uppercase",
                       }}
                     >
-                      PrÃ©via para Envio
+                      Arquivos no Jira
                     </h4>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {!attachments.length ? (
+                        <div
+                          style={{
+                            padding: 20,
+                            textAlign: "center",
+                            color: "#bbb",
+                            fontSize: 13,
+                          }}
+                        >
+                          Nenhum arquivo encontrado.
+                        </div>
+                      ) : (
+                        attachments.map((a) => {
+                          const links = buildDownloadLinks(a);
+                          return (
+                            <div
+                              key={a.id}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                padding: "10px 16px",
+                                background: "#fff",
+                                border: "1px solid #eee",
+                                borderRadius: 8,
+                                gap: 12,
+                              }}
+                            >
+                              <i
+                                className={
+                                  a.mimeType?.includes("image")
+                                    ? "fas fa-image"
+                                    : "fas fa-file-alt"
+                                }
+                                style={{ color: "#aaa" }}
+                              />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                                  {a.filename}
+                                </div>
+                                <div style={{ fontSize: 11, color: "#999" }}>
+                                  {(a.size / 1024).toFixed(1)} KB â€¢{" "}
+                                  {a.created
+                                    ? new Date(a.created).toLocaleDateString()
+                                    : "â€”"}
+                                </div>
+                              </div>
+                              <a
+                                href={links.download}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  fontSize: 12,
+                                  color: "#ee0000",
+                                  fontWeight: 600,
+                                  textDecoration: "none",
+                                }}
+                              >
+                                Baixar
+                              </a>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Tab: comentários */}
+                {activeTab === "comentarios" && (
+                  <div className="animate-fade-in">
                     <div
                       style={{
-                        display: "grid",
-                        gap: 12,
-                        gridTemplateColumns:
-                          "repeat(auto-fill, minmax(200px, 1fr))",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 12,
+                        padding: "12px",
+                        background: "#f8f9fa",
+                        borderRadius: 8,
                       }}
                     >
-                      {previewFiles.map((f) => {
-                        const isImg = /^image\//i.test(f.type);
-                        const url = URL.createObjectURL(f);
-                        return (
+                      <div style={{ fontSize: 13, color: "#666" }}>
+                        <i
+                          className="fas fa-comments"
+                          style={{ marginRight: 6 }}
+                        />
+                        {jiraCommentsList.length} comentÃ¡rio(s) no ticket
+                      </div>
+
+                      <button
+                        className="secondary"
+                        onClick={refreshJiraComments}
+                        disabled={
+                          loadingJiraComments ||
+                          !String(ticketJira || "").trim()
+                        }
+                        style={{ padding: "8px 14px" }}
+                        title={
+                          !String(ticketJira || "").trim()
+                            ? "Informe o ticket do Jira"
+                            : ""
+                        }
+                      >
+                        <i className="fas fa-sync" style={{ marginRight: 8 }} />
+                        {loadingJiraComments ? "Atualizando..." : "Atualizar"}
+                      </button>
+                    </div>
+
+                    <div
+                      style={{
+                        background: "#fff",
+                        border: "1px solid #eee",
+                        borderRadius: 12,
+                        padding: 12,
+                        marginBottom: 14,
+                      }}
+                    >
+                      <label
+                        style={{
+                          display: "block",
+                          fontSize: 12,
+                          fontWeight: 800,
+                          marginBottom: 8,
+                          color: "#333",
+                        }}
+                      >
+                        Novo comentÃ¡rio
+                      </label>
+
+                      <textarea
+                        value={newJiraCommentText}
+                        onChange={(e) => setNewJiraCommentText(e.target.value)}
+                        placeholder="Digite aqui o comentÃ¡rio que serÃ¡ adicionado no Jira..."
+                        style={{
+                          width: "100%",
+                          minHeight: 90,
+                          padding: 12,
+                          borderRadius: 10,
+                          border: "1px solid #e1e1e1",
+                          outline: "none",
+                          background: "#fcfcfc",
+                          fontSize: 13,
+                          lineHeight: "1.5",
+                          resize: "vertical",
+                        }}
+                        onKeyDown={(e) => {
+                          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                            e.preventDefault();
+                            addJiraComment();
+                          }
+                        }}
+                      />
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "flex-end",
+                          gap: 10,
+                          marginTop: 10,
+                        }}
+                      >
+                        <button
+                          className="secondary"
+                          type="button"
+                          onClick={() => setNewJiraCommentText("")}
+                          disabled={
+                            postingJiraComment || !newJiraCommentText.trim()
+                          }
+                        >
+                          Limpar
+                        </button>
+
+                        <Button
+                          type="button"
+                          onClick={addJiraComment}
+                          disabled={
+                            postingJiraComment ||
+                            !String(ticketJira || "").trim() ||
+                            !newJiraCommentText.trim()
+                          }
+                          aria-busy={postingJiraComment}
+                          title={
+                            !String(ticketJira || "").trim()
+                              ? "Informe o ticket do Jira"
+                              : ""
+                          }
+                          className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                        >
+                          <MessageSquarePlus
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              postingJiraComment && "animate-spin",
+                            )}
+                          />
+                          {postingJiraComment
+                            ? "Enviando..."
+                            : "Adicionar comentÃ¡rio no Jira"}
+                        </Button>
+                      </div>
+
+                      <div
+                        style={{ marginTop: 8, fontSize: 11, color: "#999" }}
+                      >
+                        Dica: Ctrl+Enter para enviar.
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {!jiraCommentsList.length ? (
+                        <div
+                          style={{
+                            padding: 20,
+                            textAlign: "center",
+                            color: "#bbb",
+                            fontSize: 13,
+                            border: "1px dashed #eee",
+                            borderRadius: 12,
+                            background: "#fff",
+                          }}
+                        >
+                          Nenhum comentÃ¡rio para exibir.
+                        </div>
+                      ) : (
+                        jiraCommentsList.map((c) => (
                           <div
-                            key={f.name}
+                            key={c.id}
                             style={{
-                              border: "1px solid #eee",
-                              borderRadius: 10,
-                              padding: 8,
                               background: "#fff",
+                              border: "1px solid #eee",
+                              borderRadius: 12,
+                              padding: 12,
                             }}
                           >
                             <div
                               style={{
                                 display: "flex",
                                 justifyContent: "space-between",
-                                marginBottom: 6,
-                                gap: 8,
+                                gap: 12,
+                                alignItems: "baseline",
                               }}
                             >
-                              <span
+                              <div style={{ fontWeight: 800, fontSize: 12 }}>
+                                {c.author}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#999" }}>
+                                {fmtDateTimeBr(c.created)}
+                              </div>
+                            </div>
+
+                            {c.updated && c.updated !== c.created && (
+                              <div
                                 style={{
+                                  marginTop: 4,
                                   fontSize: 11,
-                                  fontWeight: 700,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  maxWidth: "160px",
+                                  color: "#aaa",
                                 }}
                               >
-                                {f.name}
-                              </span>
-                              <i
-                                className="fas fa-times"
-                                onClick={() =>
-                                  setPreviewFiles((prev) =>
-                                    prev.filter((x) => x !== f),
-                                  )
-                                }
-                                style={{ cursor: "pointer", color: "#ccc" }}
-                                title="Remover"
-                              />
-                            </div>
-                            {isImg && (
-                              <img
-                                src={url}
-                                style={{
-                                  width: "100%",
-                                  height: 100,
-                                  objectFit: "cover",
-                                  borderRadius: 6,
-                                }}
-                                alt=""
-                              />
+                                Atualizado: {fmtDateTimeBr(c.updated)}
+                              </div>
                             )}
+
+                            <div
+                              style={{
+                                marginTop: 10,
+                                fontSize: 13,
+                                color: "#333",
+                                whiteSpace: "pre-wrap",
+                                lineHeight: "1.5",
+                              }}
+                            >
+                              {c.text}
+                            </div>
                           </div>
-                        );
-                      })}
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
-
-                {/* Resumo evidÃªncias por step (rÃ¡pido) */}
-                <div
-                  style={{
-                    border: "1px solid #eee",
-                    borderRadius: 12,
-                    background: "#fff",
-                    padding: 12,
-                    marginBottom: 18,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "baseline",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 800,
-                        fontSize: 12,
-                        color: "#333",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      EvidÃªncias por step
-                    </div>
-                    <div style={{ fontSize: 12, color: "#666" }}>
-                      Total anexos no Jira: <b>{attachments.length}</b>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                    {getWorkflow().map((s) => {
-                      const n = Number(evidenceCountsByStep?.[s.key] || 0);
-                      return (
-                        <div
-                          key={s.key}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            padding: "8px 10px",
-                            borderRadius: 10,
-                            border: "1px solid #f1f1f1",
-                            background: n ? "#fff" : "#fafafa",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                            }}
-                          >
-                            <Paperclip className="h-4 w-4" />
-                            <span style={{ fontSize: 13, fontWeight: 700 }}>
-                              {s.title}
-                            </span>
-                          </div>
-                          <span
-                            style={{
-                              fontSize: 12,
-                              color: n ? "#111" : "#777",
-                              fontWeight: 700,
-                            }}
-                          >
-                            {n}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Lista de Anexos no Jira */}
-                <h4
-                  style={{
-                    fontSize: 13,
-                    marginBottom: 12,
-                    color: "#888",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  Arquivos no Jira
-                </h4>
-                <div style={{ display: "grid", gap: 8 }}>
-                  {!attachments.length ? (
-                    <div
-                      style={{
-                        padding: 20,
-                        textAlign: "center",
-                        color: "#bbb",
-                        fontSize: 13,
-                      }}
-                    >
-                      Nenhum arquivo encontrado.
-                    </div>
-                  ) : (
-                    attachments.map((a) => {
-                      const links = buildDownloadLinks(a);
-                      return (
-                        <div
-                          key={a.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            padding: "10px 16px",
-                            background: "#fff",
-                            border: "1px solid #eee",
-                            borderRadius: 8,
-                            gap: 12,
-                          }}
-                        >
-                          <i
-                            className={
-                              a.mimeType?.includes("image")
-                                ? "fas fa-image"
-                                : "fas fa-file-alt"
-                            }
-                            style={{ color: "#aaa" }}
-                          />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>
-                              {a.filename}
-                            </div>
-                            <div style={{ fontSize: 11, color: "#999" }}>
-                              {(a.size / 1024).toFixed(1)} KB â€¢{" "}
-                              {a.created
-                                ? new Date(a.created).toLocaleDateString()
-                                : "â€”"}
-                            </div>
-                          </div>
-                          <a
-                            href={links.download}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{
-                              fontSize: 12,
-                              color: "#ee0000",
-                              fontWeight: 600,
-                              textDecoration: "none",
-                            }}
-                          >
-                            Baixar
-                          </a>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
               </div>
-            )}
-
-            {/* Tab: ComentÃ¡rios */}
-            {activeTab === "comentarios" && (
-              <div className="animate-fade-in">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 12,
-                    padding: "12px",
-                    background: "#f8f9fa",
-                    borderRadius: 8,
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: "#666" }}>
-                    <i className="fas fa-comments" style={{ marginRight: 6 }} />
-                    {jiraCommentsList.length} comentÃ¡rio(s) no ticket
-                  </div>
-
-                  <button
-                    className="secondary"
-                    onClick={refreshJiraComments}
-                    disabled={
-                      loadingJiraComments || !String(ticketJira || "").trim()
-                    }
-                    style={{ padding: "8px 14px" }}
-                    title={
-                      !String(ticketJira || "").trim()
-                        ? "Informe o ticket do Jira"
-                        : ""
-                    }
-                  >
-                    <i className="fas fa-sync" style={{ marginRight: 8 }} />
-                    {loadingJiraComments ? "Atualizando..." : "Atualizar"}
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #eee",
-                    borderRadius: 12,
-                    padding: 12,
-                    marginBottom: 14,
-                  }}
-                >
-                  <label
-                    style={{
-                      display: "block",
-                      fontSize: 12,
-                      fontWeight: 800,
-                      marginBottom: 8,
-                      color: "#333",
-                    }}
-                  >
-                    Novo comentÃ¡rio
-                  </label>
-
-                  <textarea
-                    value={newJiraCommentText}
-                    onChange={(e) => setNewJiraCommentText(e.target.value)}
-                    placeholder="Digite aqui o comentÃ¡rio que serÃ¡ adicionado no Jira..."
-                    style={{
-                      width: "100%",
-                      minHeight: 90,
-                      padding: 12,
-                      borderRadius: 10,
-                      border: "1px solid #e1e1e1",
-                      outline: "none",
-                      background: "#fcfcfc",
-                      fontSize: 13,
-                      lineHeight: "1.5",
-                      resize: "vertical",
-                    }}
-                    onKeyDown={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                        e.preventDefault();
-                        addJiraComment();
-                      }
-                    }}
-                  />
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "flex-end",
-                      gap: 10,
-                      marginTop: 10,
-                    }}
-                  >
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => setNewJiraCommentText("")}
-                      disabled={
-                        postingJiraComment || !newJiraCommentText.trim()
-                      }
-                    >
-                      Limpar
-                    </button>
-
-                    <Button
-                      type="button"
-                      onClick={addJiraComment}
-                      disabled={
-                        postingJiraComment ||
-                        !String(ticketJira || "").trim() ||
-                        !newJiraCommentText.trim()
-                      }
-                      aria-busy={postingJiraComment}
-                      title={
-                        !String(ticketJira || "").trim()
-                          ? "Informe o ticket do Jira"
-                          : ""
-                      }
-                      className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-                    >
-                      <MessageSquarePlus
-                        className={cn(
-                          "mr-2 h-4 w-4",
-                          postingJiraComment && "animate-spin",
-                        )}
-                      />
-                      {postingJiraComment
-                        ? "Enviando..."
-                        : "Adicionar comentÃ¡rio no Jira"}
-                    </Button>
-                  </div>
-
-                  <div style={{ marginTop: 8, fontSize: 11, color: "#999" }}>
-                    Dica: Ctrl+Enter para enviar.
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gap: 10 }}>
-                  {!jiraCommentsList.length ? (
-                    <div
-                      style={{
-                        padding: 20,
-                        textAlign: "center",
-                        color: "#bbb",
-                        fontSize: 13,
-                        border: "1px dashed #eee",
-                        borderRadius: 12,
-                        background: "#fff",
-                      }}
-                    >
-                      Nenhum comentÃ¡rio para exibir.
-                    </div>
-                  ) : (
-                    jiraCommentsList.map((c) => (
-                      <div
-                        key={c.id}
-                        style={{
-                          background: "#fff",
-                          border: "1px solid #eee",
-                          borderRadius: 12,
-                          padding: 12,
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            gap: 12,
-                            alignItems: "baseline",
-                          }}
-                        >
-                          <div style={{ fontWeight: 800, fontSize: 12 }}>
-                            {c.author}
-                          </div>
-                          <div style={{ fontSize: 11, color: "#999" }}>
-                            {fmtDateTimeBr(c.created)}
-                          </div>
-                        </div>
-
-                        {c.updated && c.updated !== c.created && (
-                          <div
-                            style={{
-                              marginTop: 4,
-                              fontSize: 11,
-                              color: "#aaa",
-                            }}
-                          >
-                            Atualizado: {fmtDateTimeBr(c.updated)}
-                          </div>
-                        )}
-
-                        <div
-                          style={{
-                            marginTop: 10,
-                            fontSize: 13,
-                            color: "#333",
-                            whiteSpace: "pre-wrap",
-                            lineHeight: "1.5",
-                          }}
-                        >
-                          {c.text}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+            ) : null}
+          </section>
 
           <StickyActionBar
             className="botoes-finais"

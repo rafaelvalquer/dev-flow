@@ -359,7 +359,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           {
             label: "TÃ­tulo",
             value: rdm.titulo ? "Definido" : "Pendente",
-            helper: rdm.titulo || "Defina um tÃ­tulo objetivo para a mudanÃ§a.",
+            helper: rdm.titulo || "Defina um tÃ­tulo objetivo para a mudança.",
           },
           {
             label: "Janela",
@@ -482,7 +482,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <textarea
             value={rdm.objetivoDescricao ?? ""}
             onChange={(e) => upd("objetivoDescricao", e.target.value)}
-            placeholder="Qual o objetivo principal desta mudanÃ§a?"
+            placeholder="Qual o objetivo principal desta mudança?"
           />
         </div>
 
@@ -493,7 +493,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <textarea
             value={rdm.oQue ?? ""}
             onChange={(e) => upd("oQue", e.target.value)}
-            placeholder="Descreva claramente a atividade / escopo da mudanÃ§a"
+            placeholder="Descreva claramente a atividade / escopo da mudança"
           />
         </div>
 
@@ -504,7 +504,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <textarea
             value={rdm.porQue ?? ""}
             onChange={(e) => upd("porQue", e.target.value)}
-            placeholder="MotivaÃ§Ã£o da mudanÃ§a"
+            placeholder="MotivaÃ§Ã£o da mudança"
           />
         </div>
 
@@ -576,7 +576,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card span-2">
-          <label>Ãreas UsuÃ¡rias Afetadas pela MudanÃ§a</label>
+          <label>Ãreas UsuÃ¡rias Afetadas pela mudança</label>
           <textarea
             value={rdm.areasAfetadas ?? ""}
             onChange={(e) => upd("areasAfetadas", e.target.value)}
