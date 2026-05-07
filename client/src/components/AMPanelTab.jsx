@@ -29,6 +29,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 import {
   Popover,
@@ -422,6 +423,62 @@ function diffDays(a, b) {
   return Math.floor((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function makeScheduleChangeId() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function formatDateBRShort(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function addDaysLocal(value, days) {
+  const date = value instanceof Date ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function getActivityLabelFromIssue(issue, activityId) {
+  const activity = (issue?.atividades || []).find(
+    (item) => String(item?.id || "") === String(activityId || "")
+  );
+  return String(activity?.name || activityId || "Atividade").trim();
+}
+
+function getActivityDateText(issue, activityId) {
+  const activity = (issue?.atividades || []).find(
+    (item) => String(item?.id || "") === String(activityId || "")
+  );
+  return String(activity?.data || "").trim() || "--";
+}
+
+function makeHistoryEntry({
+  source,
+  issueKey,
+  activityId,
+  activityName,
+  previousRange,
+  nextRange,
+}) {
+  return {
+    id: makeScheduleChangeId(),
+    source,
+    issueKey,
+    activityId,
+    activityName: activityName || activityId || "Atividade",
+    previousRange: previousRange || "--",
+    nextRange: nextRange || "--",
+    status: "pendente",
+    timestamp: new Date().toISOString(),
+  };
+}
+
 /* =========================
    //#region COMPONENT
 ========================= */
@@ -475,7 +532,29 @@ export default function AMPanelTab() {
 
   // trava durante persistência de mudança de datas (drag/resize)
   const [persisting, setPersisting] = useState(false);
+  const [changeHistory, setChangeHistory] = useState([]);
   const busy = Boolean(loading || persisting);
+
+  const addChangeHistory = useCallback((entry) => {
+    if (!entry?.id) return;
+    setChangeHistory((prev) => [entry, ...(prev || [])].slice(0, 12));
+  }, []);
+
+  const updateChangeHistoryStatus = useCallback((ids, status, message = "") => {
+    const set = new Set(Array.isArray(ids) ? ids : [ids]);
+    setChangeHistory((prev) =>
+      (prev || []).map((entry) =>
+        set.has(entry.id)
+          ? {
+              ...entry,
+              status,
+              message,
+              resolvedAt: new Date().toISOString(),
+            }
+          : entry
+      )
+    );
+  }, []);
 
   // dashboard tickets
   const [rows, setRows] = useState([]);
@@ -822,6 +901,15 @@ export default function AMPanelTab() {
       key: x.key,
       atividades: x.atividades?.map((a) => ({ ...a })) || [],
     }));
+    const prevIssue = prev.find(
+      (x) =>
+        String(x?.key || "")
+          .trim()
+          .toUpperCase() ===
+        String(issueKey || "")
+          .trim()
+          .toUpperCase()
+    );
 
     const nextCalendarioIssues = viewData.calendarioIssues.map((iss) => {
       if (iss.key !== issueKey) return iss;
@@ -833,6 +921,24 @@ export default function AMPanelTab() {
       );
       return { ...iss, atividades: nextAtividades };
     });
+    const nextIssue = nextCalendarioIssues.find(
+      (x) =>
+        String(x?.key || "")
+          .trim()
+          .toUpperCase() ===
+        String(issueKey || "")
+          .trim()
+          .toUpperCase()
+    );
+    const historyEntry = makeHistoryEntry({
+      source: "calendario",
+      issueKey,
+      activityId,
+      activityName: getActivityLabelFromIssue(nextIssue || prevIssue, activityId),
+      previousRange: getActivityDateText(prevIssue, activityId),
+      nextRange: getActivityDateText(nextIssue, activityId),
+    });
+    addChangeHistory(historyEntry);
 
     // otimista
     setViewData((v) => ({ ...v, calendarioIssues: nextCalendarioIssues }));
@@ -846,9 +952,13 @@ export default function AMPanelTab() {
       });
 
       applyCronogramaPatchLocal(issueKey, issue.atividades || []);
+      updateChangeHistoryStatus(historyEntry.id, "salvo");
     } catch (e) {
       console.error(e);
-      setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+      const message = e?.message || "Falha ao persistir no Jira. Revertendo...";
+      setErr(message);
+      updateChangeHistoryStatus(historyEntry.id, "revertido", message);
+      toast.error(`Cronograma revertido: ${issueKey} - ${historyEntry.activityName}`);
 
       info.revert();
 
@@ -938,12 +1048,39 @@ export default function AMPanelTab() {
             nextAtividades,
             ch.activityId,
             ch.start,
-            ch.end
+            addDaysLocal(ch.end, 1)
           );
         }
 
         return { ...iss, atividades: nextAtividades };
       });
+      const historyEntries = valid.map((change) => {
+        const prevIssue = prevSnapshot.find(
+          (issue) =>
+            String(issue?.key || "")
+              .trim()
+              .toUpperCase() === change.issueKey
+        );
+        const nextIssue = nextCalendarioIssues.find(
+          (issue) =>
+            String(issue?.key || "")
+              .trim()
+              .toUpperCase() === change.issueKey
+        );
+
+        return makeHistoryEntry({
+          source: "gantt",
+          issueKey: change.issueKey,
+          activityId: change.activityId,
+          activityName: getActivityLabelFromIssue(
+            nextIssue || prevIssue,
+            change.activityId
+          ),
+          previousRange: getActivityDateText(prevIssue, change.activityId),
+          nextRange: getActivityDateText(nextIssue, change.activityId),
+        });
+      });
+      historyEntries.forEach(addChangeHistory);
 
       // otimista: atualiza calendárioIssues + events (mantém calendário/Gantt coerentes)
       setViewData((prev) => {
@@ -964,7 +1101,7 @@ export default function AMPanelTab() {
           return {
             ...ev,
             start: found.start,
-            end: found.end,
+            end: addDaysLocal(found.end, 1) || found.end,
             extendedProps: { ...p },
           };
         });
@@ -1012,10 +1149,23 @@ export default function AMPanelTab() {
           if (issue) applyCronogramaPatchLocal(issueKey, issue.atividades || []);
         }
 
+        updateChangeHistoryStatus(
+          historyEntries.map((entry) => entry.id),
+          "salvo"
+        );
         return true;
       } catch (e) {
         console.error(e);
-        setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+        const message = e?.message || "Falha ao persistir no Jira. Revertendo...";
+        setErr(message);
+        updateChangeHistoryStatus(
+          historyEntries.map((entry) => entry.id),
+          "revertido",
+          message
+        );
+
+        const affected = Array.from(new Set(valid.map((item) => item.issueKey)));
+        toast.error(`Cronograma revertido: ${affected.join(", ")}`);
 
         // rollback local
         setViewData((v) => ({
@@ -1026,7 +1176,13 @@ export default function AMPanelTab() {
         return false;
       }
     },
-    [applyCronogramaPatchLocal, viewData.calendarioIssues, viewData.events]
+    [
+      addChangeHistory,
+      applyCronogramaPatchLocal,
+      updateChangeHistoryStatus,
+      viewData.calendarioIssues,
+      viewData.events,
+    ]
   );
 
   const persistGanttMetaChange = useCallback(
@@ -1319,6 +1475,7 @@ export default function AMPanelTab() {
               calendarFilter={calendarFilter}
               setCalendarFilter={setCalendarFilter}
               onPersistEventChange={persistEventChange}
+              changeHistory={changeHistory}
             />
           )}
 
@@ -1336,6 +1493,7 @@ export default function AMPanelTab() {
                 setFilterText={setCalendarFilter}
                 onPersistDateChange={persistGanttDateChange}
                 onPersistMetaChange={persistGanttMetaChange}
+                changeHistory={changeHistory}
                 onOpenDetails={(key) => {
                   setDetailsKey(key);
                   setDetailsOpen(true);

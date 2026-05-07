@@ -11,7 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { Loader2, Search } from "lucide-react";
+import { History, Loader2, Search } from "lucide-react";
 
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
@@ -76,6 +76,24 @@ function pickTextColor(hex) {
   return lum > 0.62 ? "#111827" : "#ffffff";
 }
 
+function formatHistoryTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "--";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function historyStatusClass(status) {
+  if (status === "salvo") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "revertido" || status === "erro")
+    return "border-red-200 bg-red-50 text-red-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 /* =========================
    COMPONENT
 ========================= */
@@ -87,6 +105,7 @@ export default memo(function AMCalendarTab({
   calendarFilter,
   setCalendarFilter,
   onPersistEventChange,
+  changeHistory = [],
 }) {
   // ===== Range visível do FullCalendar (para o dashboard abaixo)
   const [visibleRange, setVisibleRange] = useState(() => {
@@ -472,6 +491,62 @@ export default memo(function AMCalendarTab({
             Alterações atualizam o{" "}
             <code className="rounded bg-zinc-100 px-1">customfield_14017</code>{" "}
             no Jira (otimista + revert em erro).
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                <History className="h-4 w-4 text-red-600" />
+                Últimas alterações
+              </div>
+              <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-600">
+                {changeHistory.length}
+              </Badge>
+            </div>
+
+            {changeHistory.length ? (
+              <div className="grid gap-2">
+                {changeHistory.slice(0, 5).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="grid gap-2 rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-700 md:grid-cols-[minmax(0,1fr)_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-zinc-900">
+                          {entry.issueKey}
+                        </strong>
+                        <span className="truncate">{entry.activityName}</span>
+                        <span className="text-zinc-400">
+                          {entry.source === "gantt" ? "Gantt" : "Calendário"}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-zinc-500">
+                        {entry.previousRange} → {entry.nextRange}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 md:justify-end">
+                      <span className="text-zinc-400">
+                        {formatHistoryTime(entry.timestamp)}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full border px-2 py-0.5 font-semibold",
+                          historyStatusClass(entry.status)
+                        )}
+                      >
+                        {entry.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-3 text-xs text-zinc-500">
+                Nenhuma alteração de cronograma nesta sessão.
+              </div>
+            )}
           </div>
 
           {/* =========================

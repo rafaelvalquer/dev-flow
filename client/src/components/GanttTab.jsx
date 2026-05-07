@@ -18,6 +18,7 @@ import {
 import {
   AlertTriangle,
   GripVertical,
+  History,
   Loader2,
   Search,
   Link2,
@@ -51,6 +52,18 @@ function fmtDateBR(d) {
   }).format(date);
 }
 
+function fmtDateTimeBR(d) {
+  if (!d) return "â€”";
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(date.getTime())) return "â€”";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
 function toDateInputValue(d) {
   const date = safeDate(d);
   if (!date) return "";
@@ -80,6 +93,33 @@ function addDays(d, n) {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
   return x;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function inclusiveDurationDays(start, end) {
+  const s = safeDate(start);
+  const e = safeDate(end);
+  if (!s || !e) return 1;
+  const diff = e.getTime() - s.getTime();
+  return Math.max(1, Math.ceil(diff / MS_PER_DAY) + 1);
+}
+
+function endFromInclusiveDays(start, days) {
+  const s = safeDate(start);
+  if (!s) return null;
+  const duration = Math.max(1, parseInt(String(days || 1), 10) || 1);
+  return addDays(s, duration - 1);
+}
+
+function inclusiveEndFromCalendarEvent(start, eventEnd) {
+  const s = safeDate(start);
+  const e = safeDate(eventEnd);
+  if (!s) return null;
+  if (!e) return s;
+
+  const inclusiveEnd = addDays(e, -1);
+  return inclusiveEnd < s ? s : inclusiveEnd;
 }
 
 function isDoneStatus(statusName) {
@@ -231,6 +271,7 @@ const GANTT_PAN_BLOCKED_SELECTOR = [
   "[role='button']",
   "[contenteditable='true']",
   ".cursor-col-resize",
+  "[data-gantt-row-drag='true']",
   "._KxSXS",
   "._RRr13",
   "._1KJ6x",
@@ -240,6 +281,93 @@ const GANTT_PAN_BLOCKED_SELECTOR = [
 function isGanttPanBlockedTarget(target) {
   if (!(target instanceof Element)) return true;
   return Boolean(target.closest(GANTT_PAN_BLOCKED_SELECTOR));
+}
+
+function getTaskIssueKey(task) {
+  return String(task?.issueKey || getIssueKeyFromTaskId(task?.id))
+    .trim()
+    .toUpperCase();
+}
+
+function getTaskActivityId(task) {
+  return String(task?.activityId || getActivityIdFromTaskId(task?.id)).trim();
+}
+
+function getDropPositionFromRowElement(rowEl, clientY) {
+  if (!(rowEl instanceof Element)) return "after";
+  const rect = rowEl.getBoundingClientRect();
+  const y = clientY - rect.top;
+  return y < rect.height / 2 ? "before" : "after";
+}
+
+function makeEmptyRowDragState() {
+  return {
+    sourceId: "",
+    targetId: "",
+    position: "after",
+    startX: 0,
+    startY: 0,
+    isDragging: false,
+    pointerId: null,
+  };
+}
+
+function reorderTaskIds(tasks, sourceId, targetId, position = "after") {
+  const rows = Array.isArray(tasks) ? tasks : [];
+  const source = rows.find((task) => String(task?.id || "") === String(sourceId));
+  const target = rows.find((task) => String(task?.id || "") === String(targetId));
+  if (!source || !target) return null;
+  if (source.type !== "task" || target.type !== "task") return null;
+  if (source.id === target.id) return null;
+
+  const issueKey = getTaskIssueKey(source);
+  if (!issueKey || issueKey !== getTaskIssueKey(target)) return null;
+
+  const issueTaskIds = rows
+    .filter((task) => task?.type === "task" && getTaskIssueKey(task) === issueKey)
+    .map((task) => task.id);
+
+  if (!issueTaskIds.includes(source.id) || !issueTaskIds.includes(target.id)) {
+    return null;
+  }
+
+  const nextIds = issueTaskIds.filter((id) => id !== source.id);
+  const targetIndex = nextIds.indexOf(target.id);
+  if (targetIndex < 0) return null;
+
+  const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+  nextIds.splice(insertIndex, 0, source.id);
+  return nextIds;
+}
+
+function refreshTaskDependencies(tasks) {
+  const previousByIssue = new Map();
+  return (Array.isArray(tasks) ? tasks : []).map((task) => {
+    if (!task || task.type !== "task") return task;
+
+    const issueKey = getTaskIssueKey(task);
+    const prevId = previousByIssue.get(issueKey);
+    previousByIssue.set(issueKey, task.id);
+    return { ...task, dependencies: prevId ? [prevId] : [] };
+  });
+}
+
+function applyReorderPreview(tasks, sourceId, targetId, position) {
+  const rows = Array.isArray(tasks) ? tasks : [];
+  const nextIssueIds = reorderTaskIds(rows, sourceId, targetId, position);
+  if (!nextIssueIds) return rows;
+
+  const source = rows.find((task) => String(task?.id || "") === String(sourceId));
+  const issueKey = getTaskIssueKey(source);
+  const byId = new Map(rows.map((task) => [task?.id, task]));
+  const reorderedQueue = nextIssueIds.map((id) => byId.get(id)).filter(Boolean);
+
+  const nextRows = rows.map((task) => {
+    if (task?.type !== "task" || getTaskIssueKey(task) !== issueKey) return task;
+    return reorderedQueue.shift() || task;
+  });
+
+  return refreshTaskDependencies(nextRows);
 }
 
 function isNativeScrollbarHit(el, e) {
@@ -331,10 +459,10 @@ export function buildGanttTasksFromViewData({
     if (!issueKey || !activityId) continue;
 
     const start = safeDate(ev?.start);
-    let end = safeDate(ev?.end);
-
     if (!start) continue;
-    if (!end || end < start) end = start;
+
+    // Eventos do calendário usam end exclusivo; o Gantt trabalha com fim inclusivo.
+    const end = inclusiveEndFromCalendarEvent(start, ev?.end);
 
     dateIndex.set(`${issueKey}::${activityId}`, { start, end });
   }
@@ -685,8 +813,9 @@ function TaskListTableFactory({
   onToggleChain,
   onChangeDuration,
   onChangeDate,
-  onReorderActivity,
   onChangeMeta, // ✅ NOVO
+  rowDragStateRef,
+  onRowPointerDown,
   busy,
 
   onOpenInspectorByTaskId, // ✅ NOVO
@@ -711,23 +840,10 @@ function TaskListTableFactory({
       () => new Map(taskRows.map((t) => [String(t.id || ""), t])),
       [taskRows]
     );
-    const [dragTaskId, setDragTaskId] = useState("");
-    const [dragOverTaskId, setDragOverTaskId] = useState("");
-
     const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
 
-    const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
     function calcDurationDays(t) {
-      const s = safeDate(t?.start);
-      const e = safeDate(t?.end);
-
-      if (!s || !e) return 1;
-      if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 1;
-
-      const diff = e.getTime() - s.getTime();
-      const days = Math.ceil(diff / MS_PER_DAY);
-      return Math.max(1, (days || 0) + 1);
+      return inclusiveDurationDays(t?.start, t?.end);
     }
 
     // ✅ edição inline (Dias)
@@ -745,11 +861,6 @@ function TaskListTableFactory({
       field: null, // "recurso" | "area"
       value: "",
     });
-
-    const clearRowDrag = () => {
-      setDragTaskId("");
-      setDragOverTaskId("");
-    };
 
     const canDropOnTask = (sourceId, target) => {
       const source = taskByRowId.get(String(sourceId || ""));
@@ -826,59 +937,30 @@ function TaskListTableFactory({
         {taskRows.map((t) => {
           const selected = t.id === selectedTaskId;
           const isProject = t.type === "project";
-          const isDragOver = dragOverTaskId === t.id;
-          const isDragging = dragTaskId === t.id;
+          const activeRowDragState = rowDragStateRef?.current || {};
+          const isDragOver = activeRowDragState?.targetId === t.id;
+          const isDragging =
+            activeRowDragState?.isDragging &&
+            activeRowDragState?.sourceId === t.id;
+          const dropPosition = activeRowDragState?.position || "after";
+          const isPointerDragging = Boolean(activeRowDragState?.isDragging);
+          const canDropHere = canDropOnTask(activeRowDragState?.sourceId, t);
 
           return (
             <div
               key={t.id}
+              data-gantt-row-id={t.id}
               style={{ height: rowHeight, gridTemplateColumns }}
-              draggable={!isProject && !busy}
               className={cn(
-                "grid gap-2 px-3 text-[12px]",
+                "relative grid gap-2 px-3 text-[12px]",
                 "border-b border-zinc-100",
                 selected ? "bg-red-50" : "bg-white",
-                !isProject && !busy && "cursor-grab active:cursor-grabbing",
                 isDragging && "opacity-50",
-                isDragOver && "bg-red-100 ring-2 ring-inset ring-red-300",
+                isDragOver && canDropHere && "bg-red-50",
                 "items-center"
               )}
-              onDragStart={(e) => {
-                if (isProject || busy || isGanttPanBlockedTarget(e.target)) {
-                  e.preventDefault();
-                  return;
-                }
-
-                setDragTaskId(t.id);
-                setSelectedTask(t.id);
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", t.id);
-              }}
-              onDragOver={(e) => {
-                const sourceId =
-                  dragTaskId || e.dataTransfer.getData("text/plain");
-                if (!canDropOnTask(sourceId, t)) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                setDragOverTaskId(t.id);
-              }}
-              onDragLeave={() => {
-                if (dragOverTaskId === t.id) setDragOverTaskId("");
-              }}
-              onDrop={(e) => {
-                const sourceId =
-                  dragTaskId || e.dataTransfer.getData("text/plain");
-                if (!canDropOnTask(sourceId, t)) {
-                  clearRowDrag();
-                  return;
-                }
-
-                e.preventDefault();
-                clearRowDrag();
-                onReorderActivity?.(sourceId, t.id);
-              }}
-              onDragEnd={clearRowDrag}
               onClick={() => {
+                if (isPointerDragging) return;
                 const isEditingThisRow =
                   (editingMeta?.id === t.id && editingMeta?.field) ||
                   editingDurId === t.id ||
@@ -890,6 +972,15 @@ function TaskListTableFactory({
                 onOpenInspectorByTaskId?.(t.id);
               }}
             >
+              {isDragOver && canDropHere ? (
+                <span
+                  className={cn(
+                    "pointer-events-none absolute left-2 right-2 z-10 h-0.5 rounded-full bg-red-600",
+                    dropPosition === "before" ? "top-0" : "bottom-0"
+                  )}
+                />
+              ) : null}
+
               {/* Ticket */}
               <div className="min-w-0 flex items-center gap-2">
                 <span
@@ -934,10 +1025,29 @@ function TaskListTableFactory({
                 ) : null}
 
                 {!isProject ? (
-                  <GripVertical
-                    className="h-4 w-4 shrink-0 text-zinc-400"
-                    aria-hidden="true"
-                  />
+                  <button
+                    type="button"
+                    data-gantt-row-drag="true"
+                    className={cn(
+                      "inline-flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900 active:cursor-grabbing",
+                      busy && "cursor-not-allowed opacity-50"
+                    )}
+                    title="Arrastar atividade"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => {
+                      if (busy || isProject) {
+                        e.preventDefault();
+                        return;
+                      }
+
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onRowPointerDown?.(e, t.id);
+                      setSelectedTask(t.id);
+                    }}
+                  >
+                    <GripVertical className="h-4 w-4" />
+                  </button>
                 ) : null}
 
                 <span
@@ -1253,6 +1363,7 @@ export function GanttTab({
   onPersistDateChange,
   onOpenDetails,
   onPersistMetaChange,
+  changeHistory = [],
 }) {
   const [viewMode, setViewMode] = useState(ViewMode.Week);
   const [groupByTicket, setGroupByTicket] = useState(true);
@@ -1293,7 +1404,74 @@ export function GanttTab({
   // trava durante persistência
   const [persistingDates, setPersistingDates] = useState(false);
   const [persistingMeta, setPersistingMeta] = useState(false);
+  const [interactionLabel, setInteractionLabel] = useState("");
+  const [rowDragState, setRowDragState] = useState(() =>
+    makeEmptyRowDragState()
+  );
+  const rowDragStateRef = useRef(rowDragState);
+  const rowDragStyleRef = useRef(null);
   const busy = Boolean(loading || persistingDates || persistingMeta);
+  const operationLabel = persistingDates
+    ? "salvando cronograma no Jira"
+    : persistingMeta
+    ? "salvando dados no Jira"
+    : interactionLabel;
+
+  const clearReorderDrag = useCallback(() => {
+    const next = makeEmptyRowDragState();
+    rowDragStateRef.current = next;
+    setRowDragState(next);
+    if (rowDragStyleRef.current) {
+      document.body.style.cursor = rowDragStyleRef.current.cursor || "";
+      document.body.style.userSelect = rowDragStyleRef.current.userSelect || "";
+      rowDragStyleRef.current = null;
+    }
+    setInteractionLabel((label) =>
+      label === "arrastando atividade" ? "" : label
+    );
+  }, []);
+
+  useEffect(() => {
+    rowDragStateRef.current = rowDragState;
+  }, [rowDragState]);
+
+  const handleRowPointerDown = useCallback(
+    (e, taskId) => {
+      if (busy || !taskId) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+
+      const next = {
+        ...makeEmptyRowDragState(),
+        sourceId: taskId,
+        startX: e.clientX,
+        startY: e.clientY,
+        pointerId: e.pointerId,
+      };
+      rowDragStateRef.current = next;
+      setRowDragState(next);
+      setInteractionLabel("arrastando atividade");
+      rowDragStyleRef.current = {
+        cursor: document.body.style.cursor,
+        userSelect: document.body.style.userSelect,
+      };
+      document.body.style.cursor = "grabbing";
+      document.body.style.userSelect = "none";
+    },
+    [busy]
+  );
+
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key === "Escape") clearReorderDrag();
+    }
+
+    window.addEventListener("blur", clearReorderDrag);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("blur", clearReorderDrag);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [clearReorderDrag]);
 
   // ✅ Overrides otimistas para meta (recurso/área/risco)
   // chave: `${issueKey}::${activityId}` -> { recurso?, area?, risk? }
@@ -1580,8 +1758,24 @@ export function GanttTab({
     });
   }, [tasksWithMetaOverrides]);
 
+  const displayTasks = useMemo(() => {
+    if (
+      !rowDragState.isDragging ||
+      !rowDragState.sourceId ||
+      !rowDragState.targetId
+    ) {
+      return safeTasks;
+    }
+    return applyReorderPreview(
+      safeTasks,
+      rowDragState.sourceId,
+      rowDragState.targetId,
+      rowDragState.position
+    );
+  }, [safeTasks, rowDragState]);
+
   const { taskById, nextById, prevById } = useMemo(() => {
-    const tasksOnly = (safeTasks || []).filter((t) => t?.type === "task");
+    const tasksOnly = (displayTasks || []).filter((t) => t?.type === "task");
 
     const taskById = new Map(tasksOnly.map((t) => [t.id, t]));
 
@@ -1630,7 +1824,7 @@ export function GanttTab({
     }
 
     return { taskById, nextById, prevById };
-  }, [safeTasks, quickView]);
+  }, [displayTasks, quickView]);
 
   // ✅ lockedSet
   const lockedSet = useMemo(() => {
@@ -1644,12 +1838,12 @@ export function GanttTab({
   }, [prevById, chainSet]);
 
   const ganttTasks = useMemo(() => {
-    return (safeTasks || []).map((t) => {
+    return (displayTasks || []).map((t) => {
       if (t.type !== "task") return t;
       if (!lockedSet.has(t.id)) return t;
       return { ...t, isDisabled: true };
     });
-  }, [safeTasks, lockedSet]);
+  }, [displayTasks, lockedSet]);
 
   const ganttContentWidth = useMemo(() => {
     const datedTasks = (ganttTasks || []).filter(
@@ -1901,12 +2095,10 @@ export function GanttTab({
 
         const nextStart = addDays(cur.end, 1);
 
-        const nextDur = Math.max(
-          next.end.getTime() - next.start.getTime(),
-          24 * 60 * 60 * 1000
+        const nextEnd = endFromInclusiveDays(
+          nextStart,
+          inclusiveDurationDays(next.start, next.end)
         );
-
-        const nextEnd = new Date(nextStart.getTime() + nextDur);
 
         const nextUpdate = {
           ...next,
@@ -1928,6 +2120,7 @@ export function GanttTab({
         return false;
       } finally {
         setPersistingDates(false);
+        setInteractionLabel("");
       }
     },
     [
@@ -2031,18 +2224,14 @@ export function GanttTab({
       const nextDate = safeDate(value);
       if (!currentStart || !currentEnd || !nextDate) return false;
 
-      const minDurationMs = 24 * 60 * 60 * 1000;
-      const durationMs = Math.max(
-        minDurationMs,
-        currentEnd.getTime() - currentStart.getTime()
-      );
+      const durationDays = inclusiveDurationDays(currentStart, currentEnd);
 
       let nextStart = currentStart;
       let nextEnd = currentEnd;
 
       if (field === "start") {
         nextStart = nextDate;
-        nextEnd = new Date(nextStart.getTime() + durationMs);
+        nextEnd = endFromInclusiveDays(nextStart, durationDays);
       } else {
         nextEnd = nextDate;
         if (nextEnd < currentStart) {
@@ -2061,11 +2250,16 @@ export function GanttTab({
   );
 
   const handleReorderActivity = useCallback(
-    async (sourceId, targetId) => {
+    async (sourceId, targetId, position = "after") => {
       if (persistingDates || persistingMeta) return false;
 
-      const source = taskById.get(String(sourceId || ""));
-      const target = taskById.get(String(targetId || ""));
+      const baseTaskById = new Map(
+        (safeTasks || [])
+          .filter((t) => t?.type === "task")
+          .map((t) => [t.id, t])
+      );
+      const source = baseTaskById.get(String(sourceId || ""));
+      const target = baseTaskById.get(String(targetId || ""));
       if (!source || !target) return false;
       if (source.type !== "task" || target.type !== "task") return false;
       if (source.id === target.id) return false;
@@ -2081,23 +2275,15 @@ export function GanttTab({
       if (!issueKey || issueKey !== targetIssueKey) return false;
 
       const issueTasks = (safeTasks || []).filter(
-        (t) =>
-          t?.type === "task" &&
-          String(t.issueKey || getIssueKeyFromTaskId(t.id))
-            .trim()
-            .toUpperCase() === issueKey
+        (t) => t?.type === "task" && getTaskIssueKey(t) === issueKey
       );
-      const nextIds = issueTasks.map((t) => t.id);
-      const sourceIndex = nextIds.indexOf(source.id);
-      const targetIndex = nextIds.indexOf(target.id);
-      if (sourceIndex < 0 || targetIndex < 0) return false;
-
-      nextIds.splice(sourceIndex, 1);
-      const insertIndex = nextIds.indexOf(target.id);
-      nextIds.splice(insertIndex < 0 ? targetIndex : insertIndex, 0, source.id);
+      const previousIds = issueTasks.map((t) => t.id);
+      const nextIds = reorderTaskIds(safeTasks, source.id, target.id, position);
+      if (!nextIds) return false;
+      if (nextIds.join("|") === previousIds.join("|")) return false;
 
       const orderedTasks = nextIds
-        .map((id) => taskById.get(id))
+        .map((id) => baseTaskById.get(id))
         .filter((t) => t && t.type === "task");
       if (orderedTasks.length < 2) return false;
 
@@ -2113,16 +2299,12 @@ export function GanttTab({
       if (!validStarts.length) return false;
 
       let cursor = new Date(Math.min(...validStarts));
-      const dayMs = 24 * 60 * 60 * 1000;
       const updates = orderedTasks.map((task) => {
-        const start = safeDate(task.start);
-        const end = safeDate(task.end);
-        const durationMs = Math.max(
-          dayMs,
-          start && end ? end.getTime() - start.getTime() : dayMs
-        );
         const nextStart = new Date(cursor);
-        const nextEnd = new Date(nextStart.getTime() + durationMs);
+        const nextEnd = endFromInclusiveDays(
+          nextStart,
+          inclusiveDurationDays(task.start, task.end)
+        );
         cursor = addDays(nextEnd, 1);
         return {
           ...task,
@@ -2153,17 +2335,145 @@ export function GanttTab({
         return false;
       } finally {
         setPersistingDates(false);
+        setInteractionLabel("");
       }
     },
     [
       persistingDates,
       persistingMeta,
-      taskById,
       safeTasks,
       orderOverrides,
       onPersistDateChange,
     ]
   );
+
+  const handleRowDrop = useCallback(
+    (sourceId, targetId, position) => {
+      clearReorderDrag();
+      setInteractionLabel("reordenando cronograma");
+
+      Promise.resolve(handleReorderActivity(sourceId, targetId, position)).finally(
+        () => {
+          setInteractionLabel("");
+        }
+      );
+    },
+    [clearReorderDrag, handleReorderActivity]
+  );
+
+  useEffect(() => {
+    if (!rowDragState.sourceId) return undefined;
+
+    function getRowAtPoint(clientX, clientY) {
+      const el = document.elementFromPoint(clientX, clientY);
+      const row = el?.closest?.("[data-gantt-row-id]");
+      if (!(row instanceof Element)) return null;
+      return {
+        id: row.getAttribute("data-gantt-row-id") || "",
+        position: getDropPositionFromRowElement(row, clientY),
+      };
+    }
+
+    function onPointerMove(e) {
+      const drag = rowDragStateRef.current;
+      if (!drag?.sourceId) return;
+      if (drag.pointerId != null && e.pointerId !== drag.pointerId) return;
+
+      const moved =
+        drag.isDragging ||
+        Math.abs(e.clientY - drag.startY) > 4 ||
+        Math.abs(e.clientX - drag.startX) > 4;
+      if (!moved) return;
+
+      const row = getRowAtPoint(e.clientX, e.clientY);
+      const validPreview =
+        row?.id &&
+        row.id !== drag.sourceId &&
+        reorderTaskIds(safeTasks, drag.sourceId, row.id, row.position);
+      const keepLastValidTarget = row?.id === drag.sourceId && drag.targetId;
+
+      const targetId = validPreview
+        ? row.id
+        : keepLastValidTarget
+        ? drag.targetId
+        : "";
+      const position = validPreview
+        ? row.position
+        : keepLastValidTarget
+        ? drag.position
+        : "after";
+
+      const next = {
+        ...drag,
+        isDragging: true,
+        targetId,
+        position,
+      };
+
+      rowDragStateRef.current = next;
+      setRowDragState((prev) => {
+        if (
+          prev.isDragging === next.isDragging &&
+          prev.targetId === next.targetId &&
+          prev.position === next.position
+        ) {
+          return prev;
+        }
+        return next;
+      });
+
+      e.preventDefault();
+    }
+
+    function onPointerUp(e) {
+      const drag = rowDragStateRef.current;
+      if (!drag?.sourceId) return;
+      if (drag.pointerId != null && e.pointerId !== drag.pointerId) return;
+
+      const sourceId = drag.sourceId;
+      const row = getRowAtPoint(e.clientX, e.clientY);
+      let targetId = "";
+      let position = "after";
+
+      if (
+        row?.id &&
+        row.id !== sourceId &&
+        reorderTaskIds(safeTasks, sourceId, row.id, row.position)
+      ) {
+        targetId = row.id;
+        position = row.position;
+      } else if (row?.id === sourceId && drag.targetId) {
+        targetId = drag.targetId;
+        position = drag.position;
+      }
+
+      if (drag.isDragging && targetId) {
+        handleRowDrop(sourceId, targetId, position);
+      } else {
+        clearReorderDrag();
+      }
+
+      e.preventDefault();
+    }
+
+    function onPointerCancel() {
+      clearReorderDrag();
+    }
+
+    window.addEventListener("pointermove", onPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+    };
+  }, [
+    rowDragState.sourceId,
+    safeTasks,
+    handleRowDrop,
+    clearReorderDrag,
+  ]);
 
   const openJira = useCallback((issueKey) => {
     const key = String(issueKey || "")
@@ -2355,8 +2665,9 @@ export function GanttTab({
       onToggleChain: toggleChain,
       onChangeDuration: handleDurationChange,
       onChangeDate: handleDateInputChange,
-      onReorderActivity: handleReorderActivity,
       onChangeMeta: handleMetaChangeFromGrid,
+      rowDragStateRef,
+      onRowPointerDown: handleRowPointerDown,
       busy,
 
       onOpenInspectorByTaskId: openInspectorByTaskId,
@@ -2371,8 +2682,8 @@ export function GanttTab({
     toggleChain,
     handleDurationChange,
     handleDateInputChange,
-    handleReorderActivity,
     handleMetaChangeFromGrid,
+    handleRowPointerDown,
     busy,
     openInspectorByTaskId,
   ]);
@@ -2387,9 +2698,7 @@ export function GanttTab({
               <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
                 <Loader2 className="h-4 w-4 animate-spin text-red-600" />
                 <span className="text-sm font-semibold text-zinc-800">
-                  {persistingDates || persistingMeta
-                    ? "Salvando alteração..."
-                    : "Atualizando dados..."}
+                  {operationLabel || "Atualizando dados..."}
                 </span>
               </div>
             </div>
@@ -2405,6 +2714,14 @@ export function GanttTab({
                   Arraste/redimensione para alterar datas. Dependências são
                   desenhadas por atividades do ticket.
                 </p>
+                {operationLabel ? (
+                  <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+                    {busy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {operationLabel}
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
@@ -2643,6 +2960,41 @@ export function GanttTab({
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                <History className="h-4 w-4 text-red-600" />
+                Últimas alterações
+              </div>
+              {changeHistory.length ? (
+                <div className="grid gap-2">
+                  {changeHistory.slice(0, 4).map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs"
+                    >
+                      <div className="min-w-0 text-zinc-700">
+                        <strong className="text-zinc-900">{entry.issueKey}</strong>{" "}
+                        <span>{entry.activityName}</span>
+                        <span className="ml-2 text-zinc-400">
+                          {entry.previousRange} → {entry.nextRange}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-zinc-500">
+                        <span>{fmtDateTimeBR(entry.timestamp)}</span>
+                        <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 font-semibold">
+                          {entry.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-3 text-xs text-zinc-500">
+                  Nenhuma alteração de cronograma nesta sessão.
+                </div>
+              )}
             </div>
 
           </div>
