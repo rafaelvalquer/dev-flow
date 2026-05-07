@@ -17,22 +17,22 @@ import { cn } from "@/lib/utils";
 import { X, Plus, Eye, FileText, Bot, Printer, Trash2 } from "lucide-react";
 
 /**
- * ObservaÃ§Ã£o:
- * - Para preencher automaticamente o TÃTULO com o resumo do Jira,
+ * Observação:
+ * - Para preencher automaticamente o TÍTULO com o resumo do Jira,
  *   passe a prop opcional `initialTitle` para este componente:
  *   <RDMTab initialTitle={jiraIssue.fields.summary} />
  */
 
 const RDM_INITIAL = {
-  // CabeÃ§alho
+  // Cabeçalho
   titulo: "",
   categoria: "",
   tipo: "",
   classificacao: "",
-  impactoNivel: "", // Baixo | MÃ©dio | Alto
+  impactoNivel: "", // Baixo | Médio | Alto
   registroPA: "",
   chamadoCASD: "",
-  mudancaReincidente: "NÃƒO",
+  mudancaReincidente: "NÃO",
 
   // Objetivo e justificativas
   objetivoDescricao: "",
@@ -46,7 +46,7 @@ const RDM_INITIAL = {
   acao: "",
   beneficio: "",
   areasAfetadas: "",
-  deAcordoResponsavel: "", // "SIM" | "NÃƒO"
+  deAcordoResponsavel: "", // "SIM" | "NÃO"
 
   // Impactos
   impactoNaoExecutar: "",
@@ -55,20 +55,20 @@ const RDM_INITIAL = {
   // Alinhamentos: [{nome, area, contato}]
   alinhamentos: [{ nome: "", area: "", contato: "" }],
 
-  // HomologaÃ§Ã£o
-  homologacaoRealizada: "", // "SIM" | "NÃƒO"
+  // Homologação
+  homologacaoRealizada: "", // "SIM" | "NÃO"
 
   // Solicitante / Executor
   solicitante: { nome: "", area: "", contato: "" },
   liderTecnico: { nome: "", area: "", contato: "" },
   executores: [{ nome: "", area: "", contato: "" }],
 
-  // ParÃ¢metros do cronograma
+  // Parâmetros do cronograma
   inicioAtividades: "", // datetime-local (ex: 2025-12-23T18:00)
   stepMinutes: 15,
   inicioAtividadesAuto: true,
 
-  // Janelas (listas dinÃ¢micas)
+  // Janelas (listas dinâmicas)
   atividades: [{ dataHora: "", descricao: "", responsavel: "" }],
   rollbackPlan: [{ dataHora: "", descricao: "", responsavel: "" }],
 };
@@ -104,7 +104,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
   const [previewRdm, setPreviewRdm] = useState(null);
 
   function openPreview() {
-    // â€œcongelaâ€ os dados para nÃ£o regenerar a cada digitaÃ§Ã£o dentro do modal
+    // “congela” os dados para não regenerar a cada digitação dentro do modal
     setPreviewRdm(clone(rdm));
     setPreviewOpen(true);
   }
@@ -154,9 +154,9 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
   }
 
   // ---------- (REMOVIDO) LocalStorage ----------
-  // NÃ£o carrega nem salva nada no localStorage.
+  // Não carrega nem salva nada no localStorage.
 
-  // ---------- TÃ­tulo vindo do App/Jira ----------
+  // ---------- Título vindo do App/Jira ----------
   useEffect(() => {
     if (initialTitle) {
       setRdm((prev) => ({ ...prev, titulo: prev.titulo || initialTitle }));
@@ -170,11 +170,11 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
     if (!autoValue) return;
 
     setRdm((prev) => {
-      // Se o usuÃ¡rio jÃ¡ mexeu, nÃ£o sobrescreve
+      // Se o usuário já mexeu, não sobrescreve
       if (prev.inicioAtividades && prev.inicioAtividadesAuto === false)
         return prev;
 
-      // Se estÃ¡ vazio OU ainda estÃ¡ em modo auto, atualiza
+      // Se está vazio OU ainda está em modo auto, atualiza
       return {
         ...prev,
         inicioAtividades: autoValue,
@@ -196,7 +196,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
     setRdm((prev) => ({
       ...prev,
       inicioAtividades: value,
-      inicioAtividadesAuto: false, // usuÃ¡rio mexeu
+      inicioAtividadesAuto: false, // usuário mexeu
     }));
   }
 
@@ -257,7 +257,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
     });
   }
 
-  // ---------- CatÃ¡logo ----------
+  // ---------- Catálogo ----------
   const {
     categorias = [],
     tipos = [],
@@ -290,9 +290,9 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
     const blocks = cron?.blocks || {};
     return {
       Antes: blocks.seqBefore || [],
-      "Atividades (dinÃ¢micas)": blocks.seqDynamic || [],
-      "ValidaÃ§Ã£o tÃ©cnica": blocks.seqValidTec || [],
-      "ValidaÃ§Ã£o funcional": blocks.seqValidFunc || [],
+      "Atividades (dinâmicas)": blocks.seqDynamic || [],
+      "Validação técnica": blocks.seqValidTec || [],
+      "Validação funcional": blocks.seqValidFunc || [],
       Depois: blocks.seqAfter || [],
     };
   }, [cron]);
@@ -304,19 +304,19 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
       <ul style={{ margin: "6px 0 8px 18px" }}>
         {arr.map((it, i) => (
           <li key={`${it.bloco || "all"}-${i}`}>
-            {it.horaFmt} â€“ {it.descricao || "(sem descrição)"}{" "}
-            {it.noDuration ? " (sem duraÃ§Ã£o)" : ""}
+            {it.horaFmt} – {it.descricao || "(sem descrição)"}{" "}
+            {it.noDuration ? " (sem duração)" : ""}
           </li>
         ))}
       </ul>
     );
 
   const sections = [
-    { id: "identificacao", label: "IdentificaÃ§Ã£o" },
+    { id: "identificacao", label: "Identificação" },
     { id: "objetivo", label: "Objetivo" },
-    { id: "execucao", label: "ExecuÃ§Ã£o" },
+    { id: "execucao", label: "Execução" },
     { id: "impactos", label: "Impactos" },
-    { id: "responsaveis", label: "ResponsÃ¡veis" },
+    { id: "responsaveis", label: "Responsáveis" },
     { id: "cronograma", label: "Cronograma" },
     { id: "rollback", label: "Rollback" },
   ];
@@ -342,11 +342,11 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
       className="rdm-wrap rdm-module"
     >
       <ModuleHeader
-        eyebrow="DocumentaÃ§Ã£o guiada"
+        eyebrow="Documentação guiada"
         title="RDM"
-        description="A experiÃªncia foi reorganizada para reduzir a sensaÃ§Ã£o de planilha e orientar o preenchimento por blocos de decisÃ£o."
+        description="A experiência foi reorganizada para reduzir a sensação de planilha e orientar o preenchimento por blocos de decisão."
         badge="RDM"
-        nextStep="Comece pela identificaÃ§Ã£o, avance para objetivo e feche com cronograma e rollback."
+        nextStep="Comece pela identificação, avance para objetivo e feche com cronograma e rollback."
       />
 
       <InfoStrip
@@ -357,16 +357,16 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
             helper: `${completedCoreFields} de 6 campos centrais preenchidos.`,
           },
           {
-            label: "TÃ­tulo",
+            label: "Título",
             value: rdm.titulo ? "Definido" : "Pendente",
-            helper: rdm.titulo || "Defina um tÃ­tulo objetivo para a mudança.",
+            helper: rdm.titulo || "Defina um título objetivo para a mudança.",
           },
           {
             label: "Janela",
             value: rdm.inicioAtividades ? "Planejada" : "Pendente",
             helper:
               rdm.inicioAtividades ||
-              "Informe o inÃ­cio das atividades para montar o cronograma.",
+              "Informe o início das atividades para montar o cronograma.",
           },
         ]}
       />
@@ -374,7 +374,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
       <div
         className="rdm-step-nav"
         role="navigation"
-        aria-label="SeÃ§Ãµes da RDM"
+        aria-label="Seções da RDM"
       >
         {sections.map((section) => (
           <button
@@ -391,21 +391,21 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           </button>
         ))}
       </div>
-      {/* ===== 1. IDENTIFICAÃ‡ÃƒO DA RDM ===== */}
+      {/* ===== 1. IDENTIFICA??O DA RDM ===== */}
       <div id="rdm-identificacao" className="section-header">
         <i className="fas fa-id-card"></i>
-        <h2>IdentificaÃ§Ã£o da RDM</h2>
+        <h2>Identificação da RDM</h2>
       </div>
 
       <div className="rdm-grid">
         <div className="rdm-card span-2 highlight">
           <label>
-            TÃTULO DA RDM <span className="required">*</span>
+            TÍTULO DA RDM <span className="required">*</span>
           </label>
           <input
             value={rdm.titulo ?? ""}
             onChange={(e) => upd("titulo", e.target.value)}
-            placeholder="Ex: ImplantaÃ§Ã£o de nova regra de cobranÃ§a automÃ¡tica em URA"
+            placeholder="Ex: Implantação de nova regra de cobrança automática em URA"
           />
         </div>
 
@@ -440,7 +440,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card">
-          <label>CLASSIFICAÃ‡ÃƒO</label>
+          <label>CLASSIFICA??O</label>
           <input
             list="lista-classificacoes"
             value={rdm.classificacao ?? ""}
@@ -464,7 +464,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           >
             <option value="">Selecione</option>
             <option value="Baixo">Baixo</option>
-            <option value="MÃ©dio">MÃ©dio</option>
+            <option value="Médio">Médio</option>
             <option value="Alto">Alto</option>
           </select>
         </div>
@@ -499,12 +499,12 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
 
         <div className="rdm-card">
           <label>
-            Por quÃª? (Motivo) <span className="required">*</span>
+            Por quê? (Motivo) <span className="required">*</span>
           </label>
           <textarea
             value={rdm.porQue ?? ""}
             onChange={(e) => upd("porQue", e.target.value)}
-            placeholder="MotivaÃ§Ã£o da mudança"
+            placeholder="Motivação da mudança"
           />
         </div>
 
@@ -515,29 +515,29 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <textarea
             value={rdm.paraQue ?? ""}
             onChange={(e) => upd("paraQue", e.target.value)}
-            placeholder="Resultados esperados / benefÃ­cio"
+            placeholder="Resultados esperados / benefício"
           />
         </div>
 
         <div className="rdm-card span-2">
-          <label>BenefÃ­cio da Atividade</label>
+          <label>Benefício da Atividade</label>
           <textarea
             value={rdm.beneficio ?? ""}
             onChange={(e) => upd("beneficio", e.target.value)}
-            placeholder="BenefÃ­cios e ganhos esperados"
+            placeholder="Benefícios e ganhos esperados"
           />
         </div>
       </div>
 
-      {/* ===== 3. EXECUÃ‡ÃƒO E ESCOPO ===== */}
+      {/* ===== 3. EXECU??O E ESCOPO ===== */}
       <div id="rdm-execucao" className="section-header">
         <i className="fas fa-tools"></i>
-        <h2>ExecuÃ§Ã£o e Escopo</h2>
+        <h2>Execução e Escopo</h2>
       </div>
 
       <div className="rdm-grid">
         <div className="rdm-card">
-          <label>Onde? â€” Ambiente</label>
+          <label>Onde? — Ambiente</label>
           <input
             list="lista-ambientes"
             value={rdm.ondeAmbiente ?? ""}
@@ -552,7 +552,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card">
-          <label>Onde? â€” ServiÃ§o (NegÃ³cio)</label>
+          <label>Onde? — Serviço (Negócio)</label>
           <input
             list="lista-servicos"
             value={rdm.ondeServico ?? ""}
@@ -567,44 +567,44 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card span-2">
-          <label>Como serÃ¡ feito? (AÃ§Ã£o)</label>
+          <label>Como será feito? (Ação)</label>
           <textarea
             value={rdm.acao ?? ""}
             onChange={(e) => upd("acao", e.target.value)}
-            placeholder="Passos de alto nÃ­vel da execuÃ§Ã£o"
+            placeholder="Passos de alto nível da execução"
           />
         </div>
 
         <div className="rdm-card span-2">
-          <label>Ãreas UsuÃ¡rias Afetadas pela mudança</label>
+          <label>Áreas Usuárias Afetadas pela mudança</label>
           <textarea
             value={rdm.areasAfetadas ?? ""}
             onChange={(e) => upd("areasAfetadas", e.target.value)}
-            placeholder="Ex.: Atendimento, CobranÃ§a, Financeiro..."
+            placeholder="Ex.: Atendimento, Cobrança, Financeiro..."
           />
         </div>
 
         <div className="rdm-card">
-          <label>JÃ¡ possui o â€œde acordoâ€ do responsÃ¡vel?</label>
+          <label>Já possui o “de acordo” do responsável?</label>
           <select
             value={rdm.deAcordoResponsavel ?? ""}
             onChange={(e) => upd("deAcordoResponsavel", e.target.value)}
           >
             <option value=""></option>
             <option value="SIM">SIM</option>
-            <option value="NÃƒO">NÃƒO</option>
+            <option value="NÃO">NÃO</option>
           </select>
         </div>
 
         <div className="rdm-card">
-          <label>Foi realizada a homologaÃ§Ã£o do item?</label>
+          <label>Foi realizada a homologação do item?</label>
           <select
             value={rdm.homologacaoRealizada ?? ""}
             onChange={(e) => upd("homologacaoRealizada", e.target.value)}
           >
             <option value=""></option>
             <option value="SIM">SIM</option>
-            <option value="NÃƒO">NÃƒO</option>
+            <option value="NÃO">NÃO</option>
           </select>
         </div>
       </div>
@@ -617,11 +617,11 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
 
       <div className="rdm-grid">
         <div className="rdm-card span-2">
-          <label>Qual o impacto caso a RDM NÃƒO seja executada?</label>
+          <label>Qual o impacto caso a RDM NÃO seja executada?</label>
           <textarea
             value={rdm.impactoNaoExecutar ?? ""}
             onChange={(e) => upd("impactoNaoExecutar", e.target.value)}
-            placeholder="ConsequÃªncias para o negÃ³cio ou operaÃ§Ã£o"
+            placeholder="Consequências para o negócio ou operação"
           />
         </div>
 
@@ -630,33 +630,33 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <textarea
             value={rdm.impactoAmbiente ?? ""}
             onChange={(e) => upd("impactoAmbiente", e.target.value)}
-            placeholder="Indisponibilidade, degradaÃ§Ã£o, janela de manutenÃ§Ã£o..."
+            placeholder="Indisponibilidade, degradação, janela de manutenção..."
           />
         </div>
       </div>
 
-      {/* ===== 5. ALINHAMENTOS E RESPONSÃVEIS ===== */}
+      {/* ===== 5. ALINHAMENTOS E RESPONSÁVEIS ===== */}
       <div id="rdm-responsaveis" className="section-header">
         <i className="fas fa-users"></i>
-        <h2>Alinhamentos e ResponsÃ¡veis</h2>
+        <h2>Alinhamentos e Responsáveis</h2>
       </div>
 
       <div className="rdm-grid">
         <div id="rdm-cronograma" className="rdm-card span-2">
-          <label>ResponsÃ¡vel (TÃ©cnica e NegÃ³cio)</label>
+          <label>Responsável (Técnica e Negócio)</label>
 
           {rdm.alinhamentos.map((row, idx) => (
             <div key={`alin-${idx}`} className="table-row">
               <input
                 list="lista-pessoas"
-                placeholder="ResponsÃ¡vel"
+                placeholder="Responsável"
                 value={row.nome ?? ""}
                 onChange={(e) =>
                   onPickPessoa(`alinhamentos.${idx}`, e.target.value)
                 }
               />
               <input
-                placeholder="Ãrea"
+                placeholder="Área"
                 value={row.area ?? ""}
                 onChange={(e) =>
                   updNested(`alinhamentos.${idx}.area`, e.target.value)
@@ -697,7 +697,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card span-2">
-          <label>LÃDER TÃ‰CNICO</label>
+          <label>LÍDER TÉCNICO</label>
           <div className="table-row">
             <input
               list="lista-pessoas"
@@ -706,7 +706,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               onChange={(e) => onPickPessoa("liderTecnico", e.target.value)}
             />
             <input
-              placeholder="Ãrea"
+              placeholder="Área"
               value={rdm.liderTecnico.area ?? ""}
               onChange={(e) => updNested("liderTecnico.area", e.target.value)}
             />
@@ -734,7 +734,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
                 }
               />
               <input
-                placeholder="Ãrea"
+                placeholder="Área"
                 value={ex.area ?? ""}
                 onChange={(e) =>
                   updNested(`executores.${idx}.area`, e.target.value)
@@ -776,7 +776,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
 
         {/* ===== CRONOGRAMA ===== */}
         <div className="rdm-card span-2">
-          <label>InÃ­cio das atividades</label>
+          <label>Início das atividades</label>
           <input
             type="datetime-local"
             value={rdm.inicioAtividades ?? ""}
@@ -795,7 +795,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card span-2">
-          <label>DESCRIÃ‡ÃƒO DETALHADA DA ATIVIDADE</label>
+          <label>DESCRI??O DETALHADA DA ATIVIDADE</label>
 
           {rdm.atividades.map((row, idx) => (
             <div key={`atv-${idx}`} className="table-row wide">
@@ -808,7 +808,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               />
               <input
                 list="lista-pessoas"
-                placeholder="ResponsÃ¡vel"
+                placeholder="Responsável"
                 value={row.responsavel ?? ""}
                 onChange={(e) =>
                   updNested(`atividades.${idx}.responsavel`, e.target.value)
@@ -853,11 +853,11 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               padding: 8,
             }}
           >
-            <strong>Cronograma (prÃ©-visualizaÃ§Ã£o):</strong>
+            <strong>Cronograma (pré-visualização):</strong>
 
             {!rdm.inicioAtividades ? (
               <div style={{ padding: "6px 0", color: "#777" }}>
-                Informe o â€œInÃ­cio das atividadesâ€ para visualizar o
+                Informe o “Início das atividades” para visualizar o
                 cronograma.
               </div>
             ) : (
@@ -901,7 +901,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               />
               <input
                 list="lista-pessoas"
-                placeholder="ResponsÃ¡vel"
+                placeholder="Responsável"
                 value={row.responsavel ?? ""}
                 onChange={(e) =>
                   updNested(`rollbackPlan.${idx}.responsavel`, e.target.value)
@@ -939,7 +939,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
       </div>
 
-      {/* ===== AÃ‡Ã•ES FINAIS FIXAS (layout mais intuitivo e compacto) ===== */}
+      {/* ===== AÇÕES FINAIS FIXAS (layout mais intuitivo e compacto) ===== */}
       <StickyActionBar
         className="rdm-fixed-bar"
         title="Ações finais"
@@ -1027,7 +1027,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <h3 style={{ margin: 0, flex: 1 }}>
-                Co-pilot (Gemini) â€” preencher RDM
+                Co-pilot (Gemini) — preencher RDM
               </h3>
 
               <Button
@@ -1044,9 +1044,9 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
             </div>
 
             <p style={{ marginTop: 8, color: "#555", fontSize: 13 }}>
-              Anexe arquivos (PDF, imagens, textos) com contexto tÃ©cnico. O
-              Co-pilot retornarÃ¡ um JSON e preencherÃ¡: Objetivo, O que, Por
-              quÃª, Para que, BenefÃ­cio.
+              Anexe arquivos (PDF, imagens, textos) com contexto técnico. O
+              Co-pilot retornará um JSON e preencherá: Objetivo, O que, Por
+              quê, Para que, Benefício.
             </p>
 
             <input

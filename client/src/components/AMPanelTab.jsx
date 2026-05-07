@@ -100,6 +100,7 @@ import {
   ATIVIDADES_PADRAO,
   buildCronogramaADF,
   parseCronogramaADF,
+  toCalendarEvents,
 } from "../utils/cronograma";
 import {
   buildPoInsights,
@@ -480,6 +481,58 @@ export default function AMPanelTab() {
   const [rows, setRows] = useState([]);
   const [doneRows, setDoneRows] = useState([]);
 
+  const applyCronogramaPatchLocal = useCallback((issueKey, atividades) => {
+    const ik = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!ik || !Array.isArray(atividades)) return;
+
+    setRawIssues((prev) =>
+      (prev || []).map((issue) =>
+        String(issue?.key || "")
+          .trim()
+          .toUpperCase() === ik
+          ? { ...issue, atividades }
+          : issue
+      )
+    );
+
+    setRows((prev) =>
+      (prev || []).map((issue) =>
+        String(issue?.key || "")
+          .trim()
+          .toUpperCase() === ik
+          ? { ...issue, atividades }
+          : issue
+      )
+    );
+
+    setViewData((prev) => {
+      const calendarioIssues = (prev?.calendarioIssues || []).map((issue) =>
+        String(issue?.key || "")
+          .trim()
+          .toUpperCase() === ik
+          ? { ...issue, atividades }
+          : issue
+      );
+
+      const issueEvents = toCalendarEvents(ik, atividades, new Date());
+      const events = [
+        ...(prev?.events || []).filter((event) => {
+          const eventIssueKey = String(
+            event?.extendedProps?.issueKey || event?.issueKey || ""
+          )
+            .trim()
+            .toUpperCase();
+          return eventIssueKey !== ik;
+        }),
+        ...issueEvents,
+      ];
+
+      return { ...prev, calendarioIssues, events };
+    });
+  }, []);
+
   const reload = useCallback(async () => {
     setLoading(true);
     setErr("");
@@ -792,8 +845,7 @@ export default function AMPanelTab() {
         fields: { customfield_14017: adf },
       });
 
-      // mantém travado até terminar reload (porque o reload ainda vai bater no Jira)
-      await reload();
+      applyCronogramaPatchLocal(issueKey, issue.atividades || []);
     } catch (e) {
       console.error(e);
       setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
@@ -950,7 +1002,16 @@ export default function AMPanelTab() {
           });
         }
 
-        await reload();
+        for (const issueKey of byIssue.keys()) {
+          const issue = nextCalendarioIssues.find(
+            (x) =>
+              String(x?.key || "")
+                .trim()
+                .toUpperCase() === issueKey
+          );
+          if (issue) applyCronogramaPatchLocal(issueKey, issue.atividades || []);
+        }
+
         return true;
       } catch (e) {
         console.error(e);
@@ -962,15 +1023,10 @@ export default function AMPanelTab() {
           calendarioIssues: prevSnapshot,
         }));
 
-        // garante estado correto
-        try {
-          await reload();
-        } catch {}
-
         return false;
       }
     },
-    [viewData.calendarioIssues, viewData.events] // dependencies
+    [applyCronogramaPatchLocal, viewData.calendarioIssues, viewData.events]
   );
 
   const persistGanttMetaChange = useCallback(
@@ -1071,7 +1127,7 @@ export default function AMPanelTab() {
           },
         });
 
-        await reload();
+        applyCronogramaPatchLocal(ik, issue.atividades || []);
         return true;
       } catch (e) {
         console.error(e);
@@ -1084,14 +1140,10 @@ export default function AMPanelTab() {
           events: prevEventsSnapshot,
         }));
 
-        try {
-          await reload();
-        } catch {}
-
         return false;
       }
     },
-    [viewData.calendarioIssues, viewData.events] // dependencies
+    [applyCronogramaPatchLocal, viewData.calendarioIssues, viewData.events]
   );
 
   return (

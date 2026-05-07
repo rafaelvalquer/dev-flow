@@ -4,6 +4,8 @@ import {
   ChevronRight,
   FileText,
   LayoutDashboard,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
 } from "lucide-react";
 import { Toaster } from "sonner";
@@ -63,6 +65,8 @@ const MAIN_TABS = [
 
 export default function App() {
   const [mainTab, setMainTab] = useState("gmud");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set(["gmud"]));
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
   const [rdmTitle, setRdmTitle] = useState("");
   const [rdmDueDate, setRdmDueDate] = useState("");
@@ -110,10 +114,25 @@ export default function App() {
     .join(" ");
 
   const CurrentIcon = currentTab.icon;
+  const ToggleSidebarIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
+
+  function selectMainTab(tabId) {
+    setMainTab(tabId);
+    setVisitedTabs((prev) => {
+      if (prev.has(tabId)) return prev;
+      const next = new Set(prev);
+      next.add(tabId);
+      return next;
+    });
+  }
 
   return (
     <>
-      <div className={`app-shell app-shell--${mainTab}`}>
+      <div
+        className={`app-shell app-shell--${mainTab} ${
+          sidebarCollapsed ? "app-shell--sidebar-collapsed" : ""
+        }`}
+      >
         <div className="app-shell__backdrop" aria-hidden="true">
           <span className="app-shell__orb app-shell__orb--primary" />
           <span className="app-shell__orb app-shell__orb--secondary" />
@@ -122,6 +141,25 @@ export default function App() {
 
         <div className="app-frame">
           <aside className="app-sidebar">
+            <button
+              type="button"
+              className="app-sidebar__toggle"
+              onClick={() => setSidebarCollapsed((value) => !value)}
+              aria-label={
+                sidebarCollapsed
+                  ? "Expandir menu lateral"
+                  : "Recolher menu lateral"
+              }
+              aria-pressed={sidebarCollapsed}
+              title={
+                sidebarCollapsed
+                  ? "Expandir menu lateral"
+                  : "Recolher menu lateral"
+              }
+            >
+              <ToggleSidebarIcon className="h-4 w-4" />
+            </button>
+
             <div className="app-brand">
               <span className="app-brand__badge">Claro Dev Flow</span>
 
@@ -152,7 +190,8 @@ export default function App() {
                     role="tab"
                     aria-selected={isActive}
                     className={`app-nav__item ${isActive ? "is-active" : ""}`}
-                    onClick={() => setMainTab(tab.id)}
+                    onClick={() => selectMainTab(tab.id)}
+                    title={sidebarCollapsed ? tab.title : undefined}
                   >
                     <span className="app-nav__icon">
                       <TabIcon className="h-5 w-5" />
@@ -169,12 +208,6 @@ export default function App() {
               })}
             </nav>
 
-            <div className="app-sidebar__note">
-              <strong>Foco da experiência</strong>
-              <br />
-              Navegue por módulos com contexto, estado atual e próxima ação
-              sempre visíveis.
-            </div>
           </aside>
 
           <main className="app-main">
@@ -262,7 +295,11 @@ export default function App() {
                 />
               ) : null}
 
-              {mainTab === "am" ? <AMPanelTab /> : null}
+              {visitedTabs.has("am") ? (
+                <div hidden={mainTab !== "am"}>
+                  <AMPanelTab />
+                </div>
+              ) : null}
 
               {mainTab === "tools" ? <ToolsTab /> : null}
             </section>

@@ -15,7 +15,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { AlertTriangle, Loader2, Search, Link2, Link2Off } from "lucide-react";
+import {
+  AlertTriangle,
+  GripVertical,
+  Loader2,
+  Search,
+  Link2,
+  Link2Off,
+} from "lucide-react";
 
 import GanttTaskInspectorDrawer from "./GanttTaskInspectorDrawer";
 
@@ -42,6 +49,15 @@ function fmtDateBR(d) {
     day: "2-digit",
     month: "2-digit",
   }).format(date);
+}
+
+function toDateInputValue(d) {
+  const date = safeDate(d);
+  if (!date) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function safeDate(v) {
@@ -206,6 +222,37 @@ function pickColor(key) {
   return CALENDAR_PALETTE[idx];
 }
 
+const GANTT_PAN_BLOCKED_SELECTOR = [
+  "input",
+  "button",
+  "select",
+  "textarea",
+  "a",
+  "[role='button']",
+  "[contenteditable='true']",
+  ".cursor-col-resize",
+  "._KxSXS",
+  "._RRr13",
+  "._1KJ6x",
+  "._3w_5u",
+].join(",");
+
+function isGanttPanBlockedTarget(target) {
+  if (!(target instanceof Element)) return true;
+  return Boolean(target.closest(GANTT_PAN_BLOCKED_SELECTOR));
+}
+
+function isNativeScrollbarHit(el, e) {
+  const rect = el.getBoundingClientRect();
+  const scrollbarSize = 18;
+  const hasHorizontal = el.scrollWidth > el.clientWidth;
+  const hasVertical = el.scrollHeight > el.clientHeight;
+
+  if (hasHorizontal && e.clientY >= rect.bottom - scrollbarSize) return true;
+  if (hasVertical && e.clientX >= rect.right - scrollbarSize) return true;
+  return false;
+}
+
 function groupAtividadeName(rawName) {
   const original = String(rawName || "").trim();
   if (!original) return "sem atividade";
@@ -266,6 +313,7 @@ export function buildGanttTasksFromViewData({
   groupByTicket,
   quickView,
   collapsedProjects,
+  orderOverrides,
   metaOverrides, // ✅ NOVO
 }) {
   const issues = Array.isArray(viewData?.calendarioIssues)
@@ -286,7 +334,7 @@ export function buildGanttTasksFromViewData({
     let end = safeDate(ev?.end);
 
     if (!start) continue;
-    if (!end || end <= start) end = addDays(start, 1);
+    if (!end || end < start) end = start;
 
     dateIndex.set(`${issueKey}::${activityId}`, { start, end });
   }
@@ -388,7 +436,21 @@ export function buildGanttTasksFromViewData({
 
     let ordered = [...activityTasks];
 
-    if (quickView === "po") {
+    const customOrder = orderOverrides?.get?.(issueKey) || null;
+
+    if (Array.isArray(customOrder) && customOrder.length) {
+      const orderIndex = new Map(customOrder.map((id, idx) => [id, idx]));
+      ordered.sort((a, b) => {
+        const ai = orderIndex.has(a.activityId)
+          ? orderIndex.get(a.activityId)
+          : Number.MAX_SAFE_INTEGER;
+        const bi = orderIndex.has(b.activityId)
+          ? orderIndex.get(b.activityId)
+          : Number.MAX_SAFE_INTEGER;
+        if (ai !== bi) return ai - bi;
+        return a.start.getTime() - b.start.getTime();
+      });
+    } else if (quickView === "po") {
       const chain = [];
       const rest = [];
 
@@ -546,25 +608,25 @@ export function buildGanttTasksFromViewData({
    Colunas redimensionáveis
 ========================= */
 const DEFAULT_COL_WIDTHS = {
-  ticket: 120,
-  atividade: 360,
-  recurso: 160,
-  area: 120,
-  dur: 72,
-  start: 76,
-  end: 76,
-  chain: 56,
+  ticket: 100,
+  atividade: 250,
+  recurso: 90,
+  area: 70,
+  dur: 54,
+  start: 96,
+  end: 96,
+  chain: 42,
 };
 
 const MIN_COL_WIDTHS = {
-  ticket: 90,
-  atividade: 100,
-  recurso: 80,
-  area: 60,
+  ticket: 82,
+  atividade: 150,
+  recurso: 72,
+  area: 56,
   dur: 40,
-  start: 50,
-  end: 50,
-  chain: 56,
+  start: 94,
+  end: 94,
+  chain: 42,
 };
 
 function makeGridTemplate(w) {
@@ -622,6 +684,8 @@ function TaskListTableFactory({
   lockedSet,
   onToggleChain,
   onChangeDuration,
+  onChangeDate,
+  onReorderActivity,
   onChangeMeta, // ✅ NOVO
   busy,
 
@@ -643,6 +707,12 @@ function TaskListTableFactory({
     const taskRows = tasks.filter(
       (t) => t.type === "task" || t.type === "project"
     );
+    const taskByRowId = useMemo(
+      () => new Map(taskRows.map((t) => [String(t.id || ""), t])),
+      [taskRows]
+    );
+    const [dragTaskId, setDragTaskId] = useState("");
+    const [dragOverTaskId, setDragOverTaskId] = useState("");
 
     const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
 
@@ -657,12 +727,17 @@ function TaskListTableFactory({
 
       const diff = e.getTime() - s.getTime();
       const days = Math.ceil(diff / MS_PER_DAY);
-      return Math.max(1, days || 1);
+      return Math.max(1, (days || 0) + 1);
     }
 
     // ✅ edição inline (Dias)
     const [editingDurId, setEditingDurId] = useState(null);
     const [editingDurValue, setEditingDurValue] = useState("");
+    const [editingDate, setEditingDate] = useState({
+      id: null,
+      field: null,
+      value: "",
+    });
 
     // ✅ edição inline (Recurso/Área)
     const [editingMeta, setEditingMeta] = useState({
@@ -670,6 +745,19 @@ function TaskListTableFactory({
       field: null, // "recurso" | "area"
       value: "",
     });
+
+    const clearRowDrag = () => {
+      setDragTaskId("");
+      setDragOverTaskId("");
+    };
+
+    const canDropOnTask = (sourceId, target) => {
+      const source = taskByRowId.get(String(sourceId || ""));
+      if (!source || !target) return false;
+      if (source.type !== "task" || target.type !== "task") return false;
+      if (source.id === target.id) return false;
+      return String(source.issueKey || "") === String(target.issueKey || "");
+    };
 
     const beginEditMeta = (t, field) => {
       if (!t || t.type !== "task") return;
@@ -704,6 +792,32 @@ function TaskListTableFactory({
       }
     };
 
+    const beginEditDate = (t, field) => {
+      if (!t || t.type !== "task") return;
+      setEditingDate({
+        id: t.id,
+        field,
+        value: toDateInputValue(t?.[field]),
+      });
+    };
+
+    const commitEditDate = (t) => {
+      if (!t || t.type !== "task") return;
+
+      const { id, field, value } = editingDate || {};
+      if (id !== t.id || !field) return;
+
+      setEditingDate({ id: null, field: null, value: "" });
+
+      const nextDate = safeDate(value);
+      const currentDate = safeDate(t?.[field]);
+      if (!nextDate || !currentDate) return;
+
+      if (toDateInputValue(nextDate) !== toDateInputValue(currentDate)) {
+        onChangeDate?.(t, field, nextDate);
+      }
+    };
+
     return (
       <div
         style={{ width: rowWidth }}
@@ -712,21 +826,63 @@ function TaskListTableFactory({
         {taskRows.map((t) => {
           const selected = t.id === selectedTaskId;
           const isProject = t.type === "project";
+          const isDragOver = dragOverTaskId === t.id;
+          const isDragging = dragTaskId === t.id;
 
           return (
             <div
               key={t.id}
               style={{ height: rowHeight, gridTemplateColumns }}
+              draggable={!isProject && !busy}
               className={cn(
                 "grid gap-2 px-3 text-[12px]",
                 "border-b border-zinc-100",
                 selected ? "bg-red-50" : "bg-white",
+                !isProject && !busy && "cursor-grab active:cursor-grabbing",
+                isDragging && "opacity-50",
+                isDragOver && "bg-red-100 ring-2 ring-inset ring-red-300",
                 "items-center"
               )}
+              onDragStart={(e) => {
+                if (isProject || busy || isGanttPanBlockedTarget(e.target)) {
+                  e.preventDefault();
+                  return;
+                }
+
+                setDragTaskId(t.id);
+                setSelectedTask(t.id);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", t.id);
+              }}
+              onDragOver={(e) => {
+                const sourceId =
+                  dragTaskId || e.dataTransfer.getData("text/plain");
+                if (!canDropOnTask(sourceId, t)) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                setDragOverTaskId(t.id);
+              }}
+              onDragLeave={() => {
+                if (dragOverTaskId === t.id) setDragOverTaskId("");
+              }}
+              onDrop={(e) => {
+                const sourceId =
+                  dragTaskId || e.dataTransfer.getData("text/plain");
+                if (!canDropOnTask(sourceId, t)) {
+                  clearRowDrag();
+                  return;
+                }
+
+                e.preventDefault();
+                clearRowDrag();
+                onReorderActivity?.(sourceId, t.id);
+              }}
+              onDragEnd={clearRowDrag}
               onClick={() => {
                 const isEditingThisRow =
                   (editingMeta?.id === t.id && editingMeta?.field) ||
-                  editingDurId === t.id;
+                  editingDurId === t.id ||
+                  editingDate.id === t.id;
 
                 if (isEditingThisRow) return;
 
@@ -775,6 +931,13 @@ function TaskListTableFactory({
                   >
                     {t.hideChildren ? "+" : "–"}
                   </button>
+                ) : null}
+
+                {!isProject ? (
+                  <GripVertical
+                    className="h-4 w-4 shrink-0 text-zinc-400"
+                    aria-hidden="true"
+                  />
                 ) : null}
 
                 <span
@@ -960,8 +1123,78 @@ function TaskListTableFactory({
               </div>
 
               {/* Start / End */}
-              <div className="text-zinc-700">{fmtDateBR(t.start)}</div>
-              <div className="text-zinc-700">{fmtDateBR(t.end)}</div>
+              <div className="flex items-center">
+                {isProject ? (
+                  <span className="text-zinc-700">{fmtDateBR(t.start)}</span>
+                ) : (
+                  <Input
+                    type="date"
+                    disabled={busy || t.isDisabled}
+                    className="h-8 w-full rounded-lg border-zinc-200 bg-white px-1 text-center text-[12px] focus-visible:ring-red-500"
+                    value={
+                      editingDate.id === t.id && editingDate.field === "start"
+                        ? editingDate.value
+                        : toDateInputValue(t.start)
+                    }
+                    onFocus={() => beginEditDate(t, "start")}
+                    onChange={(e) => {
+                      setEditingDate({
+                        id: t.id,
+                        field: "start",
+                        value: e.target.value,
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setEditingDate({ id: null, field: null, value: "" });
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => commitEditDate(t)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Alterar data inicial manualmente"
+                  />
+                )}
+              </div>
+              <div className="flex items-center">
+                {isProject ? (
+                  <span className="text-zinc-700">{fmtDateBR(t.end)}</span>
+                ) : (
+                  <Input
+                    type="date"
+                    disabled={busy || t.isDisabled}
+                    className="h-8 w-full rounded-lg border-zinc-200 bg-white px-1 text-center text-[12px] focus-visible:ring-red-500"
+                    value={
+                      editingDate.id === t.id && editingDate.field === "end"
+                        ? editingDate.value
+                        : toDateInputValue(t.end)
+                    }
+                    onFocus={() => beginEditDate(t, "end")}
+                    onChange={(e) => {
+                      setEditingDate({
+                        id: t.id,
+                        field: "end",
+                        value: e.target.value,
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setEditingDate({ id: null, field: null, value: "" });
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    onBlur={() => commitEditDate(t)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Alterar data final manualmente"
+                  />
+                )}
+              </div>
 
               {/* Encadear */}
               <div className="flex items-center justify-center">
@@ -1034,6 +1267,28 @@ export function GanttTab({
 
   // ✅ overrides otimistas: recurso/area/risco
   const [metaOverrides, setMetaOverrides] = useState(() => new Map());
+  const [orderOverrides, setOrderOverrides] = useState(() => {
+    try {
+      const raw = localStorage.getItem("gantt_activityOrder_v1");
+      const parsed = raw ? JSON.parse(raw) : {};
+      return new Map(
+        Object.entries(parsed || {}).filter(([, value]) =>
+          Array.isArray(value)
+        )
+      );
+    } catch {
+      return new Map();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "gantt_activityOrder_v1",
+        JSON.stringify(Object.fromEntries(orderOverrides))
+      );
+    } catch {}
+  }, [orderOverrides]);
 
   // trava durante persistência
   const [persistingDates, setPersistingDates] = useState(false);
@@ -1092,7 +1347,7 @@ export function GanttTab({
   ========================= */
   const [colWidths, setColWidths] = useState(() => {
     try {
-      const raw = localStorage.getItem("gantt_colWidths_v1");
+      const raw = localStorage.getItem("gantt_colWidths_v2");
       if (raw) return { ...DEFAULT_COL_WIDTHS, ...JSON.parse(raw) };
     } catch {}
     return DEFAULT_COL_WIDTHS;
@@ -1105,7 +1360,7 @@ export function GanttTab({
 
   useEffect(() => {
     try {
-      localStorage.setItem("gantt_colWidths_v1", JSON.stringify(colWidths));
+      localStorage.setItem("gantt_colWidths_v2", JSON.stringify(colWidths));
     } catch {}
   }, [colWidths]);
 
@@ -1121,6 +1376,9 @@ export function GanttTab({
   }, [colWidths]);
 
   const ganttWrapRef = useRef(null);
+  const panRef = useRef(null);
+  const suppressPanClickRef = useRef(false);
+  const [isGanttPanning, setIsGanttPanning] = useState(false);
 
   /* =========================
      RESIZE (controlado no PAI)
@@ -1184,6 +1442,87 @@ export function GanttTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickView]);
 
+  const beginGanttPan = useCallback((e) => {
+    if (e.button !== 0) return;
+    if (resizeRef.current) return;
+    if (isGanttPanBlockedTarget(e.target)) return;
+
+    const root = ganttWrapRef.current;
+    if (!root || root.scrollWidth <= root.clientWidth) return;
+    if (isNativeScrollbarHit(root, e)) return;
+
+    panRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollLeft: root.scrollLeft,
+      moved: false,
+      previousCursor: document.body.style.cursor,
+      previousUserSelect: document.body.style.userSelect,
+    };
+
+    setIsGanttPanning(true);
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  }, []);
+
+  const handleGanttPanClickCapture = useCallback((e) => {
+    if (!suppressPanClickRef.current) return;
+    suppressPanClickRef.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  useEffect(() => {
+    function finishPan() {
+      const drag = panRef.current;
+      if (!drag) return;
+
+      panRef.current = null;
+      setIsGanttPanning(false);
+      document.body.style.cursor = drag.previousCursor || "";
+      document.body.style.userSelect = drag.previousUserSelect || "";
+
+      if (drag.moved) {
+        suppressPanClickRef.current = true;
+        window.setTimeout(() => {
+          suppressPanClickRef.current = false;
+        }, 0);
+      }
+    }
+
+    function onMove(e) {
+      const drag = panRef.current;
+      const root = ganttWrapRef.current;
+      if (!drag || !root) return;
+
+      const deltaX = e.clientX - drag.startX;
+      const deltaY = e.clientY - drag.startY;
+      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 6) {
+        drag.moved = true;
+      }
+
+      if (!drag.moved) return;
+      root.scrollLeft = drag.scrollLeft - deltaX;
+      e.preventDefault();
+    }
+
+    window.addEventListener("mousemove", onMove, { passive: false });
+    window.addEventListener("mouseup", finishPan);
+    window.addEventListener("mouseleave", finishPan);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", finishPan);
+      window.removeEventListener("mouseleave", finishPan);
+      const drag = panRef.current;
+      if (drag) {
+        document.body.style.cursor = drag.previousCursor || "";
+        document.body.style.userSelect = drag.previousUserSelect || "";
+      }
+      panRef.current = null;
+    };
+  }, []);
+
   const { tasks, conflictSet, ticketOptions } = useMemo(() => {
     return buildGanttTasksFromViewData({
       viewData,
@@ -1194,6 +1533,7 @@ export function GanttTab({
       groupByTicket,
       quickView,
       collapsedProjects,
+      orderOverrides,
       metaOverrides, // ✅ aplica overrides
     });
   }, [
@@ -1205,6 +1545,7 @@ export function GanttTab({
     groupByTicket,
     quickView,
     collapsedProjects,
+    orderOverrides,
     metaOverrides,
   ]);
 
@@ -1310,6 +1651,36 @@ export function GanttTab({
     });
   }, [safeTasks, lockedSet]);
 
+  const ganttContentWidth = useMemo(() => {
+    const datedTasks = (ganttTasks || []).filter(
+      (task) =>
+        task?.start instanceof Date &&
+        !Number.isNaN(task.start.getTime()) &&
+        task?.end instanceof Date &&
+        !Number.isNaN(task.end.getTime())
+    );
+
+    if (!datedTasks.length) return Math.max(1180, listCellWidth + 520);
+
+    const minStart = Math.min(...datedTasks.map((task) => task.start.getTime()));
+    const maxEnd = Math.max(...datedTasks.map((task) => task.end.getTime()));
+    const dayMs = 24 * 60 * 60 * 1000;
+    const spanDays = Math.max(1, Math.ceil((maxEnd - minStart) / dayMs) + 2);
+
+    const columnWidth =
+      viewMode === ViewMode.Day ? 48 : viewMode === ViewMode.Week ? 70 : 90;
+    const timelineColumns =
+      viewMode === ViewMode.Day
+        ? spanDays
+        : viewMode === ViewMode.Week
+        ? Math.ceil(spanDays / 7)
+        : viewMode === ViewMode.Month
+        ? Math.ceil(spanDays / 30)
+        : Math.ceil(spanDays / 365);
+
+    return Math.max(1180, listCellWidth + timelineColumns * columnWidth + 220);
+  }, [ganttTasks, listCellWidth, viewMode]);
+
   // ✅ issues index
   const issueByKey = useMemo(() => {
     const arr = Array.isArray(viewData?.calendarioIssues)
@@ -1337,14 +1708,12 @@ export function GanttTab({
       setInspectorOpen(true);
 
       // mantém filtro funcionando
-      const issueKey =
-        getIssueKeyFromTaskId(id) || taskById.get(id)?.issueKey || "";
-      if (issueKey) setSelectedIssueKey(issueKey);
+      // Abrir/selecionar no Gantt nao deve aplicar filtro de ticket.
 
       // tenta também selecionar no gantt (highlight/scroll na lista)
       ganttSetSelectedTaskIdRef.current?.(id);
     },
-    [taskById]
+    []
   );
 
   const selectedInspectorTask = useMemo(() => {
@@ -1530,7 +1899,7 @@ export function GanttTab({
         const next = taskById.get(nextId);
         if (!next) break;
 
-        const nextStart = new Date(cur.end);
+        const nextStart = addDays(cur.end, 1);
 
         const nextDur = Math.max(
           next.end.getTime() - next.start.getTime(),
@@ -1639,7 +2008,7 @@ export function GanttTab({
       const start = safeDate(baseOriginal.start) || safeDate(task.start);
       if (!start) return false;
 
-      const nextEnd = addDays(start, d);
+      const nextEnd = addDays(start, d - 1);
 
       return await handleDateChange({
         ...baseOriginal,
@@ -1649,6 +2018,151 @@ export function GanttTab({
       });
     },
     [handleDateChange, taskById]
+  );
+
+  const handleDateInputChange = useCallback(
+    async (task, field, value) => {
+      if (!task || task.type !== "task" || task.isDisabled) return false;
+      if (field !== "start" && field !== "end") return false;
+
+      const baseOriginal = taskById.get(String(task.id || "")) || task;
+      const currentStart = safeDate(baseOriginal.start) || safeDate(task.start);
+      const currentEnd = safeDate(baseOriginal.end) || safeDate(task.end);
+      const nextDate = safeDate(value);
+      if (!currentStart || !currentEnd || !nextDate) return false;
+
+      const minDurationMs = 24 * 60 * 60 * 1000;
+      const durationMs = Math.max(
+        minDurationMs,
+        currentEnd.getTime() - currentStart.getTime()
+      );
+
+      let nextStart = currentStart;
+      let nextEnd = currentEnd;
+
+      if (field === "start") {
+        nextStart = nextDate;
+        nextEnd = new Date(nextStart.getTime() + durationMs);
+      } else {
+        nextEnd = nextDate;
+        if (nextEnd < currentStart) {
+          nextStart = nextEnd;
+        }
+      }
+
+      return await handleDateChange({
+        ...baseOriginal,
+        ...task,
+        start: nextStart,
+        end: nextEnd,
+      });
+    },
+    [handleDateChange, taskById]
+  );
+
+  const handleReorderActivity = useCallback(
+    async (sourceId, targetId) => {
+      if (persistingDates || persistingMeta) return false;
+
+      const source = taskById.get(String(sourceId || ""));
+      const target = taskById.get(String(targetId || ""));
+      if (!source || !target) return false;
+      if (source.type !== "task" || target.type !== "task") return false;
+      if (source.id === target.id) return false;
+
+      const issueKey = String(source.issueKey || getIssueKeyFromTaskId(source.id))
+        .trim()
+        .toUpperCase();
+      const targetIssueKey = String(
+        target.issueKey || getIssueKeyFromTaskId(target.id)
+      )
+        .trim()
+        .toUpperCase();
+      if (!issueKey || issueKey !== targetIssueKey) return false;
+
+      const issueTasks = (safeTasks || []).filter(
+        (t) =>
+          t?.type === "task" &&
+          String(t.issueKey || getIssueKeyFromTaskId(t.id))
+            .trim()
+            .toUpperCase() === issueKey
+      );
+      const nextIds = issueTasks.map((t) => t.id);
+      const sourceIndex = nextIds.indexOf(source.id);
+      const targetIndex = nextIds.indexOf(target.id);
+      if (sourceIndex < 0 || targetIndex < 0) return false;
+
+      nextIds.splice(sourceIndex, 1);
+      const insertIndex = nextIds.indexOf(target.id);
+      nextIds.splice(insertIndex < 0 ? targetIndex : insertIndex, 0, source.id);
+
+      const orderedTasks = nextIds
+        .map((id) => taskById.get(id))
+        .filter((t) => t && t.type === "task");
+      if (orderedTasks.length < 2) return false;
+
+      const nextActivityOrder = orderedTasks
+        .map((t) => String(t.activityId || getActivityIdFromTaskId(t.id)).trim())
+        .filter(Boolean);
+      const previousOrder = orderOverrides.get(issueKey) || null;
+
+      const validStarts = orderedTasks
+        .map((t) => safeDate(t.start))
+        .filter(Boolean)
+        .map((d) => d.getTime());
+      if (!validStarts.length) return false;
+
+      let cursor = new Date(Math.min(...validStarts));
+      const dayMs = 24 * 60 * 60 * 1000;
+      const updates = orderedTasks.map((task) => {
+        const start = safeDate(task.start);
+        const end = safeDate(task.end);
+        const durationMs = Math.max(
+          dayMs,
+          start && end ? end.getTime() - start.getTime() : dayMs
+        );
+        const nextStart = new Date(cursor);
+        const nextEnd = new Date(nextStart.getTime() + durationMs);
+        cursor = addDays(nextEnd, 1);
+        return {
+          ...task,
+          start: nextStart,
+          end: nextEnd,
+        };
+      });
+
+      setOrderOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(issueKey, nextActivityOrder);
+        return next;
+      });
+
+      setPersistingDates(true);
+      try {
+        const ok = await onPersistDateChange?.(updates);
+        if (ok === false) throw new Error("Persist reorder returned false");
+        return true;
+      } catch (err) {
+        console.error(err);
+        setOrderOverrides((prev) => {
+          const next = new Map(prev);
+          if (previousOrder) next.set(issueKey, previousOrder);
+          else next.delete(issueKey);
+          return next;
+        });
+        return false;
+      } finally {
+        setPersistingDates(false);
+      }
+    },
+    [
+      persistingDates,
+      persistingMeta,
+      taskById,
+      safeTasks,
+      orderOverrides,
+      onPersistDateChange,
+    ]
   );
 
   const openJira = useCallback((issueKey) => {
@@ -1671,9 +2185,6 @@ export function GanttTab({
   const handleClick = useCallback(
     (task) => {
       if (persistingDates || persistingMeta) return;
-
-      const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
-      if (issueKey) setSelectedIssueKey(issueKey);
 
       openInspectorByTaskId(task?.id);
     },
@@ -1843,6 +2354,8 @@ export function GanttTab({
       chainSet,
       onToggleChain: toggleChain,
       onChangeDuration: handleDurationChange,
+      onChangeDate: handleDateInputChange,
+      onReorderActivity: handleReorderActivity,
       onChangeMeta: handleMetaChangeFromGrid,
       busy,
 
@@ -1857,6 +2370,8 @@ export function GanttTab({
     lockedSet,
     toggleChain,
     handleDurationChange,
+    handleDateInputChange,
+    handleReorderActivity,
     handleMetaChangeFromGrid,
     busy,
     openInspectorByTaskId,
@@ -2083,31 +2598,41 @@ export function GanttTab({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
-              <div ref={ganttWrapRef} className="w-full overflow-auto">
+            <div className="rounded-2xl border border-zinc-200 bg-white">
+              <div
+                ref={ganttWrapRef}
+                className={cn(
+                  "h-[68vh] max-w-full overflow-scroll pb-3",
+                  isGanttPanning ? "cursor-grabbing" : "cursor-grab"
+                )}
+                onMouseDown={beginGanttPan}
+                onClickCapture={handleGanttPanClickCapture}
+              >
                 {safeTasks.length > 0 ? (
-                  <Gantt
-                    tasks={ganttTasks}
-                    viewMode={viewMode}
-                    locale="pt-BR"
-                    onDateChange={handleDateChange}
-                    onClick={handleClick}
-                    onDoubleClick={handleDoubleClick}
-                    onExpanderClick={(task) => handleToggleProject(task)}
-                    TooltipContent={GanttTooltipContent}
-                    TaskListHeader={TaskListHeader}
-                    TaskListTable={TaskListTable}
-                    listCellWidth={listCellWidth}
-                    columnWidth={
-                      viewMode === ViewMode.Day
-                        ? 48
-                        : viewMode === ViewMode.Week
-                        ? 70
-                        : 90
-                    }
-                    rowHeight={42}
-                    barCornerRadius={8}
-                  />
+                  <div style={{ width: `${ganttContentWidth}px` }}>
+                    <Gantt
+                      tasks={ganttTasks}
+                      viewMode={viewMode}
+                      locale="pt-BR"
+                      onDateChange={handleDateChange}
+                      onClick={handleClick}
+                      onDoubleClick={handleDoubleClick}
+                      onExpanderClick={(task) => handleToggleProject(task)}
+                      TooltipContent={GanttTooltipContent}
+                      TaskListHeader={TaskListHeader}
+                      TaskListTable={TaskListTable}
+                      listCellWidth={listCellWidth}
+                      columnWidth={
+                        viewMode === ViewMode.Day
+                          ? 48
+                          : viewMode === ViewMode.Week
+                          ? 70
+                          : 90
+                      }
+                      rowHeight={42}
+                      barCornerRadius={8}
+                    />
+                  </div>
                 ) : (
                   <div className="p-6 text-sm text-zinc-600">
                     Nenhuma atividade com datas para exibir no Gantt.
@@ -2120,13 +2645,6 @@ export function GanttTab({
               </div>
             </div>
 
-            <div className="mt-3 text-xs text-zinc-600">
-              Alterações persistem no Jira em{" "}
-              <code className="rounded bg-zinc-100 px-1">
-                customfield_14017
-              </code>
-              . Se ocorrer erro, o Gantt desfaz automaticamente.
-            </div>
           </div>
         </CardContent>
       </Card>
