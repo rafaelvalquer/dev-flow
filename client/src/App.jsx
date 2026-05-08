@@ -211,7 +211,7 @@ export default function App() {
           </aside>
 
           <main className="app-main">
-            <section className={`app-hero ${mainTab === "am" || mainTab === "tools" || mainTab === "gmud" ? "app-hero--compact" : ""}`}>
+            <section className="app-hero app-hero--compact">
               <div className="app-hero__copy">
                 <span className="app-hero__eyebrow">{currentTab.eyebrow}</span>
 
@@ -259,27 +259,6 @@ export default function App() {
                 ) : null}
 
               </div>
-
-              {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" ? (
-                <div className="app-hero__panel">
-                  <div className="app-hero__panel-card">
-                    <span className="app-hero__panel-label">Estado atual</span>
-                    <strong>{tabMeta[mainTab].status}</strong>
-                    <p>{tabMeta[mainTab].helper}</p>
-                  </div>
-
-                  <div className="app-hero__panel-card">
-                    <span className="app-hero__panel-label">
-                      Direção de layout
-                    </span>
-                    <strong>Menos densidade, mais foco</strong>
-                    <p>
-                      Headers contextuais, áreas sticky e blocos reutilizáveis em
-                      todos os módulos.
-                    </p>
-                  </div>
-                </div>
-              ) : null}
             </section>
 
             <section className={contentClassName}>

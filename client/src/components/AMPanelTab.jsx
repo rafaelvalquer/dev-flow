@@ -444,6 +444,421 @@ function addDaysLocal(value, days) {
   return date;
 }
 
+function escapeReportHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeReportIssueKey(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function getReportIssueKey(issue) {
+  return normalizeReportIssueKey(issue?.key || issue?.issueKey || issue?.id);
+}
+
+function getReportAssignee(issue) {
+  return (
+    userName(issue?.assignee) ||
+    userName(issue?.responsavel) ||
+    userName(issue?.owner) ||
+    userName(issue?.fields?.assignee) ||
+    ""
+  ).trim();
+}
+
+function isMissingReportAssignee(issue) {
+  const assignee = getReportAssignee(issue);
+  return !assignee || /sem responsavel|sem responsável|unassigned/i.test(assignee);
+}
+
+function getReportDueYmd(issue) {
+  return extractYmd(
+    issue?.dueDateRaw ||
+      issue?.dueDate ||
+      issue?.duedate ||
+      issue?.fields?.duedate ||
+      issue?.fields?.dueDate
+  );
+}
+
+function isReportIssueDone(issue) {
+  return /conclu|done|resol|fech|cancel/i.test(getTicketStatusName(issue));
+}
+
+function isReportIssueOverdue(issue, today = startOfTodayLocal()) {
+  if (isReportIssueDone(issue)) return false;
+  const due = parseIsoYmdLocal(getReportDueYmd(issue));
+  return Boolean(due && diffDays(today, due) > 0);
+}
+
+function getEventIssueKey(event) {
+  const props = event?.extendedProps || {};
+  return normalizeReportIssueKey(
+    props.issueKey || event?.issueKey || props.ticket || event?.ticket
+  );
+}
+
+function getEventActivityId(event) {
+  const props = event?.extendedProps || {};
+  return String(props.activityId || props.id || event?.activityId || "").trim();
+}
+
+function getEventActivityName(event) {
+  const props = event?.extendedProps || {};
+  const raw =
+    props.activityName ||
+    props.atividade ||
+    props.name ||
+    event?.activityName ||
+    event?.title ||
+    "Atividade";
+  return String(raw)
+    .replace(/^[A-Z]+-\d+\s*[-–—]\s*/i, "")
+    .trim();
+}
+
+function getEventStartYmd(event) {
+  return extractYmd(event?.start || event?.startStr || event?.date);
+}
+
+function getEventInclusiveEndYmd(event) {
+  const startYmd = getEventStartYmd(event);
+  const rawEndYmd = extractYmd(event?.end || event?.endStr || event?.start);
+  const rawEnd = parseIsoYmdLocal(rawEndYmd);
+  const start = parseIsoYmdLocal(startYmd);
+  if (!rawEnd) return startYmd;
+
+  // Eventos do calendário chegam com end exclusivo; relatório executivo mostra fim inclusivo.
+  const inclusiveEnd = addDaysLocal(rawEnd, -1);
+  if (!inclusiveEnd || (start && diffDays(start, inclusiveEnd) > 0)) {
+    return startYmd;
+  }
+  return extractYmd(inclusiveEnd);
+}
+
+function inclusiveReportDays(startYmd, endYmd) {
+  const start = parseIsoYmdLocal(startYmd);
+  const end = parseIsoYmdLocal(endYmd);
+  if (!start || !end) return "";
+  return String(Math.max(1, diffDays(end, start) + 1));
+}
+
+function findReportActivity(issue, activityId, activityName) {
+  const activities = Array.isArray(issue?.atividades) ? issue.atividades : [];
+  return (
+    activities.find((item) => String(item?.id || "") === String(activityId)) ||
+    activities.find(
+      (item) =>
+        String(item?.name || "").trim().toLowerCase() ===
+        String(activityName || "").trim().toLowerCase()
+    ) ||
+    null
+  );
+}
+
+function formatReportDate(ymd) {
+  return fmtDateBr(ymd) || "—";
+}
+
+function formatReportDateTime(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function buildReportRowsHtml(rows, columns, emptyText) {
+  if (!rows.length) {
+    return `<tr><td colspan="${columns.length}" class="empty">${escapeReportHtml(
+      emptyText
+    )}</td></tr>`;
+  }
+
+  return rows
+    .map(
+      (row) => `<tr>${columns
+        .map((column) => `<td>${escapeReportHtml(row[column.key] || "—")}</td>`)
+        .join("")}</tr>`
+    )
+    .join("");
+}
+
+function buildExecutiveReportHtml({
+  viewData,
+  rawIssues,
+  doneRows,
+  filters,
+}) {
+  const activeIssues = Array.isArray(rawIssues) ? rawIssues : [];
+  const doneIssues = Array.isArray(doneRows) ? doneRows : [];
+  const issueMap = new Map();
+  [...activeIssues, ...doneIssues].forEach((issue) => {
+    const key = getReportIssueKey(issue);
+    if (key && !issueMap.has(key)) issueMap.set(key, issue);
+  });
+
+  const events = Array.isArray(viewData?.events) ? viewData.events : [];
+  const calendarioIssues = Array.isArray(viewData?.calendarioIssues)
+    ? viewData.calendarioIssues
+    : [];
+  calendarioIssues.forEach((issue) => {
+    const key = getReportIssueKey(issue);
+    if (key && !issueMap.has(key)) issueMap.set(key, issue);
+  });
+
+  const scheduledIssueKeys = new Set(
+    events.map(getEventIssueKey).filter(Boolean)
+  );
+  calendarioIssues.forEach((issue) => {
+    const key = getReportIssueKey(issue);
+    const hasSchedule = (issue?.atividades || []).some((activity) =>
+      String(activity?.data || "").trim()
+    );
+    if (key && hasSchedule) scheduledIssueKeys.add(key);
+  });
+
+  const today = startOfTodayLocal();
+  const nextSeven = addDaysLocal(today, 7);
+  const nextSevenCount = events.filter((event) => {
+    const start = parseIsoYmdLocal(getEventStartYmd(event));
+    return start && nextSeven && start >= today && start <= nextSeven;
+  }).length;
+
+  const kpis = [
+    { label: "Total", value: issueMap.size },
+    {
+      label: "Atrasados",
+      value: activeIssues.filter((issue) => isReportIssueOverdue(issue, today))
+        .length,
+    },
+    {
+      label: "Sem cronograma",
+      value: activeIssues.filter((issue) => {
+        const key = getReportIssueKey(issue);
+        return key && !scheduledIssueKeys.has(key);
+      }).length,
+    },
+    {
+      label: "Sem responsável",
+      value: activeIssues.filter(isMissingReportAssignee).length,
+    },
+    { label: "Próximos 7 dias", value: nextSevenCount },
+  ];
+
+  const calendarRows = events
+    .map((event) => {
+      const issueKey = getEventIssueKey(event);
+      return {
+        sortKey: getEventStartYmd(event),
+        ticket: issueKey || "—",
+        atividade: getEventActivityName(event),
+        data: formatReportDate(getEventStartYmd(event)),
+        fim: formatReportDate(getEventInclusiveEndYmd(event)),
+      };
+    })
+    .sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
+
+  const issueByKey = new Map(
+    calendarioIssues.map((issue) => [getReportIssueKey(issue), issue])
+  );
+  const ganttRows = events
+    .map((event) => {
+      const issueKey = getEventIssueKey(event);
+      const activityName = getEventActivityName(event);
+      const activity = findReportActivity(
+        issueByKey.get(issueKey),
+        getEventActivityId(event),
+        activityName
+      );
+      const startYmd = getEventStartYmd(event);
+      const endYmd = getEventInclusiveEndYmd(event);
+      return {
+        sortKey: `${issueKey}-${startYmd}-${activityName}`,
+        ticket: issueKey || "—",
+        atividade: activity?.name || activityName,
+        recurso:
+          activity?.recurso ||
+          event?.extendedProps?.recurso ||
+          event?.extendedProps?.resource ||
+          "—",
+        area:
+          activity?.area ||
+          event?.extendedProps?.area ||
+          event?.extendedProps?.squad ||
+          "—",
+        dias: inclusiveReportDays(startYmd, endYmd) || "—",
+        start: formatReportDate(startYmd),
+        end: formatReportDate(endYmd),
+      };
+    })
+    .sort((a, b) =>
+      String(a.sortKey).localeCompare(
+        String(b.sortKey),
+        "pt-BR"
+      )
+    );
+
+  const maxRows = 80;
+  const visibleCalendarRows = calendarRows.slice(0, maxRows);
+  const visibleGanttRows = ganttRows.slice(0, maxRows);
+  const presetLabels = {
+    all: "Todos",
+    mine: "Meus projetos",
+    overdue: "Atrasados",
+    noSchedule: "Sem cronograma",
+    risk: "Com risco",
+    next7: "Próximos 7 dias",
+  };
+  const filterParts = [
+    `Recorte: ${presetLabels[filters?.activePreset] || filters?.activePreset || "Todos"}`,
+    filters?.ownerFocus ? `Responsável: ${filters.ownerFocus}` : "",
+    filters?.calendarFilter ? `Busca: ${filters.calendarFilter}` : "",
+    filters?.subView ? `Aba: ${filters.subView}` : "",
+  ].filter(Boolean);
+
+  const calendarColumns = [
+    { key: "ticket", label: "Ticket" },
+    { key: "atividade", label: "Atividade" },
+    { key: "data", label: "Data" },
+    { key: "fim", label: "Fim" },
+  ];
+  const ganttColumns = [
+    { key: "ticket", label: "Ticket" },
+    { key: "atividade", label: "Atividade" },
+    { key: "recurso", label: "Recurso" },
+    { key: "area", label: "Área" },
+    { key: "dias", label: "Dias" },
+    { key: "start", label: "Start" },
+    { key: "end", label: "End" },
+  ];
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exportação executiva - Painel de Acompanhamento</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f6f7f9; color: #231f20; font-family: Inter, Arial, sans-serif; }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+    h1 { margin: 0 0 8px; font-size: 28px; line-height: 1.15; }
+    h2 { margin: 0 0 14px; font-size: 18px; }
+    p { margin: 0; color: #66535a; }
+    .eyebrow { color: #d71920; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .toolbar { display: flex; gap: 10px; align-items: center; }
+    button { border: 0; border-radius: 12px; background: #d71920; color: white; cursor: pointer; font-weight: 800; padding: 12px 18px; }
+    section { margin: 18px 0; padding: 20px; border: 1px solid #ead7da; border-radius: 18px; background: white; box-shadow: 0 14px 38px rgba(35,31,32,.06); }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .pill { border: 1px solid #ead7da; border-radius: 999px; padding: 7px 10px; color: #66535a; font-size: 12px; font-weight: 700; }
+    .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .kpi { border: 1px solid #ead7da; border-radius: 14px; padding: 16px; }
+    .kpi strong { display: block; color: #d71920; font-size: 26px; margin-bottom: 4px; }
+    .kpi span { color: #66535a; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid #eee2e5; padding: 10px 9px; text-align: left; vertical-align: top; }
+    th { color: #66535a; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .empty { color: #8a7d82; text-align: center; padding: 28px; }
+    .note { margin-top: 10px; color: #8a7d82; font-size: 12px; }
+    @media (max-width: 900px) { main { padding: 18px; } header { flex-direction: column; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media print {
+      body { background: white; }
+      main { max-width: none; padding: 0; }
+      section { box-shadow: none; break-inside: avoid; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <div class="eyebrow">Painel de Acompanhamento (PO)</div>
+        <h1>Exportação executiva</h1>
+        <p>Relatório gerado em ${escapeReportHtml(formatReportDateTime())}</p>
+        <div class="meta">${filterParts
+          .map((item) => `<span class="pill">${escapeReportHtml(item)}</span>`)
+          .join("")}</div>
+      </div>
+      <div class="toolbar no-print">
+        <button type="button" onclick="window.print()">Imprimir / Salvar PDF</button>
+      </div>
+    </header>
+
+    <section>
+      <h2>KPIs principais</h2>
+      <div class="kpis">${kpis
+        .map(
+          (kpi) => `<div class="kpi"><strong>${escapeReportHtml(
+            kpi.value
+          )}</strong><span>${escapeReportHtml(kpi.label)}</span></div>`
+        )
+        .join("")}</div>
+    </section>
+
+    <section>
+      <h2>Resumo de calendário</h2>
+      <table>
+        <thead><tr>${calendarColumns
+          .map((column) => `<th>${escapeReportHtml(column.label)}</th>`)
+          .join("")}</tr></thead>
+        <tbody>${buildReportRowsHtml(
+          visibleCalendarRows,
+          calendarColumns,
+          "Nenhum evento de calendário carregado."
+        )}</tbody>
+      </table>
+      ${
+        calendarRows.length > maxRows
+          ? `<div class="note">Mostrando ${maxRows} de ${calendarRows.length} eventos carregados.</div>`
+          : ""
+      }
+    </section>
+
+    <section>
+      <h2>Resumo de Gantt</h2>
+      <table>
+        <thead><tr>${ganttColumns
+          .map((column) => `<th>${escapeReportHtml(column.label)}</th>`)
+          .join("")}</tr></thead>
+        <tbody>${buildReportRowsHtml(
+          visibleGanttRows,
+          ganttColumns,
+          "Nenhuma atividade de Gantt carregada."
+        )}</tbody>
+      </table>
+      ${
+        ganttRows.length > maxRows
+          ? `<div class="note">Mostrando ${maxRows} de ${ganttRows.length} atividades carregadas.</div>`
+          : ""
+      }
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function openExecutiveReportWindow(reportArgs) {
+  const reportWindow = window.open("", "_blank");
+  if (!reportWindow) {
+    toast.error("Permita pop-ups para abrir a exportação executiva.");
+    return;
+  }
+
+  reportWindow.document.open();
+  reportWindow.document.write(buildExecutiveReportHtml(reportArgs));
+  reportWindow.document.close();
+  reportWindow.focus();
+}
+
 function getActivityLabelFromIssue(issue, activityId) {
   const activity = (issue?.atividades || []).find(
     (item) => String(item?.id || "") === String(activityId || "")
@@ -735,6 +1150,28 @@ export default function AMPanelTab() {
       ),
     [poInsights]
   );
+
+  const exportExecutiveReport = useCallback(() => {
+    openExecutiveReportWindow({
+      viewData: scopedViewData,
+      rawIssues: scopedRawIssues,
+      doneRows: scopedDoneRows,
+      filters: {
+        activePreset,
+        ownerFocus,
+        calendarFilter,
+        subView,
+      },
+    });
+  }, [
+    activePreset,
+    calendarFilter,
+    ownerFocus,
+    scopedDoneRows,
+    scopedRawIssues,
+    scopedViewData,
+    subView,
+  ]);
 
   function openEditor(issue) {
     setEditorIssue(issue);
@@ -1375,6 +1812,17 @@ export default function AMPanelTab() {
                 >
                   <LayoutDashboard className="mr-2 h-4 w-4" />
                   Dashboard
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={exportExecutiveReport}
+                  disabled={loading}
+                  className="rounded-xl border-zinc-200 bg-white text-zinc-900 hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Exportação executiva
                 </Button>
 
                 <Button
