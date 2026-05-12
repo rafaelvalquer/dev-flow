@@ -398,8 +398,6 @@ export default memo(function AMCalendarDashboard({
     };
   }, [dueIndex]);
 
-  const hasData = rangedEvents.length > 0;
-
   const rangeLabel = useMemo(() => {
     const a = visibleRange?.start ? toYmd(visibleRange.start) : "";
     const b = visibleRange?.end
@@ -749,7 +747,7 @@ export default memo(function AMCalendarDashboard({
   const timelineModel = useMemo(() => {
     // lista de devs do range
     const devSet = new Set();
-    rangedEvents.forEach((ev) => devSet.add(getRecurso(ev)));
+    timelineEvents.forEach((ev) => devSet.add(getRecurso(ev)));
     const devs = Array.from(devSet).sort((a, b) =>
       String(a).localeCompare(String(b))
     );
@@ -925,6 +923,41 @@ export default memo(function AMCalendarDashboard({
       const end = start + days * DAY_MS;
 
       return prev.start === start && prev.end === end ? prev : { start, end };
+    });
+  }, []);
+
+  const shiftTimeline = useCallback((direction) => {
+    const factor = direction === "previous" ? -1 : 1;
+
+    setTlVisible((prev) => {
+      const currentStart = Number(prev?.start);
+      const currentEnd = Number(prev?.end);
+      const currentSpan =
+        Number.isFinite(currentStart) &&
+        Number.isFinite(currentEnd) &&
+        currentEnd > currentStart
+          ? currentEnd - currentStart
+          : 30 * DAY_MS;
+
+      const daySpan = Math.max(1, Math.round(currentSpan / DAY_MS));
+      const shiftDays =
+        Math.abs(daySpan - 7) <= 1
+          ? 7
+          : daySpan >= 28 && daySpan <= 31
+          ? 30
+          : daySpan;
+      const baseStart = Number.isFinite(currentStart)
+        ? currentStart
+        : startOfDay(new Date())?.getTime() ?? Date.now();
+      const baseEnd = Number.isFinite(currentEnd)
+        ? currentEnd
+        : baseStart + currentSpan;
+      const shiftMs = factor * shiftDays * DAY_MS;
+
+      return {
+        start: baseStart + shiftMs,
+        end: baseEnd + shiftMs,
+      };
     });
   }, []);
 
@@ -1125,6 +1158,13 @@ export default memo(function AMCalendarDashboard({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={() => shiftTimeline("previous")}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
                 onClick={goToday}
                 className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
               >
@@ -1143,6 +1183,13 @@ export default memo(function AMCalendarDashboard({
                 className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
               >
                 Mês
+              </button>
+              <button
+                type="button"
+                onClick={() => shiftTimeline("next")}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+              >
+                Proximo
               </button>
             </div>
 
@@ -1170,7 +1217,7 @@ export default memo(function AMCalendarDashboard({
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_280px]">
             {/* Timeline */}
             <div className="overflow-x-auto">
-              {!hasData ? (
+              {!hasTimelineData ? (
                 <div className="grid h-[360px] place-items-center rounded-xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
                   Sem dados para o período selecionado.
                 </div>
@@ -1181,6 +1228,7 @@ export default memo(function AMCalendarDashboard({
               ) : (
                 <div className="min-w-[900px] rounded-xl border border-zinc-200 p-2">
                   <Timeline
+                    className="am-resource-timeline"
                     groups={timelineModel.groups}
                     items={timelineModel.items}
                     visibleTimeStart={tlVisible.start}

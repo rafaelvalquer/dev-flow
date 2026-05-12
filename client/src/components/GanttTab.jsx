@@ -17,6 +17,8 @@ import {
 
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   GripVertical,
   History,
   Loader2,
@@ -202,7 +204,8 @@ function GanttTooltipContent({ task, fontSize, fontFamily }) {
       ) : null}
 
       <div className="mt-2 text-[11px] font-semibold text-zinc-800">
-        {fmtDateBR(task?.start)} — {fmtDateBR(task?.end)}
+        {fmtDateBR(getTaskOriginalStart(task))} —{" "}
+        {fmtDateBR(getTaskOriginalEnd(task))}
       </div>
 
       {!isProject && task?.area ? (
@@ -279,8 +282,46 @@ const GANTT_PAN_BLOCKED_SELECTOR = [
 ].join(",");
 
 function isGanttPanBlockedTarget(target) {
-  if (!(target instanceof Element)) return true;
+  if (!target || typeof target.closest !== "function") return true;
   return Boolean(target.closest(GANTT_PAN_BLOCKED_SELECTOR));
+}
+
+function isGanttTimelinePanTarget(target) {
+  if (!target || typeof target.closest !== "function") return false;
+  return Boolean(target.closest("._CZjuD, ._2B2zv, svg"));
+}
+
+function getTaskOriginalStart(task) {
+  return task?.originalStart instanceof Date ? task.originalStart : task?.start;
+}
+
+function getTaskOriginalEnd(task) {
+  return task?.originalEnd instanceof Date ? task.originalEnd : task?.end;
+}
+
+function cloneDate(date) {
+  return date instanceof Date ? new Date(date.getTime()) : date;
+}
+
+function addCalendarWindow(date, amount, viewMode) {
+  const next = new Date(date);
+  if (viewMode === ViewMode.Month) {
+    next.setMonth(next.getMonth() + amount);
+    return next;
+  }
+  if (viewMode === ViewMode.Year) {
+    next.setFullYear(next.getFullYear() + amount);
+    return next;
+  }
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function getGanttWindowSpanDays(viewMode) {
+  if (viewMode === ViewMode.Day) return 45;
+  if (viewMode === ViewMode.Week) return 84;
+  if (viewMode === ViewMode.Month) return 365;
+  return 730;
 }
 
 function getTaskIssueKey(task) {
@@ -843,7 +884,7 @@ function TaskListTableFactory({
     const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
 
     function calcDurationDays(t) {
-      return inclusiveDurationDays(t?.start, t?.end);
+      return inclusiveDurationDays(getTaskOriginalStart(t), getTaskOriginalEnd(t));
     }
 
     // ✅ edição inline (Dias)
@@ -908,7 +949,9 @@ function TaskListTableFactory({
       setEditingDate({
         id: t.id,
         field,
-        value: toDateInputValue(t?.[field]),
+        value: toDateInputValue(
+          field === "start" ? getTaskOriginalStart(t) : getTaskOriginalEnd(t)
+        ),
       });
     };
 
@@ -921,7 +964,9 @@ function TaskListTableFactory({
       setEditingDate({ id: null, field: null, value: "" });
 
       const nextDate = safeDate(value);
-      const currentDate = safeDate(t?.[field]);
+      const currentDate = safeDate(
+        field === "start" ? getTaskOriginalStart(t) : getTaskOriginalEnd(t)
+      );
       if (!nextDate || !currentDate) return;
 
       if (toDateInputValue(nextDate) !== toDateInputValue(currentDate)) {
@@ -1196,19 +1241,52 @@ function TaskListTableFactory({
                     onFocus={() => {
                       setEditingDurId(t.id);
                       setEditingDurValue(String(calcDurationDays(t)));
+                      window.requestAnimationFrame(() => {
+                        document.activeElement?.select?.();
+                      });
+                    }}
+                    onSelect={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (editingDurId !== t.id) e.currentTarget.select();
                     }}
                     onChange={(e) => {
                       setEditingDurId(t.id);
                       setEditingDurValue(e.target.value);
                     }}
                     onKeyDown={(e) => {
+                      e.stopPropagation();
                       if (e.key === "Escape") {
                         setEditingDurId(null);
                         setEditingDurValue("");
                         e.currentTarget.blur();
+                        return;
                       }
                       if (e.key === "Enter") {
                         e.currentTarget.blur();
+                        return;
+                      }
+                      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                        e.preventDefault();
+                        const current = Math.max(
+                          1,
+                          parseInt(
+                            String(
+                              editingDurId === t.id
+                                ? editingDurValue
+                                : calcDurationDays(t)
+                            ),
+                            10
+                          ) || calcDurationDays(t)
+                        );
+                        const next =
+                          e.key === "ArrowUp"
+                            ? current + 1
+                            : Math.max(1, current - 1);
+                        setEditingDurId(t.id);
+                        setEditingDurValue(String(next));
                       }
                     }}
                     onBlur={() => {
@@ -1226,7 +1304,6 @@ function TaskListTableFactory({
                         onChangeDuration?.(t, parsed);
                       }
                     }}
-                    onClick={(e) => e.stopPropagation()}
                     title="Duração (dias). Ao alterar, ajusta o End. Se encadeado, empurra as próximas."
                   />
                 )}
@@ -1235,7 +1312,9 @@ function TaskListTableFactory({
               {/* Start / End */}
               <div className="flex items-center">
                 {isProject ? (
-                  <span className="text-zinc-700">{fmtDateBR(t.start)}</span>
+                  <span className="text-zinc-700">
+                    {fmtDateBR(getTaskOriginalStart(t))}
+                  </span>
                 ) : (
                   <Input
                     type="date"
@@ -1244,7 +1323,7 @@ function TaskListTableFactory({
                     value={
                       editingDate.id === t.id && editingDate.field === "start"
                         ? editingDate.value
-                        : toDateInputValue(t.start)
+                        : toDateInputValue(getTaskOriginalStart(t))
                     }
                     onFocus={() => beginEditDate(t, "start")}
                     onChange={(e) => {
@@ -1264,6 +1343,8 @@ function TaskListTableFactory({
                       }
                     }}
                     onBlur={() => commitEditDate(t)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                     title="Alterar data inicial manualmente"
                   />
@@ -1271,7 +1352,9 @@ function TaskListTableFactory({
               </div>
               <div className="flex items-center">
                 {isProject ? (
-                  <span className="text-zinc-700">{fmtDateBR(t.end)}</span>
+                  <span className="text-zinc-700">
+                    {fmtDateBR(getTaskOriginalEnd(t))}
+                  </span>
                 ) : (
                   <Input
                     type="date"
@@ -1280,7 +1363,7 @@ function TaskListTableFactory({
                     value={
                       editingDate.id === t.id && editingDate.field === "end"
                         ? editingDate.value
-                        : toDateInputValue(t.end)
+                        : toDateInputValue(getTaskOriginalEnd(t))
                     }
                     onFocus={() => beginEditDate(t, "end")}
                     onChange={(e) => {
@@ -1300,6 +1383,8 @@ function TaskListTableFactory({
                       }
                     }}
                     onBlur={() => commitEditDate(t)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}
                     title="Alterar data final manualmente"
                   />
@@ -1366,6 +1451,7 @@ export function GanttTab({
   changeHistory = [],
 }) {
   const [viewMode, setViewMode] = useState(ViewMode.Week);
+  const [ganttWindowStart, setGanttWindowStart] = useState(null);
   const [groupByTicket, setGroupByTicket] = useState(true);
   const [onlyInProgress, setOnlyInProgress] = useState(true);
   const [selectedIssueKey, setSelectedIssueKey] = useState("");
@@ -1554,9 +1640,18 @@ export function GanttTab({
   }, [colWidths]);
 
   const ganttWrapRef = useRef(null);
+  const ganttHorizontalBarRef = useRef(null);
+  const ganttVerticalBarRef = useRef(null);
+  const isSyncingGanttScrollRef = useRef(false);
   const panRef = useRef(null);
   const suppressPanClickRef = useRef(false);
   const [isGanttPanning, setIsGanttPanning] = useState(false);
+  const [hasGanttHorizontalScroll, setHasGanttHorizontalScroll] =
+    useState(false);
+  const [ganttHorizontalScrollWidth, setGanttHorizontalScrollWidth] =
+    useState(0);
+  const [ganttVerticalScrollHeight, setGanttVerticalScrollHeight] =
+    useState(0);
 
   /* =========================
      RESIZE (controlado no PAI)
@@ -1620,19 +1715,42 @@ export function GanttTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quickView]);
 
+  const getGanttHorizontalScrollTarget = useCallback(() => {
+    const root = ganttWrapRef.current;
+    if (!root) return null;
+
+    const candidates = root.querySelectorAll("._2k9Ys");
+    for (const node of candidates) {
+      if (node.scrollWidth > node.clientWidth + 1) return node;
+    }
+
+    if (root.scrollWidth > root.clientWidth + 1) return root;
+
+    return root;
+  }, []);
+
   const beginGanttPan = useCallback((e) => {
-    if (e.button !== 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     if (resizeRef.current) return;
     if (isGanttPanBlockedTarget(e.target)) return;
+    if (!isGanttTimelinePanTarget(e.target)) return;
 
     const root = ganttWrapRef.current;
-    if (!root || root.scrollWidth <= root.clientWidth) return;
+    const horizontalTarget = getGanttHorizontalScrollTarget();
+    if (
+      !root ||
+      !horizontalTarget ||
+      horizontalTarget.scrollWidth <= horizontalTarget.clientWidth + 1
+    )
+      return;
     if (isNativeScrollbarHit(root, e)) return;
 
     panRef.current = {
+      pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      scrollLeft: root.scrollLeft,
+      scrollElement: horizontalTarget,
+      scrollLeft: horizontalTarget.scrollLeft,
       moved: false,
       previousCursor: document.body.style.cursor,
       previousUserSelect: document.body.style.userSelect,
@@ -1641,8 +1759,7 @@ export function GanttTab({
     setIsGanttPanning(true);
     document.body.style.cursor = "grabbing";
     document.body.style.userSelect = "none";
-    e.preventDefault();
-  }, []);
+  }, [getGanttHorizontalScrollTarget]);
 
   const handleGanttPanClickCapture = useCallback((e) => {
     if (!suppressPanClickRef.current) return;
@@ -1651,47 +1768,123 @@ export function GanttTab({
     e.stopPropagation();
   }, []);
 
-  useEffect(() => {
-    function finishPan() {
-      const drag = panRef.current;
-      if (!drag) return;
+  const syncGanttScrollbars = useCallback(() => {
+    const root = ganttWrapRef.current;
+    const horizontalTarget = getGanttHorizontalScrollTarget();
+    const horizontalBar = ganttHorizontalBarRef.current;
+    const verticalBar = ganttVerticalBarRef.current;
+    if (!root) return;
 
-      panRef.current = null;
-      setIsGanttPanning(false);
-      document.body.style.cursor = drag.previousCursor || "";
-      document.body.style.userSelect = drag.previousUserSelect || "";
-
-      if (drag.moved) {
-        suppressPanClickRef.current = true;
-        window.setTimeout(() => {
-          suppressPanClickRef.current = false;
-        }, 0);
-      }
+    const scrollLeft = horizontalTarget?.scrollLeft ?? root.scrollLeft;
+    if (horizontalBar && horizontalBar.scrollLeft !== scrollLeft) {
+      horizontalBar.scrollLeft = scrollLeft;
     }
 
-    function onMove(e) {
-      const drag = panRef.current;
+    if (verticalBar && verticalBar.scrollTop !== root.scrollTop) {
+      verticalBar.scrollTop = root.scrollTop;
+    }
+  }, [getGanttHorizontalScrollTarget]);
+
+  const handleGanttScroll = useCallback(() => {
+    if (isSyncingGanttScrollRef.current) return;
+    syncGanttScrollbars();
+  }, [syncGanttScrollbars]);
+
+  const handleGanttHorizontalBarScroll = useCallback(
+    (event) => {
       const root = ganttWrapRef.current;
-      if (!drag || !root) return;
+      const horizontalTarget = getGanttHorizontalScrollTarget();
+      if (!root || !horizontalTarget) return;
+
+      const nextLeft = event.currentTarget.scrollLeft;
+      if (horizontalTarget.scrollLeft === nextLeft) return;
+
+      isSyncingGanttScrollRef.current = true;
+      horizontalTarget.scrollLeft = nextLeft;
+      window.requestAnimationFrame(() => {
+        isSyncingGanttScrollRef.current = false;
+        syncGanttScrollbars();
+      });
+    },
+    [getGanttHorizontalScrollTarget, syncGanttScrollbars]
+  );
+
+  const handleGanttVerticalBarScroll = useCallback(
+    (event) => {
+      const root = ganttWrapRef.current;
+      if (!root) return;
+
+      const nextTop = event.currentTarget.scrollTop;
+      if (root.scrollTop === nextTop) return;
+
+      isSyncingGanttScrollRef.current = true;
+      root.scrollTop = nextTop;
+      window.requestAnimationFrame(() => {
+        isSyncingGanttScrollRef.current = false;
+        syncGanttScrollbars();
+      });
+    },
+    [syncGanttScrollbars]
+  );
+
+  const finishGanttPan = useCallback((e) => {
+    const drag = panRef.current;
+    if (!drag) return;
+    if (e?.pointerId != null && e.pointerId !== drag.pointerId) return;
+
+    panRef.current = null;
+    setIsGanttPanning(false);
+    document.body.style.cursor = drag.previousCursor || "";
+    document.body.style.userSelect = drag.previousUserSelect || "";
+
+    if (drag.moved) {
+      suppressPanClickRef.current = true;
+      window.setTimeout(() => {
+        suppressPanClickRef.current = false;
+      }, 0);
+    }
+  }, []);
+
+  const handleGanttPanPointerMove = useCallback(
+    (e) => {
+      const drag = panRef.current;
+      const horizontalTarget =
+        drag?.scrollElement || getGanttHorizontalScrollTarget();
+      if (!drag || !horizontalTarget) return;
+      if (e.pointerId !== drag.pointerId) return;
 
       const deltaX = e.clientX - drag.startX;
       const deltaY = e.clientY - drag.startY;
-      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 6) {
+      if (
+        !drag.moved &&
+        Math.abs(deltaX) > 4 &&
+        Math.abs(deltaX) >= Math.abs(deltaY)
+      ) {
         drag.moved = true;
       }
 
       if (!drag.moved) return;
-      root.scrollLeft = drag.scrollLeft - deltaX;
+      horizontalTarget.scrollLeft = drag.scrollLeft - deltaX;
+      syncGanttScrollbars();
       e.preventDefault();
-    }
+    },
+    [getGanttHorizontalScrollTarget, syncGanttScrollbars]
+  );
 
-    window.addEventListener("mousemove", onMove, { passive: false });
-    window.addEventListener("mouseup", finishPan);
-    window.addEventListener("mouseleave", finishPan);
+  useEffect(() => {
+    window.addEventListener("pointermove", handleGanttPanPointerMove, {
+      passive: false,
+    });
+    window.addEventListener("pointerup", finishGanttPan);
+    window.addEventListener("pointercancel", finishGanttPan);
+    window.addEventListener("blur", finishGanttPan);
+
     return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", finishPan);
-      window.removeEventListener("mouseleave", finishPan);
+      window.removeEventListener("pointermove", handleGanttPanPointerMove);
+      window.removeEventListener("pointerup", finishGanttPan);
+      window.removeEventListener("pointercancel", finishGanttPan);
+      window.removeEventListener("blur", finishGanttPan);
+
       const drag = panRef.current;
       if (drag) {
         document.body.style.cursor = drag.previousCursor || "";
@@ -1699,7 +1892,7 @@ export function GanttTab({
       }
       panRef.current = null;
     };
-  }, []);
+  }, [finishGanttPan, handleGanttPanPointerMove]);
 
   const { tasks, conflictSet, ticketOptions } = useMemo(() => {
     return buildGanttTasksFromViewData({
@@ -1774,6 +1967,87 @@ export function GanttTab({
     );
   }, [safeTasks, rowDragState]);
 
+  const displayDateRange = useMemo(() => {
+    const dates = (displayTasks || [])
+      .flatMap((task) => [safeDate(task?.start), safeDate(task?.end)])
+      .filter(Boolean)
+      .map((date) => date.getTime());
+
+    if (!dates.length) return null;
+
+    return {
+      minStart: new Date(Math.min(...dates)),
+      maxEnd: new Date(Math.max(...dates)),
+    };
+  }, [displayTasks]);
+
+  useEffect(() => {
+    if (!displayDateRange?.minStart) {
+      setGanttWindowStart(null);
+      return;
+    }
+
+    setGanttWindowStart((current) => {
+      const currentDate = safeDate(current);
+      if (currentDate) {
+        const currentEnd = addDays(
+          currentDate,
+          getGanttWindowSpanDays(viewMode) - 1
+        );
+        if (
+          currentEnd >= displayDateRange.minStart &&
+          currentDate <= displayDateRange.maxEnd
+        ) {
+          return currentDate;
+        }
+      }
+      return displayDateRange.minStart;
+    });
+  }, [
+    displayDateRange?.maxEnd?.getTime(),
+    displayDateRange?.minStart?.getTime(),
+    viewMode,
+  ]);
+
+  const ganttWindow = useMemo(() => {
+    const fallbackStart = displayDateRange?.minStart || new Date();
+    const start = safeDate(ganttWindowStart) || fallbackStart;
+    const normalizedStart = new Date(start);
+    normalizedStart.setHours(0, 0, 0, 0);
+
+    return {
+      start: normalizedStart,
+      end: addDays(normalizedStart, getGanttWindowSpanDays(viewMode) - 1),
+    };
+  }, [displayDateRange?.minStart, ganttWindowStart, viewMode]);
+
+  const shiftGanttCalendar = useCallback(
+    (direction) => {
+      const factor = direction === "previous" ? -1 : 1;
+      const stepDays = getGanttWindowSpanDays(viewMode);
+      setGanttWindowStart((current) => {
+        const base =
+          safeDate(current) ||
+          safeDate(displayDateRange?.minStart) ||
+          new Date();
+        return addCalendarWindow(base, factor * stepDays, viewMode);
+      });
+
+      const horizontalTarget = getGanttHorizontalScrollTarget();
+      if (horizontalTarget) horizontalTarget.scrollLeft = 0;
+      if (ganttHorizontalBarRef.current) {
+        ganttHorizontalBarRef.current.scrollLeft = 0;
+      }
+      window.requestAnimationFrame(syncGanttScrollbars);
+    },
+    [
+      displayDateRange?.minStart,
+      getGanttHorizontalScrollTarget,
+      syncGanttScrollbars,
+      viewMode,
+    ]
+  );
+
   const { taskById, nextById, prevById } = useMemo(() => {
     const tasksOnly = (displayTasks || []).filter((t) => t?.type === "task");
 
@@ -1838,12 +2112,37 @@ export function GanttTab({
   }, [prevById, chainSet]);
 
   const ganttTasks = useMemo(() => {
-    return (displayTasks || []).map((t) => {
-      if (t.type !== "task") return t;
-      if (!lockedSet.has(t.id)) return t;
-      return { ...t, isDisabled: true };
-    });
-  }, [displayTasks, lockedSet]);
+    const windowStart = ganttWindow?.start;
+    const windowEnd = ganttWindow?.end;
+
+    return (displayTasks || [])
+      .map((t) => {
+        if (!t || !windowStart || !windowEnd) return t;
+
+        const originalStart = safeDate(t.start);
+        const originalEnd = safeDate(t.end);
+        if (!originalStart || !originalEnd) return null;
+        if (originalEnd < windowStart || originalStart > windowEnd) return null;
+
+        const start =
+          originalStart < windowStart ? cloneDate(windowStart) : originalStart;
+        const end = originalEnd > windowEnd ? cloneDate(windowEnd) : originalEnd;
+
+        return {
+          ...t,
+          originalStart,
+          originalEnd,
+          start,
+          end,
+          isCalendarClipped:
+            start.getTime() !== originalStart.getTime() ||
+            end.getTime() !== originalEnd.getTime(),
+          isDisabled:
+            t.type === "task" ? Boolean(t.isDisabled || lockedSet.has(t.id)) : t.isDisabled,
+        };
+      })
+      .filter(Boolean);
+  }, [displayTasks, ganttWindow, lockedSet]);
 
   const ganttContentWidth = useMemo(() => {
     const datedTasks = (ganttTasks || []).filter(
@@ -1874,6 +2173,76 @@ export function GanttTab({
 
     return Math.max(1180, listCellWidth + timelineColumns * columnWidth + 220);
   }, [ganttTasks, listCellWidth, viewMode]);
+
+  const updateGanttScrollState = useCallback(() => {
+    const root = ganttWrapRef.current;
+    if (!root) return;
+
+    const horizontalTarget = getGanttHorizontalScrollTarget();
+    const hasHorizontal =
+      !!horizontalTarget &&
+      horizontalTarget.scrollWidth > horizontalTarget.clientWidth + 1;
+
+    setHasGanttHorizontalScroll(hasHorizontal);
+    setGanttHorizontalScrollWidth(
+      Math.max(
+        ganttContentWidth,
+        horizontalTarget?.scrollWidth || 0,
+        (horizontalTarget?.clientWidth || root.clientWidth || 0) + 1
+      )
+    );
+    setGanttVerticalScrollHeight(
+      Math.max(root.scrollHeight, root.clientHeight + 1)
+    );
+    syncGanttScrollbars();
+  }, [ganttContentWidth, getGanttHorizontalScrollTarget, syncGanttScrollbars]);
+
+  useEffect(() => {
+    const root = ganttWrapRef.current;
+    if (!root) return;
+
+    let rafId = null;
+    const scheduleUpdate = () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        updateGanttScrollState();
+      });
+    };
+
+    scheduleUpdate();
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(scheduleUpdate)
+        : null;
+
+    resizeObserver?.observe(root);
+    if (root.firstElementChild) resizeObserver?.observe(root.firstElementChild);
+    const horizontalTarget = getGanttHorizontalScrollTarget();
+    if (horizontalTarget && horizontalTarget !== root) {
+      horizontalTarget.addEventListener("scroll", scheduleUpdate, {
+        passive: true,
+      });
+      resizeObserver?.observe(horizontalTarget);
+    }
+    window.addEventListener("resize", scheduleUpdate);
+
+    return () => {
+      if (rafId) window.cancelAnimationFrame(rafId);
+      if (horizontalTarget && horizontalTarget !== root) {
+        horizontalTarget.removeEventListener("scroll", scheduleUpdate);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [
+    ganttContentWidth,
+    getGanttHorizontalScrollTarget,
+    safeTasks.length,
+    updateGanttScrollState,
+    viewMode,
+  ]);
 
   // ✅ issues index
   const issueByKey = useMemo(() => {
@@ -2048,6 +2417,7 @@ export function GanttTab({
     async (task) => {
       if (persistingDates || persistingMeta) return false;
       if (!task || task.type === "project" || task.isDisabled) return false;
+      if (task.isCalendarClipped) return false;
 
       const baseId = String(task.id || "");
       const baseOriginal = taskById.get(baseId) || task;
@@ -2070,8 +2440,8 @@ export function GanttTab({
             getActivityIdFromTaskId(task.id)) ??
             ""
         ).trim(),
-        start: task.start instanceof Date ? task.start : new Date(task.start),
-        end: task.end instanceof Date ? task.end : new Date(task.end),
+        start: safeDate(task.start) || safeDate(getTaskOriginalStart(task)),
+        end: safeDate(task.end) || safeDate(getTaskOriginalEnd(task)),
       };
 
       if (!base.issueKey || !base.activityId) return false;
@@ -2198,16 +2568,18 @@ export function GanttTab({
       // ✅ usa o start "original" (fonte confiável)
       const baseOriginal = taskById.get(String(task.id || "")) || task;
 
-      const start = safeDate(baseOriginal.start) || safeDate(task.start);
+      const start =
+        safeDate(getTaskOriginalStart(task)) || safeDate(baseOriginal.start);
       if (!start) return false;
 
       const nextEnd = addDays(start, d - 1);
 
       return await handleDateChange({
-        ...baseOriginal,
         ...task,
+        ...baseOriginal,
         start,
         end: nextEnd,
+        isCalendarClipped: false,
       });
     },
     [handleDateChange, taskById]
@@ -2219,8 +2591,10 @@ export function GanttTab({
       if (field !== "start" && field !== "end") return false;
 
       const baseOriginal = taskById.get(String(task.id || "")) || task;
-      const currentStart = safeDate(baseOriginal.start) || safeDate(task.start);
-      const currentEnd = safeDate(baseOriginal.end) || safeDate(task.end);
+      const currentStart =
+        safeDate(getTaskOriginalStart(task)) || safeDate(baseOriginal.start);
+      const currentEnd =
+        safeDate(getTaskOriginalEnd(task)) || safeDate(baseOriginal.end);
       const nextDate = safeDate(value);
       if (!currentStart || !currentEnd || !nextDate) return false;
 
@@ -2240,10 +2614,11 @@ export function GanttTab({
       }
 
       return await handleDateChange({
-        ...baseOriginal,
         ...task,
+        ...baseOriginal,
         start: nextStart,
         end: nextEnd,
+        isCalendarClipped: false,
       });
     },
     [handleDateChange, taskById]
@@ -2808,6 +3183,16 @@ export function GanttTab({
 
             <div className="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-xl border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700"
+                  onClick={() => shiftGanttCalendar("previous")}
+                >
+                  <ChevronLeft className="mr-1.5 h-3.5 w-3.5" />
+                  Anterior
+                </Button>
+
                 <div className="inline-flex items-center rounded-xl border border-zinc-200 bg-white p-1">
                   {[
                     ["Day", ViewMode.Day],
@@ -2831,6 +3216,20 @@ export function GanttTab({
                     </Button>
                   ))}
                 </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 rounded-xl border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700"
+                  onClick={() => shiftGanttCalendar("next")}
+                >
+                  Pr&oacute;ximo
+                  <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
+                </Button>
+
+                <span className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600">
+                  {fmtDateBR(ganttWindow.start)} - {fmtDateBR(ganttWindow.end)}
+                </span>
 
                 <Button
                   type="button"
@@ -2916,49 +3315,88 @@ export function GanttTab({
             </div>
 
             <div className="rounded-2xl border border-zinc-200 bg-white">
-              <div
-                ref={ganttWrapRef}
-                className={cn(
-                  "h-[68vh] max-w-full overflow-scroll pb-3",
-                  isGanttPanning ? "cursor-grabbing" : "cursor-grab"
-                )}
-                onMouseDown={beginGanttPan}
-                onClickCapture={handleGanttPanClickCapture}
-              >
-                {safeTasks.length > 0 ? (
-                  <div style={{ width: `${ganttContentWidth}px` }}>
-                    <Gantt
-                      tasks={ganttTasks}
-                      viewMode={viewMode}
-                      locale="pt-BR"
-                      onDateChange={handleDateChange}
-                      onClick={handleClick}
-                      onDoubleClick={handleDoubleClick}
-                      onExpanderClick={(task) => handleToggleProject(task)}
-                      TooltipContent={GanttTooltipContent}
-                      TaskListHeader={TaskListHeader}
-                      TaskListTable={TaskListTable}
-                      listCellWidth={listCellWidth}
-                      columnWidth={
-                        viewMode === ViewMode.Day
-                          ? 48
-                          : viewMode === ViewMode.Week
-                          ? 70
-                          : 90
-                      }
-                      rowHeight={42}
-                      barCornerRadius={8}
-                    />
-                  </div>
-                ) : (
-                  <div className="p-6 text-sm text-zinc-600">
-                    Nenhuma atividade com datas para exibir no Gantt.
-                    <div className="mt-2 text-xs text-zinc-500">
-                      Dica: limpe filtros, desmarque “Somente em andamento” ou
-                      selecione “Todos”.
+              <div className="flex">
+                <div
+                  ref={ganttWrapRef}
+                  className={cn(
+                    "gantt-scroll-shell h-[68vh] min-w-0 flex-1 max-w-full overflow-x-auto overflow-y-auto pb-2",
+                    isGanttPanning ? "cursor-grabbing" : "cursor-grab"
+                  )}
+                  onScroll={handleGanttScroll}
+                  onPointerDown={beginGanttPan}
+                  onClickCapture={handleGanttPanClickCapture}
+                >
+                  {ganttTasks.length > 0 ? (
+                    <div style={{ width: `${ganttContentWidth}px` }}>
+                      <Gantt
+                        tasks={ganttTasks}
+                        viewMode={viewMode}
+                        viewDate={ganttWindow.start}
+                        preStepsCount={1}
+                        locale="pt-BR"
+                        onDateChange={handleDateChange}
+                        onClick={handleClick}
+                        onDoubleClick={handleDoubleClick}
+                        onExpanderClick={(task) => handleToggleProject(task)}
+                        TooltipContent={GanttTooltipContent}
+                        TaskListHeader={TaskListHeader}
+                        TaskListTable={TaskListTable}
+                        listCellWidth={listCellWidth}
+                        columnWidth={
+                          viewMode === ViewMode.Day
+                            ? 48
+                            : viewMode === ViewMode.Week
+                            ? 70
+                            : 90
+                        }
+                        rowHeight={42}
+                        barCornerRadius={8}
+                      />
                     </div>
-                  </div>
+                  ) : (
+                    <div className="p-6 text-sm text-zinc-600">
+                      Nenhuma atividade com datas neste período do Gantt.
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Use Anterior/Próximo para navegar ou ajuste os filtros.
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div
+                  ref={ganttVerticalBarRef}
+                  className={cn(
+                    "gantt-vertical-scrollbar h-[68vh]",
+                    ganttTasks.length > 0 ? "block" : "hidden"
+                  )}
+                  onScroll={handleGanttVerticalBarScroll}
+                  tabIndex={0}
+                  aria-label="Rolagem vertical do Gantt"
+                >
+                  <div
+                    className="w-px"
+                    style={{ height: `${ganttVerticalScrollHeight}px` }}
+                  />
+                </div>
+              </div>
+              <div
+                ref={ganttHorizontalBarRef}
+                className={cn(
+                  "gantt-horizontal-scrollbar",
+                  hasGanttHorizontalScroll ? "block" : "hidden",
+                  ganttTasks.length > 0 ? "mr-[18px]" : ""
                 )}
+                onScroll={handleGanttHorizontalBarScroll}
+                tabIndex={0}
+                aria-label="Rolagem horizontal do Gantt"
+              >
+                <div
+                  className="h-px"
+                  style={{
+                    width: `${
+                      ganttHorizontalScrollWidth || ganttContentWidth
+                    }px`,
+                  }}
+                />
               </div>
             </div>
 

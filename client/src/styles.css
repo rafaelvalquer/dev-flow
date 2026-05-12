@@ -274,6 +274,79 @@ button.pdf {
   font-size: 13px;
   box-sizing: border-box;
 }
+
+.am-resource-timeline .rct-scroll {
+  cursor: grab;
+}
+
+.am-resource-timeline .rct-scroll:active {
+  cursor: grabbing;
+}
+
+.gantt-scroll-shell {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-y;
+}
+
+.gantt-scroll-shell::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.gantt-horizontal-scrollbar,
+.gantt-vertical-scrollbar {
+  background: #fff;
+  scrollbar-color: #94a3b8 #f1f5f9;
+  scrollbar-gutter: stable;
+}
+
+.gantt-horizontal-scrollbar {
+  height: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: 1px solid #e4e4e7;
+}
+
+.gantt-vertical-scrollbar {
+  width: 18px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  border-left: 1px solid #e4e4e7;
+}
+
+.gantt-horizontal-scrollbar:focus,
+.gantt-vertical-scrollbar:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+.gantt-horizontal-scrollbar::-webkit-scrollbar {
+  height: 14px;
+}
+
+.gantt-vertical-scrollbar::-webkit-scrollbar {
+  width: 14px;
+}
+
+.gantt-horizontal-scrollbar::-webkit-scrollbar-track,
+.gantt-vertical-scrollbar::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+
+.gantt-horizontal-scrollbar::-webkit-scrollbar-thumb,
+.gantt-vertical-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border: 3px solid #f1f5f9;
+  border-radius: 999px;
+}
+
+.gantt-horizontal-scrollbar::-webkit-scrollbar-thumb:hover,
+.gantt-vertical-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
 @media print {
   .botoes-finais,
   #anexarImagem,
