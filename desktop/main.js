@@ -13,8 +13,10 @@ function appendNodeOption(option) {
 appendNodeOption(SYSTEM_CA_NODE_OPTION);
 
 const { app, BrowserWindow, dialog, Menu, session, shell } = require("electron");
+const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
@@ -24,6 +26,8 @@ const DEFAULT_SESSION_SECRET = "dev-secret-change-me";
 let mainWindow = null;
 let httpServer = null;
 let backendBaseUrl = "";
+let sttProcess = null;
+let sttBaseUrl = "";
 
 app.commandLine.appendSwitch("proxy-auto-detect");
 app.commandLine.appendSwitch("proxy-bypass-list", "<local>;localhost;127.0.0.1");
@@ -42,6 +46,14 @@ function getServerDir() {
 
 function getClientDistDir() {
   return path.join(getPreparedAppRoot(), "client", "dist");
+}
+
+function getServicesDir() {
+  return path.join(getPreparedAppRoot(), "services");
+}
+
+function getSttServiceDir() {
+  return path.join(getServicesDir(), "stt-python");
 }
 
 function toImportUrl(filePath) {
@@ -70,6 +82,123 @@ function getFreePort() {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function checkHttpOk(url, timeoutMs = 2500) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 300);
+    });
+
+    req.on("timeout", () => {
+      req.destroy(new Error(`Timeout ao consultar ${url}`));
+    });
+    req.on("error", reject);
+  });
+}
+
+async function waitForHttpOk(url, timeoutMs = 120000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+
+  while (Date.now() < deadline) {
+    try {
+      if (await checkHttpOk(url)) return true;
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(1000);
+  }
+
+  throw lastError || new Error(`ServiÃ§o nÃ£o respondeu em ${url}`);
+}
+
+function getSttPythonExecutable(serviceDir) {
+  const bundledPython = path.join(serviceDir, ".venv", "Scripts", "python.exe");
+  if (fs.existsSync(bundledPython)) return bundledPython;
+
+  const envPython = String(process.env.DEV_FLOW_PYTHON || "").trim();
+  return envPython || "python";
+}
+
+async function startSttService() {
+  if (String(process.env.DEV_FLOW_STT_ENABLED || "true").toLowerCase() === "false") {
+    return "";
+  }
+
+  if (sttProcess && sttBaseUrl) return sttBaseUrl;
+
+  const serviceDir = getSttServiceDir();
+  const appFile = path.join(serviceDir, "app.py");
+
+  if (!fs.existsSync(appFile)) {
+    console.warn(`[stt] serviÃ§o Python nÃ£o encontrado em ${serviceDir}`);
+    return "";
+  }
+
+  const port = await getFreePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const pythonExecutable = getSttPythonExecutable(serviceDir);
+  const uploadDir = path.join(app.getPath("userData"), "stt-uploads");
+  const bundledFfmpeg = path.join(serviceDir, "bin", "ffmpeg.exe");
+  const bundledFfprobe = path.join(serviceDir, "bin", "ffprobe.exe");
+
+  fs.mkdirSync(uploadDir, { recursive: true });
+
+  sttBaseUrl = baseUrl;
+  process.env.STT_PY_BASE = baseUrl;
+
+  const child = spawn(
+    pythonExecutable,
+    ["-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", String(port)],
+    {
+      cwd: serviceDir,
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+        STT_UPLOAD_DIR: uploadDir,
+        ...(fs.existsSync(bundledFfmpeg) ? { FFMPEG_PATH: bundledFfmpeg } : {}),
+        ...(fs.existsSync(bundledFfprobe)
+          ? { FFPROBE_PATH: bundledFfprobe }
+          : {}),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    }
+  );
+
+  sttProcess = child;
+
+  child.stdout?.on("data", (chunk) => {
+    console.log(`[stt] ${String(chunk).trimEnd()}`);
+  });
+  child.stderr?.on("data", (chunk) => {
+    console.warn(`[stt] ${String(chunk).trimEnd()}`);
+  });
+  child.on("error", (error) => {
+    console.error("[stt] falha ao iniciar serviÃ§o Python:", error);
+  });
+  child.on("exit", (code, signal) => {
+    console.warn(`[stt] serviÃ§o encerrado code=${code} signal=${signal || ""}`);
+    if (sttProcess === child) sttProcess = null;
+  });
+
+  waitForHttpOk(`${baseUrl}/health`)
+    .then(() => console.log(`[stt] online em ${baseUrl}`))
+    .catch((error) => {
+      console.warn(
+        `[stt] serviÃ§o iniciado, mas health-check ainda nÃ£o respondeu: ${
+          error?.message || String(error)
+        }`
+      );
+    });
+
+  return baseUrl;
+}
+
 async function startBackend() {
   const serverDir = getServerDir();
   const clientDist = getClientDistDir();
@@ -95,6 +224,7 @@ async function startBackend() {
   process.env.REQUEST_TIMEOUT_MS = process.env.REQUEST_TIMEOUT_MS || "60000";
   process.env.HEALTHCHECK_TIMEOUT_MS =
     process.env.HEALTHCHECK_TIMEOUT_MS || "8000";
+  if (sttBaseUrl) process.env.STT_PY_BASE = sttBaseUrl;
   ensureSessionSecret();
 
   const [{ default: createApp }, { env, validateEnv }, { connectMongo }, jobs] =
@@ -149,6 +279,13 @@ function installAppMenu() {
             shell.openExternal(`${backendBaseUrl}/health/jira`);
           },
         },
+        {
+          label: "Diagnostico STT",
+          click: () => {
+            if (!backendBaseUrl) return;
+            shell.openExternal(`${backendBaseUrl}/api/stt/health`);
+          },
+        },
         { type: "separator" },
         { role: "reload", label: "Recarregar" },
         { role: "quit", label: "Sair" },
@@ -195,9 +332,39 @@ async function shutdownBackend() {
   httpServer = null;
 }
 
+async function shutdownSttService() {
+  if (!sttProcess) return;
+
+  const child = sttProcess;
+  sttProcess = null;
+
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+
+    child.once("exit", finish);
+    child.kill();
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Processo jÃ¡ encerrou.
+      }
+      finish();
+    }, 3000);
+    timer.unref?.();
+  });
+}
+
 app.whenReady().then(async () => {
   try {
     await session.defaultSession.setProxy({ mode: "auto_detect" });
+    await startSttService();
     const port = await startBackend();
     installAppMenu();
     createWindow(port);
@@ -213,6 +380,7 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   shutdownBackend().catch((error) => console.error(error));
+  shutdownSttService().catch((error) => console.error(error));
 });
 
 app.on("window-all-closed", () => {
@@ -223,6 +391,7 @@ app.on("activate", async () => {
   if (mainWindow) return;
   try {
     if (!httpServer) {
+      await startSttService();
       const port = await startBackend();
       createWindow(port);
       return;

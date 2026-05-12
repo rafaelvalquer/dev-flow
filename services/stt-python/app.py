@@ -31,7 +31,7 @@ ffbin = os.path.dirname(FFPROBE)
 os.environ["PATH"] = ffbin + os.pathsep + os.environ.get("PATH", "")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+UPLOAD_DIR = os.getenv("STT_UPLOAD_DIR") or os.path.join(BASE_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Padrão alvo: WAV / μ-law / 8000 Hz / mono (≈64 kbps)

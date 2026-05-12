@@ -10,8 +10,10 @@ const outputDir = path.join(desktopDir, "app");
 
 const clientDistSource = path.join(repoRoot, "client", "dist");
 const serverSource = path.join(repoRoot, "server");
+const sttServiceSource = path.join(repoRoot, "services", "stt-python");
 const clientDistTarget = path.join(outputDir, "client", "dist");
 const serverTarget = path.join(outputDir, "server");
+const sttServiceTarget = path.join(outputDir, "services", "stt-python");
 
 async function exists(filePath) {
   try {
@@ -33,6 +35,26 @@ function shouldCopyServerEntry(sourcePath) {
   if (relative === "dist" || relative.startsWith("dist/")) return false;
   if (relative === "build" || relative.startsWith("build/")) return false;
   if (relative.endsWith(".zip")) return false;
+  if (relative.endsWith(".log")) return false;
+
+  return true;
+}
+
+function shouldCopySttServiceEntry(sourcePath) {
+  const relative = path
+    .relative(sttServiceSource, sourcePath)
+    .replace(/\\/g, "/");
+
+  if (!relative) return true;
+  const parts = relative.split("/");
+  if (relative === ".git" || relative.startsWith(".git/")) return false;
+  if (relative === "uploads" || relative.startsWith("uploads/")) return false;
+  if (parts.includes("__pycache__")) return false;
+  if (relative === ".pytest_cache" || relative.startsWith(".pytest_cache/")) {
+    return false;
+  }
+  if (relative.endsWith(".pyc")) return false;
+  if (relative.endsWith(".pyo")) return false;
   if (relative.endsWith(".log")) return false;
 
   return true;
@@ -76,6 +98,54 @@ async function copyDir(source, target, options = {}) {
   }
 }
 
+async function readEnvValue(filePath, key) {
+  try {
+    const text = await fs.readFile(filePath, "utf8");
+    const line = text
+      .split(/\r?\n/)
+      .find((entry) => entry.trim().startsWith(`${key}=`));
+    if (!line) return "";
+    return line
+      .slice(line.indexOf("=") + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+  } catch {
+    return "";
+  }
+}
+
+async function copySttFfmpegBinaries() {
+  const envFile = path.join(sttServiceSource, ".env");
+  const ffmpegSource =
+    process.env.DEV_FLOW_FFMPEG_PATH ||
+    (await readEnvValue(envFile, "FFMPEG_PATH"));
+  const ffprobeSource =
+    process.env.DEV_FLOW_FFPROBE_PATH ||
+    (await readEnvValue(envFile, "FFPROBE_PATH"));
+
+  if (!(await exists(ffmpegSource)) || !(await exists(ffprobeSource))) {
+    console.warn(
+      "[desktop] ffmpeg/ffprobe nÃ£o encontrados; o serviÃ§o STT vai depender do ffmpeg instalado na mÃ¡quina."
+    );
+    return;
+  }
+
+  const binTarget = path.join(sttServiceTarget, "bin");
+  await fs.mkdir(binTarget, { recursive: true });
+  await copyFileIfChanged(ffmpegSource, path.join(binTarget, "ffmpeg.exe"));
+  await copyFileIfChanged(ffprobeSource, path.join(binTarget, "ffprobe.exe"));
+}
+
+async function removeDirIfPossible(target) {
+  try {
+    await fs.rm(target, { recursive: true, force: true });
+  } catch (error) {
+    console.warn(
+      `[desktop] nÃ£o foi possÃ­vel limpar ${target}; sobrescrevendo arquivos existentes. ${error?.message || error}`
+    );
+  }
+}
+
 async function main() {
   if (!(await exists(path.join(clientDistSource, "index.html")))) {
     throw new Error(
@@ -99,10 +169,27 @@ async function main() {
     );
   }
 
+  if (!(await exists(path.join(sttServiceSource, "app.py")))) {
+    throw new Error(`ServiÃ§o STT Python nÃ£o encontrado em ${sttServiceSource}.`);
+  }
+
+  if (
+    !(await exists(path.join(sttServiceSource, ".venv", "Scripts", "python.exe")))
+  ) {
+    throw new Error(
+      `Python do serviÃ§o STT nÃ£o encontrado. Rode a instalaÃ§Ã£o da venv em ${sttServiceSource}.`
+    );
+  }
+
   await fs.mkdir(outputDir, { recursive: true });
 
   await copyDir(clientDistSource, clientDistTarget);
   await copyDir(serverSource, serverTarget, { filter: shouldCopyServerEntry });
+  await removeDirIfPossible(sttServiceTarget);
+  await copyDir(sttServiceSource, sttServiceTarget, {
+    filter: shouldCopySttServiceEntry,
+  });
+  await copySttFfmpegBinaries();
 
   console.log(`[desktop] assets preparados em ${outputDir}`);
 }
