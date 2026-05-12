@@ -318,10 +318,10 @@ function addCalendarWindow(date, amount, viewMode) {
 }
 
 function getGanttWindowSpanDays(viewMode) {
-  if (viewMode === ViewMode.Day) return 45;
+  if (viewMode === ViewMode.Day) return 30;
   if (viewMode === ViewMode.Week) return 84;
   if (viewMode === ViewMode.Month) return 365;
-  return 730;
+  return 1095;
 }
 
 function getTaskIssueKey(task) {
