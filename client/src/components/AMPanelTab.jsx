@@ -1,5 +1,5 @@
 // src/components/AMPanelTab.jsx
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
+import { Tree } from "react-arborist";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import { toast } from "sonner";
 
 import {
@@ -66,8 +69,12 @@ import {
   ChevronUp,
   ChevronsUpDown,
   Clock,
+  Download,
   ExternalLink,
+  FileText,
   Filter,
+  FolderOpen,
+  FolderPlus,
   History,
   ListChecks,
   Loader2,
@@ -82,11 +89,7 @@ import {
 
 import AMCalendarTab from "./AMCalendarTab";
 import AMDashboardTab from "./AMDashboardTab";
-import {
-  POActionsHub,
-  POPortfolioHub,
-  POPresetBar,
-} from "./POManagementViews";
+import { POActionsHub, POPortfolioHub, POPresetBar } from "./POManagementViews";
 
 import { DateValuePicker } from "@/components/ui/date-range-picker";
 import {
@@ -94,6 +97,7 @@ import {
   jiraSearchAssignableUsers,
   jiraSearchUsers,
   jiraTransitionToStatus,
+  jiraUpdateIssuePriority,
   jiraSearchJqlAll,
   jiraSearchDoneLastNDays,
 } from "../lib/jiraClient";
@@ -112,7 +116,8 @@ import {
 import {
   applyEventChangeToAtividades,
   buildPoView,
-  fetchPoIssuesDetailed,
+  fetchPoIssueDetail,
+  fetchPoIssuesDetailedProgressive,
   makeDefaultCronogramaDraft,
   saveCronogramaToJira,
   fetchPoActiveRows,
@@ -120,7 +125,12 @@ import {
 } from "../lib/jiraPoView";
 
 // NOVO: buscar detalhes do ticket + comentar
-import { createComment, getComments, getIssue } from "../lib/jira";
+import {
+  createComment,
+  getComments,
+  getIssue,
+  listAttachments,
+} from "../lib/jira";
 import { adfSafeToText } from "../utils/gmudUtils";
 import GanttTab from "./GanttTab";
 
@@ -140,7 +150,7 @@ const CLAMP_2 = {
 
 const DEFAULT_JIRA_BROWSE_BASE = "https://clarobr-jsw-tecnologia.atlassian.net";
 const STANDARD_CRONOGRAMA_IDS = new Set(
-  ATIVIDADES_PADRAO.map((atividade) => atividade.id)
+  ATIVIDADES_PADRAO.map((atividade) => atividade.id),
 );
 
 function createCustomCronogramaActivity() {
@@ -171,7 +181,7 @@ function getJiraBrowseUrl(issueKey, issue) {
   const inferred = inferJiraBaseFromSelf(issue?.self || issue?.url || "");
   const base = (envBase || inferred || DEFAULT_JIRA_BROWSE_BASE).replace(
     /\/$/,
-    ""
+    "",
   );
   return issueKey ? `${base}/browse/${issueKey}` : "";
 }
@@ -232,6 +242,12 @@ const START_FIELDS = [
 const STATUS_OPTIONS = [
   "Backlog",
   "Refinamento",
+  "Artefatos",
+  "Planejamento",
+  "PRE SAVE",
+  "Para testes",
+  "Testes",
+  "Homologação",
   "Art. Externos",
   "Para Planejar",
   "EM PLANEJAMENTO",
@@ -240,6 +256,29 @@ const STATUS_OPTIONS = [
   "Para Homolog.",
   "Homolog. Negócio",
   "Para Deploy",
+];
+
+const DOCUMENTATION_FOLDER_LABEL = "pasta-criada";
+const DOCUMENTATION_SOURCE_FOLDER_ID = "documentation-source";
+const DOCUMENTATION_DEFAULT_FOLDERS = [
+  "SPEC",
+  "Escopo_Tecnico",
+  "Audios",
+  "Projeto",
+  "Mapa_ScripPoint",
+];
+const LEVANTAMENTO_STATUSES = new Set([
+  "Backlog",
+  "Refinamento",
+  "Artefatos",
+  "Para Planejar",
+]);
+const PRIORITY_OPTIONS = [
+  { name: "HIGHEST", color: "#b91c1c" },
+  { name: "HIGH", color: "#d97706" },
+  { name: "MEDIUM", color: "#3b82f6" },
+  { name: "LOW", color: "#22c55e" },
+  { name: "LOWEST", color: "#6b7280" },
 ];
 
 // ADF simples para comentário no Jira
@@ -279,7 +318,7 @@ function toNamesArray(v) {
   if (Array.isArray(v)) {
     return v
       .map((x) =>
-        typeof x === "string" ? x : x?.value || x?.name || x?.label || ""
+        typeof x === "string" ? x : x?.value || x?.name || x?.label || "",
       )
       .map((s) => String(s).trim())
       .filter(Boolean);
@@ -312,6 +351,66 @@ function userName(u) {
 
 function getTicketStatusName(t) {
   return t?.statusName || t?.fields?.status?.name || t?.status?.name || "";
+}
+
+function normalizePlain(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function getIssueLabels(issue) {
+  const labels = Array.isArray(issue?.labels)
+    ? issue.labels
+    : Array.isArray(issue?.fields?.labels)
+      ? issue.fields.labels
+      : [];
+  return labels.map((label) => String(label || "").trim()).filter(Boolean);
+}
+
+function hasDocumentationFolderLabel(issue) {
+  const wanted = normalizePlain(DOCUMENTATION_FOLDER_LABEL);
+  return getIssueLabels(issue).some(
+    (label) => normalizePlain(label) === wanted,
+  );
+}
+
+function isLevantamentoStatus(status) {
+  return LEVANTAMENTO_STATUSES.has(String(status || "").trim());
+}
+
+function isBacklogStatus(status) {
+  return normalizePlain(status) === "backlog";
+}
+
+function priorityColor(priorityName) {
+  const key = String(priorityName || "")
+    .trim()
+    .toUpperCase();
+  return (
+    PRIORITY_OPTIONS.find((priority) => priority.name === key)?.color ||
+    "#6b7280"
+  );
+}
+
+function toPriorityOptionName(priorityName) {
+  const normalized = normalizePlain(priorityName);
+  return (
+    PRIORITY_OPTIONS.find(
+      (priority) => normalizePlain(priority.name) === normalized,
+    )?.name || String(priorityName || "").trim()
+  );
+}
+
+function sanitizeFileName(value, fallback = "arquivo") {
+  const safe = String(value || fallback)
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
+  return safe || fallback;
 }
 
 function ticketHasIniciadoTag(ticket) {
@@ -353,14 +452,14 @@ function ticketHasIniciadoTag(ticket) {
   const jiraComments = commentField?.comments;
   if (Array.isArray(jiraComments)) {
     return jiraComments.some((c) =>
-      /\[INICIADO\]/i.test(safeText(c?.body ?? c))
+      /\[INICIADO\]/i.test(safeText(c?.body ?? c)),
     );
   }
 
   // 4) Array direto "ticket.comments" (se você tiver isso no dataset)
   if (Array.isArray(ticket?.comments)) {
     return ticket.comments.some((c) =>
-      /\[INICIADO\]/i.test(safeText(c?.body ?? c))
+      /\[INICIADO\]/i.test(safeText(c?.body ?? c)),
     );
   }
 
@@ -454,7 +553,9 @@ function escapeReportHtml(value) {
 }
 
 function normalizeReportIssueKey(value) {
-  return String(value || "").trim().toUpperCase();
+  return String(value || "")
+    .trim()
+    .toUpperCase();
 }
 
 function getReportIssueKey(issue) {
@@ -473,7 +574,9 @@ function getReportAssignee(issue) {
 
 function isMissingReportAssignee(issue) {
   const assignee = getReportAssignee(issue);
-  return !assignee || /sem responsavel|sem responsável|unassigned/i.test(assignee);
+  return (
+    !assignee || /sem responsavel|sem responsável|unassigned/i.test(assignee)
+  );
 }
 
 function getReportDueYmd(issue) {
@@ -482,7 +585,7 @@ function getReportDueYmd(issue) {
       issue?.dueDate ||
       issue?.duedate ||
       issue?.fields?.duedate ||
-      issue?.fields?.dueDate
+      issue?.fields?.dueDate,
   );
 }
 
@@ -499,7 +602,7 @@ function isReportIssueOverdue(issue, today = startOfTodayLocal()) {
 function getEventIssueKey(event) {
   const props = event?.extendedProps || {};
   return normalizeReportIssueKey(
-    props.issueKey || event?.issueKey || props.ticket || event?.ticket
+    props.issueKey || event?.issueKey || props.ticket || event?.ticket,
   );
 }
 
@@ -554,8 +657,12 @@ function findReportActivity(issue, activityId, activityName) {
     activities.find((item) => String(item?.id || "") === String(activityId)) ||
     activities.find(
       (item) =>
-        String(item?.name || "").trim().toLowerCase() ===
-        String(activityName || "").trim().toLowerCase()
+        String(item?.name || "")
+          .trim()
+          .toLowerCase() ===
+        String(activityName || "")
+          .trim()
+          .toLowerCase(),
     ) ||
     null
   );
@@ -577,25 +684,23 @@ function formatReportDateTime(value = new Date()) {
 function buildReportRowsHtml(rows, columns, emptyText) {
   if (!rows.length) {
     return `<tr><td colspan="${columns.length}" class="empty">${escapeReportHtml(
-      emptyText
+      emptyText,
     )}</td></tr>`;
   }
 
   return rows
     .map(
-      (row) => `<tr>${columns
-        .map((column) => `<td>${escapeReportHtml(row[column.key] || "—")}</td>`)
-        .join("")}</tr>`
+      (row) =>
+        `<tr>${columns
+          .map(
+            (column) => `<td>${escapeReportHtml(row[column.key] || "—")}</td>`,
+          )
+          .join("")}</tr>`,
     )
     .join("");
 }
 
-function buildExecutiveReportHtml({
-  viewData,
-  rawIssues,
-  doneRows,
-  filters,
-}) {
+function buildExecutiveReportHtml({ viewData, rawIssues, doneRows, filters }) {
   const activeIssues = Array.isArray(rawIssues) ? rawIssues : [];
   const doneIssues = Array.isArray(doneRows) ? doneRows : [];
   const issueMap = new Map();
@@ -614,12 +719,12 @@ function buildExecutiveReportHtml({
   });
 
   const scheduledIssueKeys = new Set(
-    events.map(getEventIssueKey).filter(Boolean)
+    events.map(getEventIssueKey).filter(Boolean),
   );
   calendarioIssues.forEach((issue) => {
     const key = getReportIssueKey(issue);
     const hasSchedule = (issue?.atividades || []).some((activity) =>
-      String(activity?.data || "").trim()
+      String(activity?.data || "").trim(),
     );
     if (key && hasSchedule) scheduledIssueKeys.add(key);
   });
@@ -666,7 +771,7 @@ function buildExecutiveReportHtml({
     .sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
 
   const issueByKey = new Map(
-    calendarioIssues.map((issue) => [getReportIssueKey(issue), issue])
+    calendarioIssues.map((issue) => [getReportIssueKey(issue), issue]),
   );
   const ganttRows = events
     .map((event) => {
@@ -675,7 +780,7 @@ function buildExecutiveReportHtml({
       const activity = findReportActivity(
         issueByKey.get(issueKey),
         getEventActivityId(event),
-        activityName
+        activityName,
       );
       const startYmd = getEventStartYmd(event);
       const endYmd = getEventInclusiveEndYmd(event);
@@ -699,10 +804,7 @@ function buildExecutiveReportHtml({
       };
     })
     .sort((a, b) =>
-      String(a.sortKey).localeCompare(
-        String(b.sortKey),
-        "pt-BR"
-      )
+      String(a.sortKey).localeCompare(String(b.sortKey), "pt-BR"),
     );
 
   const maxRows = 80;
@@ -797,9 +899,10 @@ function buildExecutiveReportHtml({
       <h2>KPIs principais</h2>
       <div class="kpis">${kpis
         .map(
-          (kpi) => `<div class="kpi"><strong>${escapeReportHtml(
-            kpi.value
-          )}</strong><span>${escapeReportHtml(kpi.label)}</span></div>`
+          (kpi) =>
+            `<div class="kpi"><strong>${escapeReportHtml(
+              kpi.value,
+            )}</strong><span>${escapeReportHtml(kpi.label)}</span></div>`,
         )
         .join("")}</div>
     </section>
@@ -813,7 +916,7 @@ function buildExecutiveReportHtml({
         <tbody>${buildReportRowsHtml(
           visibleCalendarRows,
           calendarColumns,
-          "Nenhum evento de calendário carregado."
+          "Nenhum evento de calendário carregado.",
         )}</tbody>
       </table>
       ${
@@ -832,7 +935,7 @@ function buildExecutiveReportHtml({
         <tbody>${buildReportRowsHtml(
           visibleGanttRows,
           ganttColumns,
-          "Nenhuma atividade de Gantt carregada."
+          "Nenhuma atividade de Gantt carregada.",
         )}</tbody>
       </table>
       ${
@@ -861,14 +964,14 @@ function openExecutiveReportWindow(reportArgs) {
 
 function getActivityLabelFromIssue(issue, activityId) {
   const activity = (issue?.atividades || []).find(
-    (item) => String(item?.id || "") === String(activityId || "")
+    (item) => String(item?.id || "") === String(activityId || ""),
   );
   return String(activity?.name || activityId || "Atividade").trim();
 }
 
 function getActivityDateText(issue, activityId) {
   const activity = (issue?.atividades || []).find(
-    (item) => String(item?.id || "") === String(activityId || "")
+    (item) => String(item?.id || "") === String(activityId || ""),
   );
   return String(activity?.data || "").trim() || "--";
 }
@@ -894,12 +997,82 @@ function makeHistoryEntry({
   };
 }
 
+function getIssueKey(issue) {
+  return String(issue?.key || "")
+    .trim()
+    .toUpperCase();
+}
+
+function mergeIssueByKey(list, issue) {
+  const key = getIssueKey(issue);
+  if (!key) return list || [];
+
+  let found = false;
+  const next = (list || []).map((item) => {
+    if (getIssueKey(item) !== key) return item;
+    found = true;
+    return issue;
+  });
+
+  if (!found) next.push(issue);
+  return next;
+}
+
+function formatReloadProgress(progress) {
+  if (!progress?.active) return "";
+  if (!progress?.total) return "Buscando tickets...";
+
+  const loaded = Number(progress.loaded || 0);
+  const total = Number(progress.total || 0);
+  const failed = Number(progress.failed || 0);
+  const failureText = failed
+    ? ` • ${failed} falha${failed > 1 ? "s" : ""}`
+    : "";
+  return `${loaded}/${total} carregados${failureText}`;
+}
+
+function summarizeProgressiveLoadWarning(failures = [], doneError = null) {
+  const parts = [];
+
+  if (failures.length) {
+    const keys = failures
+      .slice(0, 6)
+      .map((failure) => failure.key)
+      .filter(Boolean)
+      .join(", ");
+    const more = failures.length > 6 ? ` e mais ${failures.length - 6}` : "";
+    parts.push(
+      `${failures.length} ticket${failures.length > 1 ? "s" : ""} não ${
+        failures.length > 1 ? "carregaram" : "carregou"
+      }${keys ? `: ${keys}${more}` : ""}.`,
+    );
+  }
+
+  if (doneError) {
+    parts.push(
+      `Não foi possível atualizar os concluídos dos últimos 30 dias: ${
+        doneError?.message || String(doneError)
+      }`,
+    );
+  }
+
+  return parts.join(" ");
+}
+
 /* =========================
    //#region COMPONENT
 ========================= */
 export default function AMPanelTab() {
   const [subView, setSubView] = useState("acoes"); // acoes | portfolio | calendario | gantt | dashboard
   const [loading, setLoading] = useState(false);
+  const [reloadProgress, setReloadProgress] = useState({
+    active: false,
+    total: 0,
+    completed: 0,
+    loaded: 0,
+    failed: 0,
+  });
+  const reloadRunRef = useRef(0);
   const [err, setErr] = useState("");
   const [activePreset, setActivePreset] = useState("all");
   const [ownerFocus, setOwnerFocus] = useState("");
@@ -940,6 +1113,10 @@ export default function AMPanelTab() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [detailsKey, setDetailsKey] = useState("");
 
+  // modal organizar documentacao
+  const [documentationOpen, setDocumentationOpen] = useState(false);
+  const [documentationTicket, setDocumentationTicket] = useState(null);
+
   // 1) modos de cor: ticket | recurso | atividade
   // 2) filtro por texto (ticket/tarefa/recurso)
   const [colorMode, setColorMode] = useState("ticket");
@@ -966,8 +1143,8 @@ export default function AMPanelTab() {
               message,
               resolvedAt: new Date().toISOString(),
             }
-          : entry
-      )
+          : entry,
+      ),
     );
   }, []);
 
@@ -987,8 +1164,8 @@ export default function AMPanelTab() {
           .trim()
           .toUpperCase() === ik
           ? { ...issue, atividades }
-          : issue
-      )
+          : issue,
+      ),
     );
 
     setRows((prev) =>
@@ -997,8 +1174,8 @@ export default function AMPanelTab() {
           .trim()
           .toUpperCase() === ik
           ? { ...issue, atividades }
-          : issue
-      )
+          : issue,
+      ),
     );
 
     setViewData((prev) => {
@@ -1007,14 +1184,14 @@ export default function AMPanelTab() {
           .trim()
           .toUpperCase() === ik
           ? { ...issue, atividades }
-          : issue
+          : issue,
       );
 
       const issueEvents = toCalendarEvents(ik, atividades, new Date());
       const events = [
         ...(prev?.events || []).filter((event) => {
           const eventIssueKey = String(
-            event?.extendedProps?.issueKey || event?.issueKey || ""
+            event?.extendedProps?.issueKey || event?.issueKey || "",
           )
             .trim()
             .toUpperCase();
@@ -1027,27 +1204,106 @@ export default function AMPanelTab() {
     });
   }, []);
 
-  const reload = useCallback(async () => {
+  async function runProgressiveReload() {
+    const runId = reloadRunRef.current + 1;
+    reloadRunRef.current = runId;
+    const isCurrentRun = () => reloadRunRef.current === runId;
+
     setLoading(true);
     setErr("");
+    setReloadProgress({
+      active: true,
+      total: 0,
+      completed: 0,
+      loaded: 0,
+      failed: 0,
+    });
+
+    const donePromise = fetchPoDoneLast30Days().then(
+      (data) => ({ data, error: null }),
+      (error) => ({ data: null, error }),
+    );
+
     try {
-      const [detailed, done] = await Promise.all([
-        fetchPoIssuesDetailed({ concurrency: 8 }),
-        fetchPoDoneLast30Days(), // ✅ DONE últimos 30 dias
-      ]);
+      const result = await fetchPoIssuesDetailedProgressive({
+        concurrency: 8,
+        onStart: ({ total }) => {
+          if (!isCurrentRun()) return;
+          setReloadProgress({
+            active: true,
+            total,
+            completed: 0,
+            loaded: 0,
+            failed: 0,
+          });
+        },
+        onIssue: (issue) => {
+          if (!isCurrentRun()) return;
 
-      setRawIssues(detailed);
-      setViewData(buildPoView(detailed));
+          setRawIssues((prev) => {
+            const next = mergeIssueByKey(prev, issue);
+            setViewData(buildPoView(next));
+            return next;
+          });
+          setRows((prev) => mergeIssueByKey(prev, issue));
+        },
+        onProgress: (progress) => {
+          if (!isCurrentRun()) return;
+          setReloadProgress((prev) => ({
+            ...prev,
+            ...progress,
+            active: true,
+          }));
+        },
+      });
 
-      // ✅ alimenta o dashboard
-      setRows(detailed);
-      setDoneRows(done);
+      const done = await donePromise;
+      if (!isCurrentRun()) return;
+
+      setRawIssues(result.detailed);
+      setViewData(buildPoView(result.detailed));
+      setRows(result.detailed);
+      if (!done.error) setDoneRows(done.data || []);
+
+      setErr(
+        summarizeProgressiveLoadWarning(result.failures || [], done.error),
+      );
     } catch (e) {
       console.error(e);
-      setErr(e?.message || "Falha ao carregar dados do Jira.");
+      if (isCurrentRun()) {
+        setErr(e?.message || "Falha ao carregar dados do Jira.");
+      }
     } finally {
-      setLoading(false);
+      if (isCurrentRun()) {
+        setLoading(false);
+        setReloadProgress((prev) => ({ ...prev, active: false }));
+      }
     }
+  }
+
+  const reload = useCallback(async () => {
+    return runProgressiveReload();
+  }, []);
+
+  const refreshIssueInPanel = useCallback(async (issueKey) => {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!key) return null;
+
+    const issue = await fetchPoIssueDetail(key);
+
+    setRawIssues((prev) => {
+      const next = mergeIssueByKey(prev, issue);
+      setViewData(buildPoView(next));
+      return next;
+    });
+    setRows((prev) => mergeIssueByKey(prev, issue));
+    setDocumentationTicket((prev) =>
+      getIssueKey(prev) === key ? { ...prev, ...issue } : prev,
+    );
+
+    return issue;
   }, []);
 
   async function loadData(baseJql) {
@@ -1061,6 +1317,8 @@ export default function AMPanelTab() {
             "summary",
             "status",
             "assignee",
+            "labels",
+            "attachment",
             "priority",
             "created",
             "updated",
@@ -1096,7 +1354,7 @@ export default function AMPanelTab() {
   const filteredAlertas = useMemo(() => viewData.alertas || [], [viewData]);
   const filteredCriarCronograma = useMemo(
     () => viewData.criarCronograma || [],
-    [viewData]
+    [viewData],
   );
   const poInsights = useMemo(
     () =>
@@ -1106,7 +1364,7 @@ export default function AMPanelTab() {
         doneRows,
         ownerFocus,
       }),
-    [rawIssues, viewData, doneRows, ownerFocus]
+    [rawIssues, viewData, doneRows, ownerFocus],
   );
   const scopedIssueKeys = useMemo(
     () =>
@@ -1115,40 +1373,48 @@ export default function AMPanelTab() {
         activePreset,
         ownerFocus,
       }),
-    [poInsights, activePreset, ownerFocus]
+    [poInsights, activePreset, ownerFocus],
   );
   const scopedViewData = useMemo(
     () => filterPoViewData(viewData, scopedIssueKeys),
-    [viewData, scopedIssueKeys]
+    [viewData, scopedIssueKeys],
   );
   const scopedRawIssues = useMemo(
     () =>
       rawIssues.filter((issue) =>
-        scopedIssueKeys.has(String(issue?.key || "").trim().toUpperCase())
+        scopedIssueKeys.has(
+          String(issue?.key || "")
+            .trim()
+            .toUpperCase(),
+        ),
       ),
-    [rawIssues, scopedIssueKeys]
+    [rawIssues, scopedIssueKeys],
   );
   const scopedDoneRows = useMemo(
     () =>
       doneRows.filter((issue) =>
-        scopedIssueKeys.has(String(issue?.key || "").trim().toUpperCase())
+        scopedIssueKeys.has(
+          String(issue?.key || "")
+            .trim()
+            .toUpperCase(),
+        ),
       ),
-    [doneRows, scopedIssueKeys]
+    [doneRows, scopedIssueKeys],
   );
   const scopedAlertas = useMemo(
     () => scopedViewData.alertas || [],
-    [scopedViewData]
+    [scopedViewData],
   );
   const scopedCriarCronograma = useMemo(
     () => scopedViewData.criarCronograma || [],
-    [scopedViewData]
+    [scopedViewData],
   );
   const ticketMetaMap = useMemo(
     () =>
       new Map(
-        (poInsights?.items || []).map((item) => [String(item.key || ""), item])
+        (poInsights?.items || []).map((item) => [String(item.key || ""), item]),
       ),
-    [poInsights]
+    [poInsights],
   );
 
   const exportExecutiveReport = useCallback(() => {
@@ -1179,10 +1445,10 @@ export default function AMPanelTab() {
       makeDefaultCronogramaDraft().map((atividade) => ({
         ...atividade,
         isCustom: !STANDARD_CRONOGRAMA_IDS.has(atividade.id),
-      }))
+      })),
     );
     setDueDateDraft(
-      String(issue?.dueDateRaw || issue?.fields?.duedate || "").slice(0, 10)
+      String(issue?.dueDateRaw || issue?.fields?.duedate || "").slice(0, 10),
     );
     setEditorOpen(true);
   }
@@ -1192,6 +1458,53 @@ export default function AMPanelTab() {
     setEditorIssue(null);
     setDraft([]);
     setDueDateDraft("");
+  }
+
+  function openDocumentationOrganizer(ticket) {
+    if (!ticket?.key) return;
+    setDocumentationTicket(ticket);
+    setDocumentationOpen(true);
+  }
+
+  function closeDocumentationOrganizer() {
+    setDocumentationOpen(false);
+    setDocumentationTicket(null);
+  }
+
+  async function setDocumentationFolderFlag(issueKey, enabled) {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!key) return;
+
+    await jiraEditIssue(key, {
+      update: {
+        labels: [
+          enabled
+            ? { add: DOCUMENTATION_FOLDER_LABEL }
+            : { remove: DOCUMENTATION_FOLDER_LABEL },
+        ],
+      },
+    });
+    return refreshIssueInPanel(key);
+  }
+
+  async function updateTicketPriority(issueKey, priorityName) {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!key || !priorityName) return;
+    await jiraUpdateIssuePriority(key, priorityName);
+    return refreshIssueInPanel(key);
+  }
+
+  async function updateTicketStatus(issueKey, statusName) {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!key || !statusName) return;
+    await jiraTransitionToStatus(key, statusName);
+    return refreshIssueInPanel(key);
   }
 
   async function saveEditor(nextDraft = draft) {
@@ -1345,7 +1658,7 @@ export default function AMPanelTab() {
           .toUpperCase() ===
         String(issueKey || "")
           .trim()
-          .toUpperCase()
+          .toUpperCase(),
     );
 
     const nextCalendarioIssues = viewData.calendarioIssues.map((iss) => {
@@ -1354,7 +1667,7 @@ export default function AMPanelTab() {
         iss.atividades,
         activityId,
         info.event.start,
-        info.event.end
+        info.event.end,
       );
       return { ...iss, atividades: nextAtividades };
     });
@@ -1365,13 +1678,16 @@ export default function AMPanelTab() {
           .toUpperCase() ===
         String(issueKey || "")
           .trim()
-          .toUpperCase()
+          .toUpperCase(),
     );
     const historyEntry = makeHistoryEntry({
       source: "calendario",
       issueKey,
       activityId,
-      activityName: getActivityLabelFromIssue(nextIssue || prevIssue, activityId),
+      activityName: getActivityLabelFromIssue(
+        nextIssue || prevIssue,
+        activityId,
+      ),
       previousRange: getActivityDateText(prevIssue, activityId),
       nextRange: getActivityDateText(nextIssue, activityId),
     });
@@ -1395,7 +1711,9 @@ export default function AMPanelTab() {
       const message = e?.message || "Falha ao persistir no Jira. Revertendo...";
       setErr(message);
       updateChangeHistoryStatus(historyEntry.id, "revertido", message);
-      toast.error(`Cronograma revertido: ${issueKey} - ${historyEntry.activityName}`);
+      toast.error(
+        `Cronograma revertido: ${issueKey} - ${historyEntry.activityName}`,
+      );
 
       info.revert();
 
@@ -1451,7 +1769,7 @@ export default function AMPanelTab() {
             t.start instanceof Date &&
             !Number.isNaN(t.start.getTime()) &&
             t.end instanceof Date &&
-            !Number.isNaN(t.end.getTime())
+            !Number.isNaN(t.end.getTime()),
         );
 
       if (!valid.length) return false;
@@ -1485,7 +1803,7 @@ export default function AMPanelTab() {
             nextAtividades,
             ch.activityId,
             ch.start,
-            addDaysLocal(ch.end, 1)
+            addDaysLocal(ch.end, 1),
           );
         }
 
@@ -1496,13 +1814,13 @@ export default function AMPanelTab() {
           (issue) =>
             String(issue?.key || "")
               .trim()
-              .toUpperCase() === change.issueKey
+              .toUpperCase() === change.issueKey,
         );
         const nextIssue = nextCalendarioIssues.find(
           (issue) =>
             String(issue?.key || "")
               .trim()
-              .toUpperCase() === change.issueKey
+              .toUpperCase() === change.issueKey,
         );
 
         return makeHistoryEntry({
@@ -1511,7 +1829,7 @@ export default function AMPanelTab() {
           activityId: change.activityId,
           activityName: getActivityLabelFromIssue(
             nextIssue || prevIssue,
-            change.activityId
+            change.activityId,
           ),
           previousRange: getActivityDateText(prevIssue, change.activityId),
           nextRange: getActivityDateText(nextIssue, change.activityId),
@@ -1530,7 +1848,7 @@ export default function AMPanelTab() {
           const activityId = String(p.activityId || "").trim();
 
           const found = valid.find(
-            (u) => u.issueKey === issueKey && u.activityId === activityId
+            (u) => u.issueKey === issueKey && u.activityId === activityId,
           );
 
           if (!found) return ev;
@@ -1563,7 +1881,7 @@ export default function AMPanelTab() {
             (x) =>
               String(x?.key || "")
                 .trim()
-                .toUpperCase() === issueKey
+                .toUpperCase() === issueKey,
           );
           if (!issue) continue;
 
@@ -1581,27 +1899,31 @@ export default function AMPanelTab() {
             (x) =>
               String(x?.key || "")
                 .trim()
-                .toUpperCase() === issueKey
+                .toUpperCase() === issueKey,
           );
-          if (issue) applyCronogramaPatchLocal(issueKey, issue.atividades || []);
+          if (issue)
+            applyCronogramaPatchLocal(issueKey, issue.atividades || []);
         }
 
         updateChangeHistoryStatus(
           historyEntries.map((entry) => entry.id),
-          "salvo"
+          "salvo",
         );
         return true;
       } catch (e) {
         console.error(e);
-        const message = e?.message || "Falha ao persistir no Jira. Revertendo...";
+        const message =
+          e?.message || "Falha ao persistir no Jira. Revertendo...";
         setErr(message);
         updateChangeHistoryStatus(
           historyEntries.map((entry) => entry.id),
           "revertido",
-          message
+          message,
         );
 
-        const affected = Array.from(new Set(valid.map((item) => item.issueKey)));
+        const affected = Array.from(
+          new Set(valid.map((item) => item.issueKey)),
+        );
         toast.error(`Cronograma revertido: ${affected.join(", ")}`);
 
         // rollback local
@@ -1619,7 +1941,7 @@ export default function AMPanelTab() {
       updateChangeHistoryStatus,
       viewData.calendarioIssues,
       viewData.events,
-    ]
+    ],
   );
 
   const persistGanttMetaChange = useCallback(
@@ -1708,7 +2030,7 @@ export default function AMPanelTab() {
           (x) =>
             String(x?.key || "")
               .trim()
-              .toUpperCase() === ik
+              .toUpperCase() === ik,
         );
         if (!issue) return false;
 
@@ -1736,8 +2058,16 @@ export default function AMPanelTab() {
         return false;
       }
     },
-    [applyCronogramaPatchLocal, viewData.calendarioIssues, viewData.events]
+    [applyCronogramaPatchLocal, viewData.calendarioIssues, viewData.events],
   );
+
+  const reloadProgressText = formatReloadProgress(reloadProgress);
+  const reloadButtonText =
+    loading && reloadProgress.total
+      ? `Atualizando ${reloadProgress.loaded}/${reloadProgress.total}`
+      : loading
+        ? "Buscando tickets..."
+        : "Atualizar";
 
   return (
     <TooltipProvider>
@@ -1833,8 +2163,14 @@ export default function AMPanelTab() {
                   <RefreshCcw
                     className={cn("mr-2 h-4 w-4", loading && "animate-spin")}
                   />
-                  {loading ? "Atualizando..." : "Atualizar"}
+                  {reloadButtonText}
                 </Button>
+
+                {loading && reloadProgressText ? (
+                  <span className="w-full text-xs font-medium text-zinc-500 md:w-auto">
+                    {reloadProgressText}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -1869,6 +2205,9 @@ export default function AMPanelTab() {
                   setDetailsOpen(true);
                 }}
                 onOpenSchedule={(ticket) => openEditor(ticket)}
+                onOpenDocumentation={(ticket) =>
+                  openDocumentationOrganizer(ticket?.raw || ticket)
+                }
               />
 
               <TicketDashboardPage
@@ -1895,6 +2234,7 @@ export default function AMPanelTab() {
                   setDetailsOpen(true);
                 }}
                 onOpenSchedule={(t) => openEditor(t)}
+                onOpenDocumentation={(t) => openDocumentationOrganizer(t)}
               />
             </div>
           )}
@@ -1977,6 +2317,17 @@ export default function AMPanelTab() {
             />
           )}
 
+          {documentationOpen && (
+            <DocumentationOrganizerModal
+              ticket={documentationTicket}
+              onClose={closeDocumentationOrganizer}
+              onExported={async (issueKey) => {
+                await setDocumentationFolderFlag(issueKey, true);
+                closeDocumentationOrganizer();
+              }}
+            />
+          )}
+
           {startOpen && (
             <StartTicketModal
               issueKey={startIssueKey}
@@ -1998,6 +2349,12 @@ export default function AMPanelTab() {
             onOpenChange={setDetailsOpen}
             issueKey={detailsKey}
             ticketMetaMap={ticketMetaMap}
+            statusOptions={STATUS_OPTIONS}
+            priorityOptions={PRIORITY_OPTIONS}
+            onChangeStatus={updateTicketStatus}
+            onChangePriority={updateTicketPriority}
+            onDocumentationFlagChange={setDocumentationFolderFlag}
+            onOpenDocumentation={(ticket) => openDocumentationOrganizer(ticket)}
             onMarkedStarted={async () => {
               // cria comentário [INICIADO] sem mudar status
               if (!detailsKey) return;
@@ -2035,6 +2392,7 @@ function TicketDashboardPage({
   onStart,
   onOpenDetails,
   onOpenSchedule,
+  onOpenDocumentation,
 }) {
   // normaliza datasets
   const missingSet = useMemo(() => {
@@ -2049,11 +2407,11 @@ function TicketDashboardPage({
     merged.forEach((t) => byKey.set(t.key, t));
 
     (alertas || []).forEach((t) =>
-      byKey.set(t.key, { ...byKey.get(t.key), ...t })
+      byKey.set(t.key, { ...byKey.get(t.key), ...t }),
     );
 
     (missingSchedule || []).forEach((t) =>
-      byKey.set(t.key, { ...byKey.get(t.key), ...t })
+      byKey.set(t.key, { ...byKey.get(t.key), ...t }),
     );
 
     return Array.from(byKey.values()).map((t) => ({
@@ -2085,7 +2443,7 @@ function TicketDashboardPage({
 
   const allStatuses = useMemo(() => {
     const set = new Set(
-      allRows.map((t) => getTicketStatusName(t)).filter(Boolean)
+      allRows.map((t) => getTicketStatusName(t)).filter(Boolean),
     );
 
     return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
@@ -2094,8 +2452,8 @@ function TicketDashboardPage({
   const allAssignees = useMemo(() => {
     const set = new Set(
       allRows.map((t) =>
-        t?.assignee && t.assignee !== "—" ? t.assignee : "Sem responsável"
-      )
+        t?.assignee && t.assignee !== "—" ? t.assignee : "Sem responsável",
+      ),
     );
     return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)));
   }, [allRows]);
@@ -2131,12 +2489,12 @@ function TicketDashboardPage({
       const isSub = /(sub|subtarefa)/i.test(typ);
       const isStory = /(story|história|historia)/i.test(typ);
       return selectedTypes.some((x) =>
-        x === "Subtarefa" ? isSub : x === "História" ? isStory : true
+        x === "Subtarefa" ? isSub : x === "História" ? isStory : true,
       );
     };
 
     let out = allRows.filter(
-      (t) => passText(t) && passStatus(t) && passAssignee(t) && passType(t)
+      (t) => passText(t) && passStatus(t) && passAssignee(t) && passType(t),
     );
 
     out.sort((a, b) => {
@@ -2156,6 +2514,10 @@ function TicketDashboardPage({
   ]);
 
   const alertasRows = useMemo(() => alertas || [], [alertas]);
+  const levantamentoRows = useMemo(
+    () => filtered.filter((t) => isLevantamentoStatus(getTicketStatusName(t))),
+    [filtered],
+  );
 
   const andamentoRows = useMemo(() => {
     const alertSet = new Set((alertas || []).map((t) => t.key));
@@ -2183,9 +2545,11 @@ function TicketDashboardPage({
   const sectionRows =
     dashTab === "alertas"
       ? alertasRows
-      : dashTab === "andamento"
-      ? andamentoRows
-      : todosRows;
+      : dashTab === "levantamento"
+        ? levantamentoRows
+        : dashTab === "andamento"
+          ? andamentoRows
+          : todosRows;
 
   return (
     <div className="grid gap-4">
@@ -2200,7 +2564,7 @@ function TicketDashboardPage({
                   key={s}
                   className={cn(
                     "rounded-full border px-2.5 py-1 text-xs",
-                    "border-zinc-200 bg-zinc-50 text-zinc-700"
+                    "border-zinc-200 bg-zinc-50 text-zinc-700",
                   )}
                 >
                   {s}: {n}
@@ -2259,6 +2623,19 @@ function TicketDashboardPage({
             </TabsTrigger>
 
             <TabsTrigger
+              value="levantamento"
+              className="
+                rounded-lg text-zinc-700 hover:bg-white/60
+                data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
+      "
+            >
+              Levantamento
+              <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
+                {levantamentoRows.length}
+              </Badge>
+            </TabsTrigger>
+
+            <TabsTrigger
               value="andamento"
               className="
                 rounded-lg text-zinc-700 hover:bg-white/60
@@ -2290,16 +2667,20 @@ function TicketDashboardPage({
               title={
                 dashTab === "alertas"
                   ? "Novos (PRE SAVE sem [INICIADO])"
-                  : dashTab === "andamento"
-                  ? "Em andamento"
-                  : "Todos os tickets"
+                  : dashTab === "levantamento"
+                    ? "Levantamento de requisitos"
+                    : dashTab === "andamento"
+                      ? "Em andamento"
+                      : "Todos os tickets"
               }
               subtitle={
                 dashTab === "alertas"
                   ? "Atenção: itens em PRE SAVE ainda não iniciados."
-                  : dashTab === "andamento"
-                  ? "Fluxo do PO: Em Planejamento → Para Dev → Desenvolvimento → Homolog → Deploy."
-                  : "Visão completa com busca, filtros e ordenação."
+                  : dashTab === "levantamento"
+                    ? "Backlog, Refinamento, Artefatos e Para Planejar: organize requisitos, atividades, artefatos e envolvidos."
+                    : dashTab === "andamento"
+                      ? "Fluxo do PO: Em Planejamento → Para Dev → Desenvolvimento → Homolog → Deploy."
+                      : "Visão completa com busca, filtros e ordenação."
               }
               rows={sectionRows}
               ticketMetaMap={ticketMetaMap}
@@ -2308,6 +2689,7 @@ function TicketDashboardPage({
               onStart={onStart}
               onOpenDetails={onOpenDetails}
               onOpenSchedule={onOpenSchedule}
+              onOpenDocumentation={onOpenDocumentation}
               emptyText="Nenhum ticket encontrado com os filtros atuais."
             />
           </TabsContent>
@@ -2331,7 +2713,7 @@ function TicketFiltersBar({
 }) {
   const toggle = (arr, v, setArr) => {
     setArr((prev) =>
-      prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]
+      prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v],
     );
   };
 
@@ -2504,23 +2886,26 @@ function TicketSection({
   onStart,
   onOpenDetails,
   onOpenSchedule,
+  onOpenDocumentation,
   emptyText,
 }) {
+  const safeRows = rows || [];
+  const showSkeleton = loading && safeRows.length === 0;
   const overdueCount = useMemo(() => {
     const today0 = startOfTodayLocal();
 
-    return (rows || []).filter((t) => {
+    return safeRows.filter((t) => {
       // (opcional) não contar concluídos
       const status = String(getTicketStatusName(t) || "").toUpperCase();
       if (/(DONE|CONCLU|RESOLV|CLOSED|FECHAD)/i.test(status)) return false;
 
       // ✅ mesma regra do card: alt > base
       const dueAltYmd = extractYmd(
-        t?.fields?.customfield_11519 || t?.customfield_11519
+        t?.fields?.customfield_11519 || t?.customfield_11519,
       );
 
       const dueBaseYmd = extractYmd(
-        t?.dueDateRaw || t?.fields?.duedate || t?.duedate
+        t?.dueDateRaw || t?.fields?.duedate || t?.duedate,
       );
 
       const dueAltDate = parseIsoYmdLocal(dueAltYmd);
@@ -2532,7 +2917,7 @@ function TicketSection({
         !!effectiveDueDate && effectiveDueDate.getTime() < today0.getTime()
       );
     }).length;
-  }, [rows]);
+  }, [safeRows]);
   return (
     <div className="grid gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -2568,11 +2953,11 @@ function TicketSection({
 
       {/* Grid de cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {loading
+        {showSkeleton
           ? Array.from({ length: 8 }).map((_, i) => (
               <TicketCardSkeleton key={i} />
             ))
-          : rows.map((t) => (
+          : safeRows.map((t) => (
               <TicketCard
                 key={t.key}
                 ticket={t}
@@ -2582,11 +2967,12 @@ function TicketSection({
                 onStart={() => onStart?.(t)}
                 onDetails={() => onOpenDetails?.(t.key)}
                 onSchedule={() => onOpenSchedule?.(t)}
+                onDocumentation={() => onOpenDocumentation?.(t)}
               />
             ))}
       </div>
 
-      {!loading && rows.length === 0 && (
+      {!loading && safeRows.length === 0 && (
         <div className="rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
           {emptyText}
         </div>
@@ -2606,6 +2992,7 @@ const TicketCard = memo(function TicketCard({
   onStart,
   onDetails,
   onSchedule,
+  onDocumentation,
 }) {
   const key = ticket?.key || "—";
   const summary = ticket?.summary || "—";
@@ -2613,9 +3000,8 @@ const TicketCard = memo(function TicketCard({
   const assignee = truncateText(
     ticket?.assignee && ticket.assignee !== "—"
       ? ticket.assignee
-      : "Sem responsável"
+      : "Sem responsável",
   );
-
 
   // ✅ created vem do retorno da API: fields.created
   const createdRaw =
@@ -2627,6 +3013,7 @@ const TicketCard = memo(function TicketCard({
   const updatedRaw = ticket?.updatedRaw || ticket?.updated;
 
   const started = ticketHasIniciadoTag(ticket);
+  const canOrganizeDocumentation = Boolean(meta?.canOrganizeDocumentation);
 
   const created = fmtUpdatedBR(createdRaw);
   const updated = fmtUpdatedBR(updatedRaw);
@@ -2655,11 +3042,11 @@ const TicketCard = memo(function TicketCard({
   const f = ticket?.fields || {};
 
   const dueBaseYmd = extractYmd(
-    ticket?.dueDateRaw || ticket?.fields?.duedate || ticket?.duedate
+    ticket?.dueDateRaw || ticket?.fields?.duedate || ticket?.duedate,
   );
 
   const dueAltYmd = extractYmd(
-    ticket?.fields?.customfield_11519 || ticket?.customfield_11519
+    ticket?.fields?.customfield_11519 || ticket?.customfield_11519,
   );
 
   // ✅ só considera alt se parsear mesmo
@@ -2825,7 +3212,9 @@ const TicketCard = memo(function TicketCard({
 
           {meta?.nextMilestone ? (
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-              <span className="font-semibold text-zinc-900">Próximo marco:</span>{" "}
+              <span className="font-semibold text-zinc-900">
+                Próximo marco:
+              </span>{" "}
               {meta.nextMilestone.label}
             </div>
           ) : null}
@@ -2849,7 +3238,7 @@ const TicketCard = memo(function TicketCard({
               onClick={onDetails}
               className={cn(
                 "rounded-lg border-zinc-200 text-zinc-700 hover:bg-zinc-50",
-                started && "col-span-2" // ✅ se já iniciou, Detalhes ocupa a linha toda
+                started && "col-span-2", // ✅ se já iniciou, Detalhes ocupa a linha toda
               )}
             >
               Detalhes
@@ -2863,6 +3252,18 @@ const TicketCard = memo(function TicketCard({
                 className="col-span-2 rounded-lg bg-zinc-900 text-white hover:bg-zinc-800"
               >
                 Criar cronograma
+              </Button>
+            )}
+
+            {canOrganizeDocumentation && onDocumentation && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onDocumentation}
+                className="col-span-2 rounded-lg border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+              >
+                <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
+                Organizar Documentação
               </Button>
             )}
           </div>
@@ -2911,7 +3312,7 @@ function StatusBadge({ status }) {
       className={cn(
         "rounded-full px-2.5 py-1 text-[11px] font-semibold",
         "max-w-[180px] truncate",
-        cls
+        cls,
       )}
     >
       {status || "—"}
@@ -2948,6 +3349,389 @@ function TicketCardSkeleton() {
   );
 }
 
+function makeAttachmentTreeNode(attachment) {
+  const id = String(attachment?.id || attachment?.filename || Math.random());
+  return {
+    id: `attachment-${id}`,
+    name: attachment?.filename || "arquivo",
+    kind: "file",
+    attachment,
+  };
+}
+
+function buildDocumentationTree(attachments = []) {
+  return [
+    {
+      id: DOCUMENTATION_SOURCE_FOLDER_ID,
+      name: "Anexos do ticket",
+      kind: "folder",
+      system: true,
+      children: attachments.map(makeAttachmentTreeNode),
+    },
+    ...DOCUMENTATION_DEFAULT_FOLDERS.map((name) => ({
+      id: `folder-${name}`,
+      name,
+      kind: "folder",
+      children: [],
+    })),
+  ];
+}
+
+function findTreeNode(nodes, id) {
+  for (const node of nodes || []) {
+    if (node.id === id) return node;
+    const child = findTreeNode(node.children || [], id);
+    if (child) return child;
+  }
+  return null;
+}
+
+function removeTreeNodes(nodes, idSet, removed = []) {
+  const next = [];
+  for (const node of nodes || []) {
+    if (idSet.has(node.id)) {
+      removed.push(node);
+      continue;
+    }
+    next.push({
+      ...node,
+      children: node.children
+        ? removeTreeNodes(node.children, idSet, removed)
+        : undefined,
+    });
+  }
+  return next;
+}
+
+function insertTreeNodes(nodes, parentId, index, items) {
+  return (nodes || []).map((node) => {
+    if (node.id === parentId) {
+      const children = [...(node.children || [])];
+      children.splice(Math.max(0, index), 0, ...items);
+      return { ...node, children };
+    }
+    return {
+      ...node,
+      children: node.children
+        ? insertTreeNodes(node.children, parentId, index, items)
+        : undefined,
+    };
+  });
+}
+
+function moveDocumentationTreeNodes(nodes, { dragIds, parentId, index }) {
+  if (!parentId || !Array.isArray(dragIds) || !dragIds.length) return nodes;
+  const dragged = dragIds.map((id) => findTreeNode(nodes, id)).filter(Boolean);
+  if (!dragged.length || dragged.some((node) => node.kind === "folder")) {
+    return nodes;
+  }
+
+  const parent = findTreeNode(nodes, parentId);
+  if (!parent || parent.kind !== "folder") return nodes;
+
+  const removed = [];
+  const withoutDragged = removeTreeNodes(nodes, new Set(dragIds), removed);
+  return insertTreeNodes(withoutDragged, parentId, index, removed);
+}
+
+function getExportableDocumentationFolders(nodes) {
+  return (nodes || [])
+    .filter(
+      (node) =>
+        node.kind === "folder" && node.id !== DOCUMENTATION_SOURCE_FOLDER_ID,
+    )
+    .map((folder) => ({
+      folder,
+      files: (folder.children || []).filter((child) => child.kind === "file"),
+    }))
+    .filter((entry) => entry.files.length > 0);
+}
+
+function uniqueZipFileName(used, rawName) {
+  const safe = sanitizeFileName(rawName, "arquivo");
+  if (!used.has(safe)) {
+    used.add(safe);
+    return safe;
+  }
+  const dot = safe.lastIndexOf(".");
+  const base = dot > 0 ? safe.slice(0, dot) : safe;
+  const ext = dot > 0 ? safe.slice(dot) : "";
+  let index = 2;
+  while (used.has(`${base}-${index}${ext}`)) index += 1;
+  const next = `${base}-${index}${ext}`;
+  used.add(next);
+  return next;
+}
+
+function DocumentationTreeNode({ node, style, dragHandle }) {
+  const isFolder = node.data.kind === "folder";
+  return (
+    <div
+      style={style}
+      ref={dragHandle}
+      className={cn(
+        "flex items-center gap-2 rounded-lg px-2 text-sm",
+        node.isSelected ? "bg-red-50 text-red-700" : "text-zinc-800",
+      )}
+      onClick={() => {
+        if (isFolder) node.toggle();
+      }}
+    >
+      {isFolder ? (
+        <FolderOpen className="h-4 w-4 text-sky-600" />
+      ) : (
+        <FileText className="h-4 w-4 text-zinc-500" />
+      )}
+      <span className="truncate">{node.data.name}</span>
+      {!isFolder && node.data.attachment?.size ? (
+        <span className="ml-auto text-[11px] text-zinc-400">
+          {Math.ceil(Number(node.data.attachment.size || 0) / 1024)} KB
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
+  const ticketKey = String(ticket?.key || "")
+    .trim()
+    .toUpperCase();
+  const summary = ticket?.summary || ticket?.fields?.summary || ticketKey;
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [err, setErr] = useState("");
+  const [attachments, setAttachments] = useState([]);
+  const [treeData, setTreeData] = useState(() => buildDocumentationTree([]));
+  const [newFolderName, setNewFolderName] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      if (!ticketKey) return;
+      setLoading(true);
+      setErr("");
+      try {
+        const data = await listAttachments(ticketKey);
+        const list = Array.isArray(data?.attachments) ? data.attachments : [];
+        if (!alive) return;
+        setAttachments(list);
+        setTreeData(buildDocumentationTree(list));
+      } catch (e) {
+        if (alive) setErr(e?.message || "Falha ao carregar anexos.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [ticketKey]);
+
+  const exportFolders = useMemo(
+    () => getExportableDocumentationFolders(treeData),
+    [treeData],
+  );
+
+  function addFolder() {
+    const name = String(newFolderName || "").trim();
+    if (!name) return;
+    const id = `folder-custom-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    setTreeData((prev) => [
+      ...prev,
+      {
+        id,
+        name: sanitizeFileName(name, "Nova pasta"),
+        kind: "folder",
+        children: [],
+      },
+    ]);
+    setNewFolderName("");
+  }
+
+  async function exportZip() {
+    if (!ticketKey || !exportFolders.length) return;
+    setExporting(true);
+    setErr("");
+    try {
+      const zip = new JSZip();
+      const rootName = sanitizeFileName(`${ticketKey} - ${summary}`, ticketKey);
+      const root = zip.folder(rootName);
+
+      for (const entry of exportFolders) {
+        const folder = root.folder(
+          sanitizeFileName(entry.folder.name, "pasta"),
+        );
+        const usedNames = new Set();
+        for (const file of entry.files) {
+          const attachment = file.attachment || {};
+          const response = await fetch(attachment.downloadUrl);
+          if (!response.ok) {
+            throw new Error(
+              `Falha ao baixar ${attachment.filename || file.name}.`,
+            );
+          }
+          const blob = await response.blob();
+          folder.file(
+            uniqueZipFileName(usedNames, attachment.filename || file.name),
+            blob,
+          );
+        }
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      saveAs(blob, `${rootName}.zip`);
+      await onExported?.(ticketKey);
+      toast.success(
+        "Documenta\u00e7\u00e3o exportada e pasta marcada como criada.",
+      );
+    } catch (e) {
+      setErr(e?.message || "Falha ao exportar documenta\u00e7\u00e3o.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => !open && onClose?.()}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-start gap-2">
+            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+              {ticketKey || "Ticket"}
+            </code>
+            <span className="min-w-0 text-base leading-snug text-zinc-900">
+              Organizar Documentação
+            </span>
+          </DialogTitle>
+          <DialogDescription className="line-clamp-2 text-sm text-zinc-600">
+            {summary || "Arraste os anexos para as pastas de trabalho do PO."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {err ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {err}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 lg:grid-cols-[1fr_280px]">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  Anexos e pastas
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {attachments.length} anexo(s). Pastas vazias nÃ£o entram no
+                  ZIP.
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                  placeholder="Nova pasta"
+                  className="h-9 w-44 rounded-xl"
+                  disabled={loading || exporting}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-xl border-zinc-200 bg-white"
+                  onClick={addFolder}
+                  disabled={!newFolderName.trim() || loading || exporting}
+                >
+                  <FolderPlus className="mr-2 h-4 w-4" />
+                  Criar
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+              {loading ? (
+                <div className="grid gap-2 p-4">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-4/5" />
+                  <Skeleton className="h-8 w-3/5" />
+                </div>
+              ) : (
+                <Tree
+                  data={treeData}
+                  openByDefault
+                  width="100%"
+                  height={380}
+                  indent={24}
+                  rowHeight={34}
+                  onMove={(args) =>
+                    setTreeData((prev) =>
+                      moveDocumentationTreeNodes(prev, args),
+                    )
+                  }
+                >
+                  {DocumentationTreeNode}
+                </Tree>
+              )}
+            </div>
+          </div>
+
+          <div className="grid content-start gap-3 rounded-2xl border border-zinc-200 bg-white p-3">
+            <div className="text-sm font-semibold text-zinc-900">
+              Pronto para exportar
+            </div>
+            <div className="grid gap-2">
+              {exportFolders.length ? (
+                exportFolders.map((entry) => (
+                  <div
+                    key={entry.folder.id}
+                    className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700"
+                  >
+                    <div className="font-semibold text-zinc-900">
+                      {entry.folder.name}
+                    </div>
+                    <div>{entry.files.length} arquivo(s)</div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-500">
+                  Arraste pelo menos um anexo para uma pasta.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl border-zinc-200 bg-white"
+            onClick={onClose}
+            disabled={exporting}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+            onClick={exportZip}
+            disabled={loading || exporting || !exportFolders.length}
+          >
+            {exporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            {exporting ? "Exportando..." : "Exportar ZIP"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* =========================
    DETAILS DIALOG
 ========================= */
@@ -2956,12 +3740,23 @@ function TicketDetailsDialog({
   onOpenChange,
   issueKey,
   ticketMetaMap,
+  statusOptions = [],
+  priorityOptions = [],
+  onChangeStatus,
+  onChangePriority,
+  onDocumentationFlagChange,
+  onOpenDocumentation,
   onMarkedStarted,
 }) {
   const [loading, setLoading] = useState(false);
   const [issue, setIssue] = useState(null);
   const [comments, setComments] = useState([]);
   const [err, setErr] = useState("");
+  const [statusDraft, setStatusDraft] = useState("");
+  const [priorityDraft, setPriorityDraft] = useState("");
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [savingPriority, setSavingPriority] = useState(false);
+  const [savingFolderFlag, setSavingFolderFlag] = useState(false);
 
   useEffect(() => {
     if (!open || !issueKey) return;
@@ -2975,7 +3770,7 @@ function TicketDetailsDialog({
     Promise.allSettled([
       getIssue(
         issueKey,
-        "summary,status,assignee,created,updated,project,description,duedate,customfield_11519,customfield_14017,components,customfield_11520"
+        "summary,status,assignee,created,updated,project,description,duedate,customfield_11519,customfield_14017,components,customfield_11520,priority,labels,attachment",
       ),
       getComments(issueKey),
     ])
@@ -3005,6 +3800,12 @@ function TicketDetailsDialog({
 
   const f = issue?.fields || {};
 
+  useEffect(() => {
+    if (!issue?.fields) return;
+    setStatusDraft(issue.fields.status?.name || "");
+    setPriorityDraft(toPriorityOptionName(issue.fields.priority?.name || ""));
+  }, [issueKey, issue]);
+
   function getFirstDescriptionText(descriptionAdf) {
     try {
       const t = descriptionAdf?.content?.[0]?.content?.[0]?.text;
@@ -3022,19 +3823,30 @@ function TicketDetailsDialog({
   const hasCronograma = Boolean(
     String(infoAdicText || "")
       .trim()
-      .replace(/^—$/, "")
+      .replace(/^—$/, ""),
   );
 
   const jiraBrowseUrl = useMemo(
     () => getJiraBrowseUrl(issueKey, issue),
-    [issueKey, issue]
+    [issueKey, issue],
   );
 
   const assigneeFull = userName(f?.assignee) || "Sem responsável";
-  const meta = ticketMetaMap?.get?.(String(issueKey || "").trim().toUpperCase());
+  const meta = ticketMetaMap?.get?.(
+    String(issueKey || "")
+      .trim()
+      .toUpperCase(),
+  );
+  const folderCreated = hasDocumentationFolderLabel(issue);
+  const isBacklog = isBacklogStatus(f?.status?.name);
+  const canOrganizeDocumentation =
+    isBacklog && ticketHasIniciadoTag(meta || issue) && !folderCreated;
+  const attachmentsCount = Array.isArray(f?.attachment)
+    ? f.attachment.length
+    : Number(meta?.attachmentCount || 0);
   const cronogramaActivities = useMemo(
     () => parseCronogramaADF(f?.customfield_14017),
-    [f?.customfield_14017]
+    [f?.customfield_14017],
   );
   const allocatedResources = useMemo(
     () =>
@@ -3042,23 +3854,23 @@ function TicketDetailsDialog({
         new Set(
           cronogramaActivities
             .map((activity) => String(activity?.recurso || "").trim())
-            .filter(Boolean)
-        )
+            .filter(Boolean),
+        ),
       ),
-    [cronogramaActivities]
+    [cronogramaActivities],
   );
   const riskActivities = useMemo(
     () =>
       cronogramaActivities.filter(
         (activity) =>
           Boolean(activity?.risk) ||
-          /risco/i.test(String(activity?.risco || "").trim())
+          /risco/i.test(String(activity?.risco || "").trim()),
       ),
-    [cronogramaActivities]
+    [cronogramaActivities],
   );
   const directorateLabels = useMemo(
     () => toNamesArray(f?.customfield_11520),
-    [f?.customfield_11520]
+    [f?.customfield_11520],
   );
   const componentLabels = useMemo(
     () =>
@@ -3068,18 +3880,108 @@ function TicketDetailsDialog({
             .map((value) => String(value || "").trim())
             .filter(Boolean)
         : [],
-    [f?.components]
+    [f?.components],
   );
   const latestComment = comments?.length ? comments[comments.length - 1] : null;
-  const latestCommentText = safeText(latestComment?.body) || "Sem avanço recente";
+  const latestCommentText =
+    safeText(latestComment?.body) || "Sem avanço recente";
   const latestCommentDate = latestComment
     ? fmtUpdatedBR(latestComment?.created || latestComment?.updated)
     : "Sem comentários";
   const dueLabel = meta?.overdueDays
     ? `Atrasado ${meta.overdueDays}d`
     : f?.duedate
-    ? fmtDateBr(f?.duedate)
-    : "Sem data limite";
+      ? fmtDateBr(f?.duedate)
+      : "Sem data limite";
+
+  async function applyDetailsStatus() {
+    if (!issueKey || !statusDraft || statusDraft === f?.status?.name) return;
+    setSavingStatus(true);
+    setErr("");
+    try {
+      await onChangeStatus?.(issueKey, statusDraft);
+      setIssue((prev) =>
+        prev
+          ? {
+              ...prev,
+              fields: {
+                ...(prev.fields || {}),
+                status: { ...(prev.fields?.status || {}), name: statusDraft },
+              },
+            }
+          : prev,
+      );
+    } catch (e) {
+      setErr(e?.message || "Falha ao alterar status.");
+    } finally {
+      setSavingStatus(false);
+    }
+  }
+
+  async function applyDetailsPriority() {
+    if (
+      !issueKey ||
+      !priorityDraft ||
+      normalizePlain(priorityDraft) === normalizePlain(f?.priority?.name)
+    ) {
+      return;
+    }
+    setSavingPriority(true);
+    setErr("");
+    try {
+      await onChangePriority?.(issueKey, priorityDraft);
+      setIssue((prev) =>
+        prev
+          ? {
+              ...prev,
+              fields: {
+                ...(prev.fields || {}),
+                priority: {
+                  ...(prev.fields?.priority || {}),
+                  name: priorityDraft,
+                },
+              },
+            }
+          : prev,
+      );
+    } catch (e) {
+      setErr(e?.message || "Falha ao alterar prioridade.");
+    } finally {
+      setSavingPriority(false);
+    }
+  }
+
+  async function toggleDocumentationFolderFlag() {
+    if (!issueKey || !isBacklog) return;
+    const next = !folderCreated;
+    setSavingFolderFlag(true);
+    setErr("");
+    try {
+      await onDocumentationFlagChange?.(issueKey, next);
+      setIssue((prev) => {
+        if (!prev) return prev;
+        const labels = getIssueLabels(prev);
+        const nextLabels = next
+          ? Array.from(new Set([...labels, DOCUMENTATION_FOLDER_LABEL]))
+          : labels.filter(
+              (label) =>
+                normalizePlain(label) !==
+                normalizePlain(DOCUMENTATION_FOLDER_LABEL),
+            );
+        return {
+          ...prev,
+          fields: {
+            ...(prev.fields || {}),
+            labels: nextLabels,
+          },
+        };
+      });
+    } catch (e) {
+      setErr(e?.message || "Falha ao atualizar Pasta criada.");
+    } finally {
+      setSavingFolderFlag(false);
+    }
+  }
   const progressLabel = meta?.hasStarted
     ? latestCommentText
     : "Sem comentário de início";
@@ -3108,7 +4010,8 @@ function TicketDetailsDialog({
             </Tooltip>
           </DialogTitle>
           <DialogDescription className="text-sm text-zinc-600">
-            Visualização rápida com contexto decisório, cronograma e comentários.
+            Visualização rápida com contexto decisório, cronograma e
+            comentários.
           </DialogDescription>
         </DialogHeader>
 
@@ -3185,7 +4088,9 @@ function TicketDetailsDialog({
                 {dueLabel}
               </div>
               <div className="mt-1 text-xs text-zinc-500">
-                {meta?.dueSoon ? "Vence nos próximos 7 dias" : "Leitura da data limite atual"}
+                {meta?.dueSoon
+                  ? "Vence nos próximos 7 dias"
+                  : "Leitura da data limite atual"}
               </div>
             </div>
 
@@ -3215,6 +4120,139 @@ function TicketDetailsDialog({
               <div className="mt-1 line-clamp-2 text-xs text-zinc-500">
                 {progressLabel}
               </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 md:grid-cols-3">
+            <div className="grid gap-2">
+              <div className="text-sm font-semibold text-zinc-900">
+                Status do ticket
+              </div>
+              <select
+                value={statusDraft || f?.status?.name || ""}
+                onChange={(event) => setStatusDraft(event.target.value)}
+                disabled={loading || savingStatus || !issue}
+                className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+              >
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-xl border-zinc-200 bg-white"
+                onClick={applyDetailsStatus}
+                disabled={
+                  loading ||
+                  savingStatus ||
+                  !issue ||
+                  !statusDraft ||
+                  statusDraft === f?.status?.name
+                }
+              >
+                {savingStatus ? "Salvando..." : "Aplicar status"}
+              </Button>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="text-sm font-semibold text-zinc-900">
+                Prioridade
+              </div>
+              <select
+                value={priorityDraft || f?.priority?.name || ""}
+                onChange={(event) => setPriorityDraft(event.target.value)}
+                disabled={loading || savingPriority || !issue}
+                className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                style={{
+                  borderColor: priorityColor(
+                    priorityDraft || f?.priority?.name,
+                  ),
+                }}
+              >
+                <option value="">Selecionar prioridade</option>
+                {priorityOptions.map((priority) => (
+                  <option key={priority.name} value={priority.name}>
+                    {priority.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-xl border-zinc-200 bg-white"
+                onClick={applyDetailsPriority}
+                disabled={
+                  loading ||
+                  savingPriority ||
+                  !issue ||
+                  !priorityDraft ||
+                  normalizePlain(priorityDraft) ===
+                    normalizePlain(f?.priority?.name)
+                }
+              >
+                {savingPriority ? "Salvando..." : "Aplicar prioridade"}
+              </Button>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="text-sm font-semibold text-zinc-900">
+                Documentação
+              </div>
+              {isBacklog ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={folderCreated}
+                  onClick={toggleDocumentationFolderFlag}
+                  disabled={loading || savingFolderFlag || !issue}
+                  className={cn(
+                    "flex h-10 items-center justify-between rounded-xl border px-3 text-sm font-semibold transition",
+                    folderCreated
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-zinc-200 bg-zinc-50 text-zinc-700",
+                    (loading || savingFolderFlag || !issue) && "opacity-60",
+                  )}
+                >
+                  <span>Pasta criada</span>
+                  <span
+                    className={cn(
+                      "relative h-5 w-9 rounded-full transition",
+                      folderCreated ? "bg-emerald-600" : "bg-zinc-300",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "absolute top-0.5 h-4 w-4 rounded-full bg-white transition",
+                        folderCreated ? "left-4" : "left-0.5",
+                      )}
+                    />
+                  </span>
+                </button>
+              ) : (
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                  Disponivel quando o ticket estiver em Backlog.
+                </div>
+              )}
+
+              {canOrganizeDocumentation ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-xl border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                  onClick={() => onOpenDocumentation?.(issue)}
+                  disabled={loading || !issue}
+                >
+                  <FolderOpen className="mr-2 h-4 w-4" />
+                  Organizar Documentação
+                </Button>
+              ) : (
+                <div className="text-xs text-zinc-500">
+                  {attachmentsCount} anexo(s) no Jira.
+                </div>
+              )}
             </div>
           </div>
 
@@ -3369,7 +4407,7 @@ function TicketDetailsDialog({
                           "rounded-xl border p-3 text-sm",
                           started
                             ? "border-red-200 bg-red-50"
-                            : "border-zinc-200 bg-white"
+                            : "border-zinc-200 bg-white",
                         )}
                       >
                         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -3483,8 +4521,8 @@ function StartTicketModal({
     typeof startDateRaw === "string"
       ? fmtDateBr(startDateRaw)
       : startDateRaw?.value
-      ? fmtDateBr(startDateRaw.value)
-      : "";
+        ? fmtDateBr(startDateRaw.value)
+        : "";
 
   const dueDate = f?.duedate ? fmtDateBr(f.duedate) : "—";
   const dueAltRaw = f?.customfield_11519;
@@ -3492,8 +4530,8 @@ function StartTicketModal({
     typeof dueAltRaw === "string"
       ? fmtDateBr(dueAltRaw)
       : dueAltRaw?.value
-      ? fmtDateBr(dueAltRaw.value)
-      : "";
+        ? fmtDateBr(dueAltRaw.value)
+        : "";
 
   const desc = safeText(f?.description);
   const criterios = safeText(f?.customfield_10903);
@@ -3601,7 +4639,7 @@ function StartTicketModal({
         setOwnerOptions([]);
         setOwnerErr(
           e?.message ||
-            "Falha ao buscar usuários. Verifique permissões do Jira (Browse users and groups / Assign issues)."
+            "Falha ao buscar usuários. Verifique permissões do Jira (Browse users and groups / Assign issues).",
         );
       } finally {
         if (alive) setOwnerLoading(false);
@@ -3788,8 +4826,8 @@ function StartTicketModal({
                           {ownerLoading
                             ? "Buscando..."
                             : String(ownerQuery || "").trim().length < 2
-                            ? "Digite 2 ou mais caracteres para buscar."
-                            : "Nenhum usuário encontrado."}
+                              ? "Digite 2 ou mais caracteres para buscar."
+                              : "Nenhum usuário encontrado."}
                         </CommandEmpty>
 
                         <CommandGroup heading="Opções">
@@ -4019,7 +5057,9 @@ function CronogramaEditorModal({
   }
 
   function deriveIsCustom(activity) {
-    return Boolean(activity?.isCustom) || !STANDARD_CRONOGRAMA_IDS.has(activity?.id);
+    return (
+      Boolean(activity?.isCustom) || !STANDARD_CRONOGRAMA_IDS.has(activity?.id)
+    );
   }
 
   function getAtividadeImplantacaoEndDate(draftList, refYear) {
@@ -4054,7 +5094,7 @@ function CronogramaEditorModal({
 
   const dueDateObj = useMemo(
     () => parseIsoDateLocal(dueDateDraft),
-    [dueDateDraft]
+    [dueDateDraft],
   );
 
   const implantEndDate = useMemo(() => {
@@ -4070,10 +5110,10 @@ function CronogramaEditorModal({
         isCustom: deriveIsCustom(activity),
         name: String(activity?.name || "").trim(),
       })),
-    [draft]
+    [draft],
   );
   const invalidCustomActivity = preparedDraft.find(
-    (activity) => activity.isCustom && !activity.name
+    (activity) => activity.isCustom && !activity.name,
   );
 
   const dueBeforeImplant =
@@ -4194,7 +5234,7 @@ function CronogramaEditorModal({
                 disabled={loading}
                 className={cn(
                   "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
-                  saveAttempted && missingDueDate && "border-red-300"
+                  saveAttempted && missingDueDate && "border-red-300",
                 )}
               />
 
@@ -4206,7 +5246,8 @@ function CronogramaEditorModal({
 
               {!missingDueDate && dueBeforeImplant && (
                 <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
-                  A data limite ({fmtDateBr(dueDateDraft)}) é menor que a Implantação ({fmtDateBrFull(implantEndDate)}).
+                  A data limite ({fmtDateBr(dueDateDraft)}) é menor que a
+                  Implantação ({fmtDateBrFull(implantEndDate)}).
                 </div>
               )}
             </div>
@@ -4218,9 +5259,12 @@ function CronogramaEditorModal({
             <CardHeader className="pb-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle className="text-sm">Atividades do cronograma</CardTitle>
+                  <CardTitle className="text-sm">
+                    Atividades do cronograma
+                  </CardTitle>
                   <CardDescription className="text-xs">
-                    Preencha Data, Recurso e Área. Atividades customizadas podem ser renomeadas, reordenadas e excluídas.
+                    Preencha Data, Recurso e Área. Atividades customizadas podem
+                    ser renomeadas, reordenadas e excluídas.
                   </CardDescription>
                 </div>
 
@@ -4240,7 +5284,8 @@ function CronogramaEditorModal({
             <CardContent className="grid gap-3">
               {saveAttempted && invalidCustomActivity && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
-                  Toda atividade customizada precisa ter um nome antes de salvar.
+                  Toda atividade customizada precisa ter um nome antes de
+                  salvar.
                 </div>
               )}
 
@@ -4259,7 +5304,8 @@ function CronogramaEditorModal({
                       const mode = modeById[a.id] || inferMode(a.data);
                       const isCustom = deriveIsCustom(a);
                       const disableUp = idx === 0 || loading;
-                      const disableDown = idx === preparedDraft.length - 1 || loading;
+                      const disableDown =
+                        idx === preparedDraft.length - 1 || loading;
 
                       return (
                         <div
@@ -4267,7 +5313,7 @@ function CronogramaEditorModal({
                           className={cn(
                             "border-t border-zinc-200 px-3 py-2",
                             "md:grid md:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)_110px] md:items-start md:gap-2",
-                            "grid gap-3"
+                            "grid gap-3",
                           )}
                         >
                           <div className="min-w-0">
@@ -4277,12 +5323,14 @@ function CronogramaEditorModal({
                             {isCustom ? (
                               <Input
                                 value={a.name || ""}
-                                onChange={(e) => setCell(idx, "name", e.target.value)}
+                                onChange={(e) =>
+                                  setCell(idx, "name", e.target.value)
+                                }
                                 placeholder="Nome da atividade"
                                 disabled={loading}
                                 className={cn(
                                   "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
-                                  saveAttempted && !a.name && "border-red-300"
+                                  saveAttempted && !a.name && "border-red-300",
                                 )}
                               />
                             ) : (
@@ -4314,7 +5362,9 @@ function CronogramaEditorModal({
                             </div>
                             <Input
                               value={a.recurso || ""}
-                              onChange={(e) => setCell(idx, "recurso", e.target.value)}
+                              onChange={(e) =>
+                                setCell(idx, "recurso", e.target.value)
+                              }
                               placeholder="ex.: João"
                               disabled={loading}
                               className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
@@ -4327,7 +5377,9 @@ function CronogramaEditorModal({
                             </div>
                             <Input
                               value={a.area || ""}
-                              onChange={(e) => setCell(idx, "area", e.target.value)}
+                              onChange={(e) =>
+                                setCell(idx, "area", e.target.value)
+                              }
                               placeholder="ex.: TI"
                               disabled={loading}
                               className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"

@@ -1,0 +1,167 @@
+[env:warning] SESSION_SECRET - SESSION_SECRET está usando o valor padrão. Defina um segredo próprio para evitar sessões previsíveis.
+(node:27652) [MONGOOSE] Warning: `errors` is a reserved schema pathname and may break some functionality. You are allowed to use it, but use at your own risk. To disable this warning pass `suppressReservedKeysWarning` as a schema option.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:27652) Warning: Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to '0' makes TLS connections and HTTPS requests insecure by disabling certificate verification.
+GET comments error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:458:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2818/comment',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET comments error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:458:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2816/comment',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET issue error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:302:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2811?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET issue error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:302:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2824?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET comments error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:458:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2828/comment',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET comments error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at process.processTimers (node:internal/timers:520:9)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:458:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2829/comment',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET comments error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:458:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2827/comment',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET issue error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:302:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2823?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET issue error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:302:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2822?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET issue error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at listOnTimeout (node:internal/timers:549:9)
+    at process.processTimers (node:internal/timers:523:7)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:302:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2821?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents',
+    timeoutMs: 15000
+  },
+  expose: true
+}
+GET issue error: AppError: Upstream timeout after 15000ms
+    at fetchWithTimeout (file:///C:/Projetos/dev-flow/server/utils/http.js:94:13)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at runNextTicks (node:internal/process/task_queues:69:3)
+    at process.processTimers (node:internal/timers:520:9)
+    at async file:///C:/Projetos/dev-flow/server/routes/jira.routes.js:302:17 {
+  status: 504,
+  code: 'UPSTREAM_TIMEOUT',
+  details: {
+    url: 'https://clarobr-jsw-tecnologia.atlassian.net/rest/api/3/issue/ICON-2820?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents',
+    timeoutMs: 15000
+  },
+  expose: true
+}

@@ -13,13 +13,26 @@ async function readBody(res) {
 }
 
 function toErrorPayload(status, body) {
+  const structuredMessage = body?.error?.message || body?.message;
+  const structuredDetails =
+    body?.error?.details?.causeMessage ||
+    body?.error?.details?.causeCode ||
+    body?.error?.details?.message ||
+    body?.details;
   const msg =
     typeof body === "string"
       ? body
-      : body?.errorMessages?.join(" | ") || body?.error || JSON.stringify(body);
+      : body?.errorMessages?.join(" | ") ||
+        structuredMessage ||
+        body?.error ||
+        JSON.stringify(body);
   const e = new Error(msg || `HTTP ${status}`);
   e.status = status;
   e.body = body;
+  e.details = structuredDetails;
+  if (structuredDetails && !String(e.message).includes(String(structuredDetails))) {
+    e.message = `${e.message} (${structuredDetails})`;
+  }
   return e;
 }
 
@@ -196,6 +209,44 @@ export async function jiraEditIssue(key, payload) {
 }
 
 // ===== Transições de status (Workflow) =====
+
+export async function jiraListPriorities() {
+  return requestJson("/api/jira/priorities", { method: "GET" });
+}
+
+function normalizePriorityName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+export async function jiraUpdateIssuePriority(key, priorityName) {
+  const wanted = normalizePriorityName(priorityName);
+  if (!wanted) throw new Error("Prioridade invalida.");
+
+  const priorities = await jiraListPriorities();
+  const list = Array.isArray(priorities) ? priorities : [];
+  const match = list.find(
+    (priority) => normalizePriorityName(priority?.name) === wanted,
+  );
+
+  if (!match?.id) {
+    const available = list.map((priority) => priority?.name).filter(Boolean);
+    throw new Error(
+      `Prioridade "${priorityName}" nao encontrada. Disponiveis: ${
+        available.join(", ") || "-"
+      }`,
+    );
+  }
+
+  return jiraEditIssue(key, {
+    fields: {
+      priority: { id: String(match.id) },
+    },
+  });
+}
 
 export async function jiraGetIssueTransitions(key) {
   const url = `/api/jira/issue/${encodeURIComponent(key)}/transitions`;

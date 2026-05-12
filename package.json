@@ -1,4 +1,9 @@
 {
+  "scripts": {
+    "desktop:install": "npm --prefix desktop install",
+    "desktop:start": "npm --prefix client run build && npm --prefix desktop run start",
+    "package:win": "npm --prefix client run build && npm --prefix desktop run package:win"
+  },
   "dependencies": {
     "lucide-react": "^0.562.0",
     "react-grid-layout": "^2.2.2",

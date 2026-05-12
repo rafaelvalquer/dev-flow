@@ -3,7 +3,7 @@ import { Router } from "express";
 import { Readable } from "node:stream";
 import { sendUpstream } from "../utils/sendUpstream.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
-import { fetchWithTimeout } from "../utils/http.js";
+import { AppError, fetchWithTimeout, sendError } from "../utils/http.js";
 
 /* =========================================================
    JIRA CLIENT (SERVER-SIDE) — use em Jobs/Services internos
@@ -244,6 +244,35 @@ function norm(s) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function getErrorCause(error) {
+  return error?.cause || error?.errors?.[0] || null;
+}
+
+function createJiraTransportError(error, action, endpoint, timeoutMs) {
+  const cause = getErrorCause(error);
+  const isTimeout =
+    error?.code === "UPSTREAM_TIMEOUT" ||
+    error?.name === "AbortError" ||
+    /timeout/i.test(String(error?.message || ""));
+
+  return new AppError({
+    status: isTimeout ? 504 : Number(error?.status || 502),
+    code: isTimeout ? "JIRA_TIMEOUT" : "JIRA_TRANSPORT_ERROR",
+    message: isTimeout
+      ? `Tempo esgotado ao conectar no Jira para ${action}.`
+      : `Falha ao conectar no Jira para ${action}.`,
+    details: {
+      action,
+      endpoint,
+      timeoutMs,
+      causeName: error?.name || null,
+      causeCode: error?.code || cause?.code || null,
+      causeMessage: error?.message || String(error),
+      causeDetail: cause?.message || String(cause || ""),
+    },
+  });
+}
+
 /* =========================================================
    ROUTES (PROXY) — usado pelo Frontend via /api/jira/*
    ========================================================= */
@@ -287,6 +316,26 @@ export default function jiraRoutes({ upload, env }) {
   });
 
   // Busca geral de usuários
+  router.get("/priorities", async (req, res) => {
+    try {
+      const url = `${JIRA_BASE}/rest/api/3/priority`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar prioridades do Jira.",
+      });
+    } catch (err) {
+      console.error("GET priorities error:", err);
+      return res.status(500).json({
+        error: "Proxy error on GET priorities",
+        details: String(err),
+      });
+    }
+  });
+
   router.get("/users/search", async (req, res) => {
     try {
       const query = String(req.query.query || "").trim();
@@ -656,13 +705,15 @@ export default function jiraRoutes({ upload, env }) {
 
   // Busca paginada por JQL
   router.post("/search/jql", async (req, res) => {
+    const endpoint = "/rest/api/3/search/jql";
+    const timeoutMs = Number(env.REQUEST_TIMEOUT_MS || 15000);
     try {
-      const url = `${JIRA_BASE}/rest/api/3/search/jql`;
+      const url = `${JIRA_BASE}${endpoint}`;
       const r = await fetchWithTimeout(url, {
         method: "POST",
         headers: jiraHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
-        timeoutMs: env.REQUEST_TIMEOUT_MS,
+        timeoutMs,
       });
       return sendUpstream(res, r, "application/json", {
         service: "jira",
@@ -670,10 +721,10 @@ export default function jiraRoutes({ upload, env }) {
       });
     } catch (err) {
       console.error("POST search/jql error:", err);
-      return res.status(500).json({
-        error: "Proxy error on POST search/jql",
-        details: String(err),
-      });
+      return sendError(
+        res,
+        createJiraTransportError(err, "executar busca JQL", endpoint, timeoutMs)
+      );
     }
   });
 

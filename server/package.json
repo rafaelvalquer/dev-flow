@@ -4,8 +4,8 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "dev": "nodemon --watch . server.js",
-    "start": "node server/index.js"
+    "dev": "nodemon --watch . --ext js,json --exec \"node index.js\"",
+    "start": "node index.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -1,0 +1,4 @@
+
+> server@1.0.0 dev
+> nodemon --watch . --ext js,json --exec "node index.js"
+

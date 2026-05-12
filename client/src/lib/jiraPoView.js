@@ -17,8 +17,31 @@ import {
 
 // src/lib/jiraPoView.js
 
+const PO_OPEN_STATUSES = [
+  "Backlog",
+  "Refinamento",
+  "Artefatos",
+  "Planejamento",
+  "PRE SAVE",
+  "Para testes",
+  "Testes",
+  "Homologa\u00e7\u00e3o",
+  "Art. Externos",
+  "Para Planejar",
+  "EM PLANEJAMENTO",
+  "Para Dev",
+  "Desenvolvimento",
+  "Para Homolog.",
+  "Homolog. Neg\u00f3cio",
+  "Para Deploy",
+];
+
+const PO_OPEN_STATUSES_JQL = PO_OPEN_STATUSES.map(
+  (status) => `"${status.replace(/"/g, '\\"')}"`,
+).join(", ");
+
 export const PO_JQL_BODY = {
-  jql: 'project = ICON AND status IN ("PRE SAVE", "EM PLANEJAMENTO", "Para Dev", "Desenvolvimento", "Para Homolog.", "Homolog. Negócio", "Para Deploy") AND updated >= -365d ORDER BY updated DESC',
+  jql: `project = ICON AND status IN (${PO_OPEN_STATUSES_JQL}) AND updated >= -365d ORDER BY updated DESC`,
   maxResults: 100,
   fields: [
     "key",
@@ -27,6 +50,8 @@ export const PO_JQL_BODY = {
     "issuetype",
     "updated",
     "assignee",
+    "labels",
+    "attachment",
     "parent",
     "priority",
     "customfield_10988",
@@ -62,7 +87,7 @@ export async function fetchPoDoneLast30Days() {
 
 // campos necessários no detalhe
 const ISSUE_FIELDS =
-  "summary,status,issuetype,created,updated,assignee,parent,customfield_14017,duedate,customfield_11519,customfield_11520,priority,customfield_10988,resolutiondate,customfield_11993,components";
+  "summary,status,issuetype,created,updated,assignee,labels,attachment,parent,customfield_14017,duedate,customfield_11519,customfield_11520,priority,customfield_10988,resolutiondate,customfield_11993,components";
 
 function pickText(v) {
   if (!v) return "";
@@ -74,6 +99,38 @@ function pickText(v) {
   }
 
   return String(v).trim();
+}
+
+export async function fetchPoIssueDetail(key) {
+  const issue = await jiraGetIssue(key, ISSUE_FIELDS);
+  const comments = await jiraGetComments(key);
+
+  const statusName = issue?.fields?.status?.name || "";
+  const hasIniciado = containsTagInComments(comments, "[INICIADO]");
+  const cronogramaAdf = issue?.fields?.customfield_14017 || null;
+
+  return {
+    key,
+    summary: issue?.fields?.summary || "",
+    statusName,
+    createdRaw: issue?.fields?.created || "",
+    updated: issue?.fields?.updated || "",
+    assignee: issue?.fields?.assignee?.displayName || "",
+    labels: issue?.fields?.labels || [],
+    attachments: issue?.fields?.attachment || [],
+    issueType: issue?.fields?.issuetype?.name || "",
+    parentKey: issue?.fields?.parent?.key || "",
+    hasIniciado,
+    cronogramaAdf,
+    dueDateRaw: issue?.fields?.duedate || "",
+    customfield_11519: issue?.fields?.customfield_11519 || "",
+    priorityName: issue?.fields?.priority?.name ?? null,
+    sizeValue: issue?.fields?.customfield_10988?.value ?? null,
+    resolutionDateRaw: issue?.fields?.resolutiondate || "",
+    customfield_11520: issue?.fields?.customfield_11520 || [],
+    components: issue?.fields?.components || [],
+    reporterName: pickText(issue?.fields?.customfield_11993) || "â€”",
+  };
 }
 
 export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
@@ -96,6 +153,8 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       createdRaw: issue?.fields?.created || "",
       updated: issue?.fields?.updated || "",
       assignee: issue?.fields?.assignee?.displayName || "",
+      labels: issue?.fields?.labels || [],
+      attachments: issue?.fields?.attachment || [],
       issueType: issue?.fields?.issuetype?.name || "",
       parentKey: issue?.fields?.parent?.key || "",
       hasIniciado,
@@ -114,12 +173,92 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
   return detailed;
 }
 
+export async function fetchPoIssuesDetailedProgressive({
+  concurrency = 8,
+  onStart,
+  onIssue,
+  onProgress,
+  onError,
+} = {}) {
+  const baseIssues = await jiraSearchJqlAll(PO_JQL_BODY);
+  const keys = baseIssues.map((i) => i.key).filter(Boolean);
+  const total = keys.length;
+  const detailed = new Array(total);
+  const failures = [];
+  let cursor = 0;
+  let completed = 0;
+  let loaded = 0;
+
+  onStart?.({ total, keys });
+
+  const makeProgress = (extra = {}) => ({
+    total,
+    completed,
+    loaded,
+    failed: failures.length,
+    ...extra,
+  });
+
+  async function worker() {
+    while (cursor < total) {
+      const index = cursor;
+      cursor += 1;
+      const key = keys[index];
+
+      try {
+        const issue = await fetchPoIssueDetail(key);
+        detailed[index] = issue;
+        loaded += 1;
+        onIssue?.(issue, makeProgress({ index, key, completed: completed + 1 }));
+      } catch (error) {
+        const failure = {
+          key,
+          index,
+          message: error?.message || String(error),
+          error,
+        };
+        failures.push(failure);
+        onError?.(failure, makeProgress({ index, key, completed: completed + 1 }));
+      } finally {
+        completed += 1;
+        onProgress?.(makeProgress({ index, key }));
+      }
+    }
+  }
+
+  const workerCount = Math.min(
+    Math.max(Number(concurrency) || 1, 1),
+    total,
+  );
+
+  if (workerCount > 0) {
+    await Promise.all(Array.from({ length: workerCount }, worker));
+  }
+
+  return {
+    detailed: detailed.filter(Boolean),
+    failures,
+    total,
+    loaded,
+    failed: failures.length,
+  };
+}
+
 export function buildPoView(detailedIssues) {
   const alertas = [];
   const criarCronograma = [];
   const calendarioIssues = [];
 
   const inProgressStatuses = new Set([
+    "Backlog",
+    "Refinamento",
+    "Artefatos",
+    "Planejamento",
+    "Para testes",
+    "Testes",
+    "Homologa\u00e7\u00e3o",
+    "Art. Externos",
+    "Para Planejar",
     "EM PLANEJAMENTO",
     "Para Dev",
     "Desenvolvimento",

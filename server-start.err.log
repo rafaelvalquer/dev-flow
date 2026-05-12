@@ -1,0 +1,3 @@
+[env:warning] SESSION_SECRET - SESSION_SECRET está usando o valor padrão. Defina um segredo próprio para evitar sessões previsíveis.
+(node:18100) [MONGOOSE] Warning: `errors` is a reserved schema pathname and may break some functionality. You are allowed to use it, but use at your own risk. To disable this warning pass `suppressReservedKeysWarning` as a schema option.
+(Use `node --trace-warnings ...` to show where the warning was created)

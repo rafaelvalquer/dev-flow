@@ -1,9 +1,23 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarClock, Clock3, FolderKanban, ShieldAlert, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarClock,
+  Clock3,
+  FolderKanban,
+  FolderOpen,
+  ShieldAlert,
+  Users,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -73,7 +87,12 @@ function CompactList({ title, items, emptyText = "Sem dados." }) {
   );
 }
 
-function ActionQueueCard({ item, onOpenDetails, onOpenSchedule }) {
+function ActionQueueCard({
+  item,
+  onOpenDetails,
+  onOpenSchedule,
+  onOpenDocumentation,
+}) {
   return (
     <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
       <CardHeader className="pb-3">
@@ -89,8 +108,8 @@ function ActionQueueCard({ item, onOpenDetails, onOpenSchedule }) {
                   item.isBlocked
                     ? "border-amber-200 bg-amber-50 text-amber-800"
                     : item.isAtRisk
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700",
                 )}
               >
                 {item.processLane}
@@ -156,6 +175,18 @@ function ActionQueueCard({ item, onOpenDetails, onOpenSchedule }) {
               Criar cronograma
             </Button>
           ) : null}
+          {item.canOrganizeDocumentation && onOpenDocumentation ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-xl border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+              onClick={() => onOpenDocumentation?.(item)}
+            >
+              <FolderOpen className="mr-2 h-4 w-4" />
+              Organizar Documentação
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>
@@ -180,7 +211,8 @@ export function POPresetBar({
               Atalhos do módulo
             </div>
             <div className="text-xs text-zinc-500">
-              O mesmo recorte alimenta Ações, Portfólio, Calendário, Gantt e Dashboard.
+              O mesmo recorte alimenta Ações, Portfólio, Calendário, Gantt e
+              Dashboard.
             </div>
           </div>
 
@@ -205,7 +237,7 @@ export function POPresetBar({
                 className={cn(
                   "rounded-xl border-zinc-200 bg-white",
                   activePreset === preset &&
-                    "border-red-200 bg-red-50 text-red-700"
+                    "border-red-200 bg-red-50 text-red-700",
                 )}
                 onClick={() => setActivePreset?.(preset)}
                 disabled={preset === "mine" && !String(ownerFocus || "").trim()}
@@ -227,6 +259,7 @@ export function POActionsHub({
   insights,
   onOpenDetails,
   onOpenSchedule,
+  onOpenDocumentation,
 }) {
   const laneCards = useMemo(
     () => [
@@ -239,10 +272,19 @@ export function POActionsHub({
         tone: "warning",
       },
       {
+        title: "Levantamento",
+        value:
+          insights?.portfolio?.lanes?.find(
+            (lane) => lane.name === "levantamento",
+          )?.value || 0,
+        subtitle: "Requisitos, artefatos e envolvidos",
+        tone: "info",
+      },
+      {
         title: "Planejar",
         value:
           insights?.portfolio?.lanes?.find(
-            (lane) => lane.name === "prontos para planejar"
+            (lane) => lane.name === "prontos para planejar",
           )?.value || 0,
         subtitle: "Itens que precisam de cronograma",
         tone: "info",
@@ -260,7 +302,7 @@ export function POActionsHub({
         tone: "success",
       },
     ],
-    [insights]
+    [insights],
   );
 
   const weeklyRituals = useMemo(
@@ -286,7 +328,7 @@ export function POActionsHub({
         subtitle: "Concluídos recentes para reporte",
       },
     ],
-    [insights]
+    [insights],
   );
 
   return (
@@ -303,7 +345,8 @@ export function POActionsHub({
             Fila de ação do P.O
           </CardTitle>
           <CardDescription>
-            Ordenação automática por prioridade operacional para responder rápido ao que precisa de ação agora.
+            Ordenação automática por prioridade operacional para responder
+            rápido ao que precisa de ação agora.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-2">
@@ -313,6 +356,7 @@ export function POActionsHub({
               item={item}
               onOpenDetails={onOpenDetails}
               onOpenSchedule={onOpenSchedule}
+              onOpenDocumentation={onOpenDocumentation}
             />
           ))}
 
@@ -343,7 +387,9 @@ export function POActionsHub({
                 <div className="mt-2 text-2xl font-bold text-zinc-900">
                   {ritual.value}
                 </div>
-                <div className="mt-1 text-xs text-zinc-600">{ritual.subtitle}</div>
+                <div className="mt-1 text-xs text-zinc-600">
+                  {ritual.subtitle}
+                </div>
               </div>
             ))}
           </CardContent>
@@ -355,7 +401,8 @@ export function POActionsHub({
               Concluídos recentes
             </CardTitle>
             <CardDescription>
-              Fechamentos mais recentes para o fechamento semanal e status report.
+              Fechamentos mais recentes para o fechamento semanal e status
+              report.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">
@@ -426,9 +473,12 @@ export function POPortfolioHub({ insights, onOpenDetails }) {
   return (
     <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base text-zinc-900">Leituras de portfólio</CardTitle>
+        <CardTitle className="text-base text-zinc-900">
+          Leituras de portfólio
+        </CardTitle>
         <CardDescription>
-          Consolida performance, capacidade, riscos e roadmap sobre a mesma base operacional do módulo P.O.
+          Consolida performance, capacidade, riscos e roadmap sobre a mesma base
+          operacional do módulo P.O.
         </CardDescription>
       </CardHeader>
 
@@ -477,25 +527,47 @@ export function POPortfolioHub({ insights, onOpenDetails }) {
                 title="Throughput 30d"
                 value={insights?.portfolio?.throughputDelta || 0}
                 subtitle={`${insights?.portfolio?.completedLast30 || 0} concluídos vs ${insights?.portfolio?.createdLast30 || 0} criados`}
-                tone={Number(insights?.portfolio?.throughputDelta || 0) >= 0 ? "success" : "danger"}
+                tone={
+                  Number(insights?.portfolio?.throughputDelta || 0) >= 0
+                    ? "success"
+                    : "danger"
+                }
               />
             </div>
 
             <div className="grid gap-3 xl:grid-cols-2">
-              <CompactList title="Status macro" items={insights?.portfolio?.statusMacro} />
-              <CompactList title="Faixas de aging" items={insights?.portfolio?.aging} />
+              <CompactList
+                title="Status macro"
+                items={insights?.portfolio?.statusMacro}
+              />
+              <CompactList
+                title="Faixas de aging"
+                items={insights?.portfolio?.aging}
+              />
             </div>
 
             <div className="grid gap-3 xl:grid-cols-3">
-              <CompactList title="Responsáveis" items={insights?.portfolio?.owners} />
-              <CompactList title="Diretorias" items={insights?.portfolio?.directorates} />
-              <CompactList title="Componentes" items={insights?.portfolio?.components} />
+              <CompactList
+                title="Responsáveis"
+                items={insights?.portfolio?.owners}
+              />
+              <CompactList
+                title="Diretorias"
+                items={insights?.portfolio?.directorates}
+              />
+              <CompactList
+                title="Componentes"
+                items={insights?.portfolio?.components}
+              />
             </div>
           </TabsContent>
 
           <TabsContent value="capacity" className="mt-4 grid gap-3">
             {(insights?.resourceRows || []).map((row) => (
-              <Card key={row.resource} className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+              <Card
+                key={row.resource}
+                className="rounded-2xl border-zinc-200 bg-white shadow-sm"
+              >
                 <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">

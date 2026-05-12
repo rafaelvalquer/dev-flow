@@ -39,7 +39,7 @@ function startAutomationJobOnce() {
   });
 }
 
-export default function createApp({ startJobs = true } = {}) {
+export default function createApp({ startJobs = true, clientDist } = {}) {
   const app = express();
 
   app.use(requestContext);
@@ -83,12 +83,13 @@ export default function createApp({ startJobs = true } = {}) {
   if (startJobs) startAutomationJobOnce();
 
   // Produção: servir build do Vite
-  const clientDist = path.join(__dirname, "..", "client", "dist");
-  app.use(express.static(clientDist));
+  const resolvedClientDist =
+    clientDist || path.join(__dirname, "..", "client", "dist");
+  app.use(express.static(resolvedClientDist));
 
   // catch-all para qualquer rota que NÃO comece com /api
   app.get(/^(?!\/api\/).*/, (_req, res) => {
-    res.sendFile(path.join(clientDist, "index.html"));
+    res.sendFile(path.join(resolvedClientDist, "index.html"));
   });
 
   app.use((req, res) => {

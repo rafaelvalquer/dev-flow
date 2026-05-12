@@ -1,5 +1,7 @@
 import { parseDateRangeBR } from "../utils/cronograma";
 
+const DOCUMENTATION_FOLDER_LABEL = "pasta-criada";
+
 function normalizeStr(v) {
   return String(v || "")
     .normalize("NFD")
@@ -87,6 +89,8 @@ function statusMacro(statusName) {
   const s = normalizeStr(statusName);
   if (!s) return "sem-status";
   if (/pre save|triagem/.test(s)) return "triagem";
+  if (/backlog|refinamento|artefatos|para planejar/.test(s))
+    return "levantamento";
   if (/planej/.test(s)) return "planejamento";
   if (/para dev|desenvolv|dev/.test(s)) return "execucao";
   if (/homolog/.test(s)) return "homologacao";
@@ -99,6 +103,7 @@ function humanStatusMacro(macro) {
   return (
     {
       triagem: "Triagem",
+      levantamento: "Levantamento",
       planejamento: "Planejamento",
       execucao: "Execução",
       homologacao: "Homologação",
@@ -273,6 +278,20 @@ function getCommentPreview(commentsText) {
   return text.length > 120 ? `${text.slice(0, 117)}...` : text;
 }
 
+function getIssueLabels(issue, fields = {}) {
+  const labels = Array.isArray(issue?.labels)
+    ? issue.labels
+    : Array.isArray(fields?.labels)
+      ? fields.labels
+      : [];
+  return labels.map((label) => String(label || "").trim()).filter(Boolean);
+}
+
+function hasDocumentationFolderLabel(labels) {
+  const wanted = normalizeStr(DOCUMENTATION_FOLDER_LABEL);
+  return (labels || []).some((label) => normalizeStr(label) === wanted);
+}
+
 export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = "" }) {
   const today0 = startOfTodayLocal();
   const calendarioIssues = Array.isArray(viewData?.calendarioIssues)
@@ -324,6 +343,17 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     const hasStarted = Boolean(issue?.hasIniciado || issue?.hasStarted);
     const statusName = String(issue?.statusName || fields?.status?.name || "");
     const macro = statusMacro(statusName);
+    const labels = getIssueLabels(issue, fields);
+    const hasDocumentationFolder = hasDocumentationFolderLabel(labels);
+    const attachmentCount = Array.isArray(issue?.attachments)
+      ? issue.attachments.length
+      : Array.isArray(fields?.attachment)
+        ? fields.attachment.length
+        : 0;
+    const canOrganizeDocumentation =
+      normalizeStr(statusName) === "backlog" &&
+      hasStarted &&
+      !hasDocumentationFolder;
     const nextMilestone = getNextMilestone(activities, today0);
     const activitiesAtRisk = activities.filter(
       (activity) => Boolean(activity?.risk) || normalizeStr(activity?.risco) === "risco"
@@ -377,6 +407,10 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     if (noRecentUpdate) actionReasons.push("Sem avanço recente");
     if (dueSoon) actionReasons.push("Vence em 7 dias");
 
+    if (canOrganizeDocumentation) {
+      actionReasons.push("Organizar documenta\u00e7\u00e3o");
+    }
+
     const doneRecently = (doneRows || []).some(
       (row) => String(row?.key || "").trim().toUpperCase() === key
     );
@@ -384,6 +418,7 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     let processLane = "em execução";
     if (doneRecently || isDoneStatus(statusName)) processLane = "concluídos recentes";
     else if (macro === "triagem" && !hasStarted) processLane = "triagem";
+    else if (macro === "levantamento") processLane = "levantamento";
     else if (!hasSchedule) processLane = "prontos para planejar";
     else if (isBlocked) processLane = "bloqueados";
     else if (isAtRisk) processLane = "em risco";
@@ -395,6 +430,7 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     if (!hasOwner) queueScore += 70;
     if (capacityConflict) queueScore += 60;
     if (!hasStarted) queueScore += 35;
+    if (canOrganizeDocumentation) queueScore += 45;
     if (noRecentUpdate) queueScore += 30;
     if (hasRisk) queueScore += 25;
 
@@ -432,6 +468,10 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
       hasSchedule,
       hasOwner,
       hasStarted,
+      hasDocumentationFolder,
+      canOrganizeDocumentation,
+      attachmentCount,
+      labels,
       hasRisk,
       hasCapacityConflict: capacityConflict,
       isBlocked,

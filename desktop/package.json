@@ -1,0 +1,54 @@
+{
+  "name": "dev-flow-desktop",
+  "version": "1.0.4",
+  "private": true,
+  "description": "Dev Flow desktop shell for Windows",
+  "main": "main.js",
+  "scripts": {
+    "prepare-assets": "node scripts/prepare-assets.mjs",
+    "start": "npm run prepare-assets && electron .",
+    "package:win": "npm run prepare-assets && electron-builder --win nsis --x64"
+  },
+  "build": {
+    "appId": "br.com.claro.devflow",
+    "productName": "Dev Flow",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "app",
+        "to": "app",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Dev Flow"
+    }
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
