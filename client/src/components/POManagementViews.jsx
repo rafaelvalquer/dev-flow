@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
+  CircleHelp,
   Clock3,
   FolderKanban,
   FolderOpen,
@@ -20,6 +21,11 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { cn } from "@/lib/utils";
 import { getPoPresetLabel } from "../lib/poInsights";
@@ -193,6 +199,421 @@ function ActionQueueCard({
   );
 }
 
+const ALARM_HELP_ITEMS = [
+  {
+    label: "Sem cronograma",
+    description: "Ticket nao possui atividades planejadas no cronograma.",
+  },
+  {
+    label: "Sem responsavel",
+    description: "Ticket nao possui assignee/responsavel definido.",
+  },
+  {
+    label: "Atrasado",
+    description: "Data limite do ticket e anterior ao dia atual.",
+  },
+  {
+    label: "Conflito de recurso",
+    description: "Mesmo recurso possui atividades sobrepostas no periodo.",
+  },
+  {
+    label: "Sem inicio",
+    description: "Ticket ainda nao foi marcado como iniciado.",
+  },
+  {
+    label: "Vence em breve",
+    description: "Ticket vence hoje ou nos proximos 7 dias.",
+  },
+  {
+    label: "Sem avanco",
+    description: "Ticket esta ha 7 dias ou mais sem atualizacao.",
+  },
+  {
+    label: "Risco",
+    description: "Existe atividade com risco marcado no cronograma.",
+  },
+  {
+    label: "Documentacao",
+    description: "Ticket em Backlog iniciado ainda sem pasta/documentacao organizada.",
+  },
+];
+
+function AlarmHelpTooltip() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900"
+          aria-label="Ver criterios dos alarmes"
+        >
+          <CircleHelp className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="bottom"
+        align="start"
+        className="max-w-[360px] rounded-2xl border-zinc-200 bg-white p-3 text-zinc-800 shadow-xl"
+      >
+        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+          Criterios dos alarmes
+        </div>
+        <div className="mt-2 grid gap-2">
+          {ALARM_HELP_ITEMS.map((item) => (
+            <div key={item.label} className="grid gap-0.5">
+              <div className="text-xs font-semibold text-zinc-900">
+                {item.label}
+              </div>
+              <div className="text-xs leading-snug text-zinc-600">
+                {item.description}
+              </div>
+            </div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function OperationalItemButton({
+  item,
+  badge,
+  onOpenDetails,
+  onOpenSchedule,
+  onResolveProblem,
+}) {
+  const key = item?.key || item?.resource || item?.name || "item";
+  const summary =
+    item?.summary || item?.activityName || item?.resource || "Sem descricao";
+  const reason = item?.briefingReason || item?.reason || item?.statusName;
+  const action = item?.recommendedAction;
+  const problems = Array.isArray(item?.resolutionProblems)
+    ? item.resolutionProblems
+    : [];
+
+  return (
+    <div
+      className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left transition hover:border-zinc-300 hover:bg-white"
+    >
+      <div className="min-w-0 overflow-hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          <code className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+            {key}
+          </code>
+          {item?.owner ? (
+            <span className="min-w-0 truncate text-xs text-zinc-500">
+              {item.owner}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-1 line-clamp-2 break-words text-sm font-medium leading-snug text-zinc-900">
+          {summary}
+        </div>
+        {reason ? (
+          <div className="mt-1 line-clamp-2 break-words text-xs leading-snug text-zinc-600">
+            {reason}
+          </div>
+        ) : null}
+        {action ? (
+          <div className="mt-1 line-clamp-2 break-words text-xs leading-snug text-red-700">
+            {action}
+          </div>
+        ) : null}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {problems.slice(0, 5).map((problem) => (
+            <button
+              key={`${key}-${problem.type}`}
+              type="button"
+              className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 transition hover:bg-red-100"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onResolveProblem?.(item, problem);
+              }}
+              title={problem.recommendedAction || problem.reason}
+            >
+              {problem.label}
+            </button>
+          ))}
+          {!problems.length && onOpenDetails ? (
+            <button
+              type="button"
+              className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 transition hover:bg-zinc-100"
+              onClick={() => onOpenDetails?.(item?.key)}
+            >
+              Detalhes
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {badge ? (
+        <Badge className="max-w-[92px] shrink-0 truncate rounded-full border border-zinc-200 bg-white text-zinc-700">
+          {badge}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
+function AlertColumn({
+  title,
+  count,
+  tone,
+  items,
+  getBadge,
+  onOpenDetails,
+  onOpenSchedule,
+  onResolveProblem,
+}) {
+  return (
+    <Card className="min-w-0 overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm text-zinc-900">{title}</CardTitle>
+          <Badge className={cn("rounded-full border", metricTone(tone))}>
+            {count || 0}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid min-w-0 gap-2 overflow-hidden">
+        {(items || []).slice(0, 4).map((item, index) => (
+          <OperationalItemButton
+            key={`${title}-${item?.key || item?.resource || index}`}
+            item={item}
+            badge={getBadge?.(item)}
+            onOpenDetails={onOpenDetails}
+            onOpenSchedule={onOpenSchedule}
+            onResolveProblem={onResolveProblem}
+          />
+        ))}
+        {!items?.length ? (
+          <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-500">
+            Nenhum item neste recorte.
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CriticalAlertsPanel({
+  insights,
+  onOpenDetails,
+  onOpenSchedule,
+  onResolveProblem,
+}) {
+  const alerts = insights?.criticalAlerts || {};
+  const columns = [
+    {
+      title: "Atrasados",
+      tone: "danger",
+      items: alerts.overdue || [],
+      getBadge: (item) => `${item.overdueDays || 0}d`,
+    },
+    {
+      title: "Sem cronograma",
+      tone: "warning",
+      items: alerts.noSchedule || [],
+      getBadge: () => "Planejar",
+    },
+    {
+      title: "Conflitos",
+      tone: "danger",
+      items: alerts.resourceConflicts || [],
+      getBadge: () => "Recurso",
+    },
+    {
+      title: "Proximos 7 dias",
+      tone: "info",
+      items: alerts.dueNext7 || [],
+      getBadge: (item) =>
+        item.dueInDays === 0 ? "Hoje" : `${item.dueInDays || 0}d`,
+    },
+    {
+      title: "Sem responsavel",
+      tone: "warning",
+      items: alerts.noOwner || [],
+      getBadge: () => "Definir",
+    },
+  ];
+
+  return (
+    <Card className="min-w-0 overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-red-600" />
+          <CardTitle className="text-base text-zinc-900">
+            Alertas criticos
+          </CardTitle>
+        </div>
+        <CardDescription>
+          Prioriza riscos operacionais que precisam de decisao no rito AM/PO.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {columns.map((column) => (
+          <AlertColumn
+            key={column.title}
+            {...column}
+            count={column.items.length}
+            onOpenDetails={onOpenDetails}
+            onOpenSchedule={onOpenSchedule}
+            onResolveProblem={onResolveProblem}
+          />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BriefingColumn({
+  title,
+  icon: Icon,
+  items,
+  emptyText,
+  getBadge,
+  onOpenDetails,
+  onOpenSchedule,
+  onResolveProblem,
+}) {
+  return (
+    <Card className="min-w-0 overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex min-w-0 items-center gap-2 text-sm text-zinc-900">
+          {Icon ? <Icon className="h-4 w-4 shrink-0 text-zinc-500" /> : null}
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="grid min-w-0 gap-2 overflow-hidden">
+        {(items || []).slice(0, 5).map((item, index) => (
+          <OperationalItemButton
+            key={`${title}-${item?.key || index}`}
+            item={item}
+            badge={getBadge?.(item)}
+            onOpenDetails={onOpenDetails}
+            onOpenSchedule={onOpenSchedule}
+            onResolveProblem={onResolveProblem}
+          />
+        ))}
+        {!items?.length ? (
+          <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-500">
+            {emptyText}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DailyBriefingPanel({
+  insights,
+  onOpenDetails,
+  onOpenSchedule,
+  onResolveProblem,
+}) {
+  const briefing = insights?.dailyBriefing || {};
+  const [activeBriefing, setActiveBriefing] = useState("changed");
+  const sections = [
+    {
+      key: "changed",
+      title: "O que mudou",
+      icon: CalendarClock,
+      items: briefing.changed || [],
+      emptyText: "Nenhuma mudanca recente.",
+      getBadge: (item) =>
+        item.resolvedDate
+          ? fmtDate(item.resolvedDate)
+          : item.updatedDate
+            ? fmtDate(item.updatedDate)
+            : "Hoje",
+    },
+    {
+      key: "delayed",
+      title: "O que atrasou",
+      icon: AlertTriangle,
+      items: briefing.delayed || [],
+      emptyText: "Nenhum atraso no recorte.",
+      getBadge: (item) => `${item.overdueDays || 0}d`,
+    },
+    {
+      key: "dueToday",
+      title: "Vence hoje",
+      icon: Clock3,
+      items: briefing.dueToday || [],
+      emptyText: "Nada vencendo hoje.",
+      getBadge: () => "Hoje",
+    },
+    {
+      key: "recommendedActions",
+      title: "Acoes recomendadas",
+      icon: ShieldAlert,
+      items: briefing.recommendedActions || [],
+      emptyText: "Sem acoes recomendadas.",
+      getBadge: (item) => item.resolutionProblems?.[0]?.label || "Acao",
+    },
+  ];
+  const selectedSection =
+    sections.find((section) => section.key === activeBriefing) || sections[0];
+
+  return (
+    <Card className="min-w-0 overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Clock3 className="h-4 w-4 text-zinc-600" />
+              <CardTitle className="text-base text-zinc-900">
+                Resumo diario operacional
+              </CardTitle>
+            </div>
+            <CardDescription className="mt-2">
+              Leitura rapida para orientar acompanhamento, cobranca e proximos passos.
+            </CardDescription>
+          </div>
+          <AlarmHelpTooltip />
+        </div>
+      </CardHeader>
+      <CardContent className="grid min-w-0 gap-3">
+        <div className="flex flex-wrap gap-2 rounded-2xl bg-zinc-100 p-1">
+          {sections.map((section) => {
+            const SectionIcon = section.icon;
+            return (
+              <button
+                key={section.key}
+                type="button"
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition",
+                  activeBriefing === section.key
+                    ? "bg-white text-zinc-900 shadow-sm"
+                    : "text-zinc-600 hover:bg-white/70"
+                )}
+                onClick={() => setActiveBriefing(section.key)}
+              >
+                <SectionIcon className="h-3.5 w-3.5" />
+                {section.title}
+                <Badge className="rounded-full bg-zinc-900 text-white">
+                  {section.items.length}
+                </Badge>
+              </button>
+            );
+          })}
+        </div>
+
+        <BriefingColumn
+          title={selectedSection.title}
+          icon={selectedSection.icon}
+          items={selectedSection.items}
+          emptyText={selectedSection.emptyText}
+          getBadge={selectedSection.getBadge}
+          onOpenDetails={onOpenDetails}
+          onOpenSchedule={onOpenSchedule}
+          onResolveProblem={onResolveProblem}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 export function POPresetBar({
   activePreset,
   setActivePreset,
@@ -260,6 +681,7 @@ export function POActionsHub({
   onOpenDetails,
   onOpenSchedule,
   onOpenDocumentation,
+  onResolveProblem,
 }) {
   const laneCards = useMemo(
     () => [
@@ -338,6 +760,20 @@ export function POActionsHub({
           <MiniMetric key={card.title} {...card} />
         ))}
       </div>
+
+      <DailyBriefingPanel
+        insights={insights}
+        onOpenDetails={onOpenDetails}
+        onOpenSchedule={onOpenSchedule}
+        onResolveProblem={onResolveProblem}
+      />
+
+      <CriticalAlertsPanel
+        insights={insights}
+        onOpenDetails={onOpenDetails}
+        onOpenSchedule={onOpenSchedule}
+        onResolveProblem={onResolveProblem}
+      />
 
       <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
         <CardHeader className="pb-3">

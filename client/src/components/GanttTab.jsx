@@ -2069,6 +2069,15 @@ export function GanttTab({
     };
   }, [displayDateRange?.minStart, ganttWindowStart, viewMode]);
 
+  const resetGanttHorizontalScroll = useCallback(() => {
+    const horizontalTarget = getGanttHorizontalScrollTarget();
+    if (horizontalTarget) horizontalTarget.scrollLeft = 0;
+    if (ganttHorizontalBarRef.current) {
+      ganttHorizontalBarRef.current.scrollLeft = 0;
+    }
+    window.requestAnimationFrame(syncGanttScrollbars);
+  }, [getGanttHorizontalScrollTarget, syncGanttScrollbars]);
+
   const shiftGanttCalendar = useCallback(
     (direction) => {
       const factor = direction === "previous" ? -1 : 1;
@@ -2081,17 +2090,11 @@ export function GanttTab({
         return addCalendarWindow(base, factor * stepDays, viewMode);
       });
 
-      const horizontalTarget = getGanttHorizontalScrollTarget();
-      if (horizontalTarget) horizontalTarget.scrollLeft = 0;
-      if (ganttHorizontalBarRef.current) {
-        ganttHorizontalBarRef.current.scrollLeft = 0;
-      }
-      window.requestAnimationFrame(syncGanttScrollbars);
+      resetGanttHorizontalScroll();
     },
     [
       displayDateRange?.minStart,
-      getGanttHorizontalScrollTarget,
-      syncGanttScrollbars,
+      resetGanttHorizontalScroll,
       viewMode,
     ]
   );
@@ -3257,7 +3260,10 @@ export function GanttTab({
                           ? "bg-zinc-900 text-white hover:bg-zinc-900"
                           : "text-zinc-700 hover:bg-zinc-50"
                       )}
-                      onClick={() => setViewMode(mode)}
+                      onClick={() => {
+                        setViewMode(mode);
+                        resetGanttHorizontalScroll();
+                      }}
                     >
                       {label}
                     </Button>

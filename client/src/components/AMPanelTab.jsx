@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -1117,6 +1118,15 @@ export default function AMPanelTab() {
   const [documentationOpen, setDocumentationOpen] = useState(false);
   const [documentationTicket, setDocumentationTicket] = useState(null);
 
+  // modal resolucao de alertas
+  const [resolutionOpen, setResolutionOpen] = useState(false);
+  const [resolutionTicket, setResolutionTicket] = useState(null);
+  const [resolutionProblem, setResolutionProblem] = useState(null);
+  const [resolutionComment, setResolutionComment] = useState("");
+  const [resolutionDueDate, setResolutionDueDate] = useState("");
+  const [resolutionSaving, setResolutionSaving] = useState(false);
+  const [resolutionErr, setResolutionErr] = useState("");
+
   // 1) modos de cor: ticket | recurso | atividade
   // 2) filtro por texto (ticket/tarefa/recurso)
   const [colorMode, setColorMode] = useState("ticket");
@@ -1469,6 +1479,87 @@ export default function AMPanelTab() {
   function closeDocumentationOrganizer() {
     setDocumentationOpen(false);
     setDocumentationTicket(null);
+  }
+
+  function closeResolutionDialog() {
+    setResolutionOpen(false);
+    setResolutionTicket(null);
+    setResolutionProblem(null);
+    setResolutionComment("");
+    setResolutionDueDate("");
+    setResolutionErr("");
+    setResolutionSaving(false);
+  }
+
+  function openResolutionProblem(item, problem) {
+    const ticket = item?.raw || problem?.raw || item;
+    const key = String(item?.key || problem?.key || ticket?.key || "")
+      .trim()
+      .toUpperCase();
+    if (!key || !problem?.type) return;
+
+    const normalizedTicket = { ...(ticket || {}), key };
+
+    if (problem.type === "noSchedule") {
+      openEditor(normalizedTicket);
+      return;
+    }
+    if (problem.type === "noOwner" || problem.type === "notStarted") {
+      openStartModal(normalizedTicket);
+      return;
+    }
+    if (problem.type === "documentation") {
+      openDocumentationOrganizer(normalizedTicket);
+      return;
+    }
+
+    setResolutionTicket(normalizedTicket);
+    setResolutionProblem(problem);
+    setResolutionComment("");
+    setResolutionDueDate("");
+    setResolutionErr("");
+    setResolutionOpen(true);
+  }
+
+  async function saveResolutionDialog() {
+    const key = String(resolutionTicket?.key || resolutionProblem?.key || "")
+      .trim()
+      .toUpperCase();
+    if (!key || !resolutionProblem?.type) return;
+
+    setResolutionSaving(true);
+    setResolutionErr("");
+
+    try {
+      if (resolutionProblem.type === "capacityConflict") {
+        setSubView("gantt");
+        setCalendarFilter(key);
+        closeResolutionDialog();
+        return;
+      }
+
+      if (resolutionProblem.type === "overdue" && resolutionDueDate) {
+        await jiraEditIssue(key, {
+          fields: {
+            duedate: resolutionDueDate,
+          },
+        });
+      }
+
+      const comment = String(resolutionComment || "").trim();
+      const fallbackComment = `[RESOLUCAO] ${resolutionProblem.label || "Alerta"} - ${
+        resolutionProblem.recommendedAction || "Acao registrada."
+      }`;
+      await createComment(key, adfFromPlainText(comment || fallbackComment));
+
+      await reload();
+      closeResolutionDialog();
+    } catch (e) {
+      console.error(e);
+      setResolutionErr(e?.message || "Falha ao registrar resolucao do alerta.");
+    } finally {
+      setResolutionSaving(false);
+    }
   }
 
   async function setDocumentationFolderFlag(issueKey, enabled) {
@@ -2208,6 +2299,7 @@ export default function AMPanelTab() {
                 onOpenDocumentation={(ticket) =>
                   openDocumentationOrganizer(ticket?.raw || ticket)
                 }
+                onResolveProblem={openResolutionProblem}
               />
 
               <TicketDashboardPage
@@ -2343,6 +2435,31 @@ export default function AMPanelTab() {
             />
           )}
 
+          {resolutionOpen && (
+            <ResolutionActionDialog
+              ticket={resolutionTicket}
+              problem={resolutionProblem}
+              comment={resolutionComment}
+              setComment={setResolutionComment}
+              dueDate={resolutionDueDate}
+              setDueDate={setResolutionDueDate}
+              saving={resolutionSaving}
+              err={resolutionErr}
+              onClose={closeResolutionDialog}
+              onSave={saveResolutionDialog}
+              onOpenDetails={() => {
+                const key = String(
+                  resolutionTicket?.key || resolutionProblem?.key || "",
+                )
+                  .trim()
+                  .toUpperCase();
+                if (!key) return;
+                setDetailsKey(key);
+                setDetailsOpen(true);
+              }}
+            />
+          )}
+
           {/* NOVO: Detalhes (Dialog shadcn) */}
           <TicketDetailsDialog
             open={detailsOpen}
@@ -2365,6 +2482,155 @@ export default function AMPanelTab() {
         </main>
       </div>
     </TooltipProvider>
+  );
+}
+
+function ResolutionActionDialog({
+  ticket,
+  problem,
+  comment,
+  setComment,
+  dueDate,
+  setDueDate,
+  saving,
+  err,
+  onClose,
+  onSave,
+  onOpenDetails,
+}) {
+  const issueKey = String(ticket?.key || problem?.key || "")
+    .trim()
+    .toUpperCase();
+  const isOverdue = problem?.type === "overdue";
+  const isCapacity = problem?.type === "capacityConflict";
+
+  const defaultComment =
+    problem?.type === "risk"
+      ? "Mitigacao proposta: "
+      : problem?.type === "noRecentUpdate"
+        ? "Atualizacao de status: "
+        : problem?.type === "dueSoon"
+          ? "Acompanhamento do vencimento: "
+          : problem?.type === "overdue"
+            ? "Plano de recuperacao: "
+            : "";
+
+  useEffect(() => {
+    if (!problem?.type) return;
+    setComment?.(defaultComment);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problem?.type, issueKey]);
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => !open && onClose?.()}>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl rounded-2xl sm:w-full">
+        <DialogHeader>
+          <DialogTitle className="flex items-start gap-2">
+            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+              {issueKey}
+            </code>
+            <span className="min-w-0 text-base text-zinc-900">
+              Resolver alerta: {problem?.label || "Alerta"}
+            </span>
+          </DialogTitle>
+          <DialogDescription className="line-clamp-2">
+            {ticket?.summary || problem?.summary || "Ticket selecionado"}
+          </DialogDescription>
+        </DialogHeader>
+
+        {err ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {err}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3">
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              Motivo
+            </div>
+            <div className="mt-1 text-sm text-zinc-800">
+              {problem?.reason || "Alerta operacional mapeado."}
+            </div>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              Acao recomendada
+            </div>
+            <div className="mt-1 text-sm font-medium text-zinc-900">
+              {problem?.recommendedAction || "Registrar acao e acompanhar o ticket."}
+            </div>
+          </div>
+
+          {isOverdue ? (
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold text-zinc-700">
+                Nova data limite
+              </label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(event) => setDueDate?.(event.target.value)}
+                className="rounded-xl border-zinc-200 bg-white"
+              />
+            </div>
+          ) : null}
+
+          {isCapacity ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              A correcao do conflito de recurso deve ser feita ajustando datas ou
+              recurso no Gantt/cronograma. O botao abaixo leva o ticket para a
+              visao de Gantt filtrada.
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <label className="text-xs font-semibold text-zinc-700">
+                Comentario / plano de acao
+              </label>
+              <Textarea
+                value={comment}
+                onChange={(event) => setComment?.(event.target.value)}
+                rows={5}
+                className="rounded-xl border-zinc-200 bg-white"
+                placeholder="Descreva a acao tomada, impedimento ou plano de recuperacao."
+              />
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl border-zinc-200 bg-white"
+            onClick={onOpenDetails}
+          >
+            Abrir detalhes
+          </Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl border-zinc-200 bg-white"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              onClick={onSave}
+              disabled={saving || !issueKey}
+            >
+              {saving
+                ? "Salvando..."
+                : isCapacity
+                  ? "Ir para Gantt"
+                  : "Registrar resolucao"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

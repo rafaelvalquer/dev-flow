@@ -292,6 +292,241 @@ function hasDocumentationFolderLabel(labels) {
   return (labels || []).some((label) => normalizeStr(label) === wanted);
 }
 
+function isSameLocalDay(a, b) {
+  if (!(a instanceof Date) || !(b instanceof Date)) return false;
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function hasRecentDate(date, today0, days = 1) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return false;
+  const floor = new Date(today0);
+  floor.setDate(floor.getDate() - days);
+  return date.getTime() >= floor.getTime();
+}
+
+function buildDueTodayActivities(items, today0) {
+  return items
+    .flatMap((item) =>
+      (item.activities || []).map((activity) => {
+        const window = parseActivityWindow(activity);
+        if (!window || !isSameLocalDay(window.end, today0)) return null;
+        return {
+          key: item.key,
+          raw: item.raw,
+          summary: item.summary,
+          owner: item.owner,
+          statusName: item.statusName,
+          activityName: activity?.name || "Atividade",
+          dueDate: window.end,
+          reason: `${activity?.name || "Atividade"} vence hoje`,
+          briefingReason: `${activity?.name || "Atividade"} vence hoje.`,
+          recommendedAction:
+            "Confirmar conclusão ou atualizar a data da atividade no cronograma.",
+        };
+      })
+    )
+    .filter(Boolean)
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function getPrimaryActionReason(item) {
+  if (!item) return "Acompanhar item";
+  if (!item.hasSchedule) return "Sem cronograma";
+  if (item.overdueDays > 0) return `Atrasado ${item.overdueDays}d`;
+  if (!item.hasOwner) return "Sem responsável";
+  if (item.hasCapacityConflict) return "Conflito de recurso";
+  if (!item.hasStarted) return "Sem início";
+  if (item.dueInDays === 0) return "Vence hoje";
+  if (item.dueSoon) return "Vence nos próximos 7 dias";
+  if (item.noRecentUpdate) return "Sem avanço recente";
+  if (item.hasRisk) return "Com risco";
+  if (item.canOrganizeDocumentation) return "Documentação pendente";
+  return item.actionReasons?.[0] || "Acompanhar item";
+}
+
+function getBriefingReason(item, kind = "action") {
+  if (!item) return "";
+
+  if (kind === "changed") {
+    if (item.resolvedDate) return "Ticket concluído recentemente.";
+    if (item.daysSinceUpdate === 0) return "Ticket atualizado hoje.";
+    if (item.daysSinceUpdate === 1) return "Ticket atualizado ontem.";
+    return "Ticket teve atualização recente.";
+  }
+
+  if (kind === "delayed") {
+    return item.overdueDays === 1
+      ? "Prazo venceu há 1 dia."
+      : `Prazo venceu há ${item.overdueDays || 0} dias.`;
+  }
+
+  if (kind === "dueToday") {
+    if (item.activityName) return `${item.activityName} vence hoje.`;
+    return "Data limite do ticket vence hoje.";
+  }
+
+  return getPrimaryActionReason(item);
+}
+
+function getRecommendedAction(item, kind = "action") {
+  if (!item) return "Revisar o ticket e definir o próximo passo.";
+
+  if (kind === "changed") {
+    if (item.resolvedDate) return "Registrar no status report e validar se há pendências pós-fechamento.";
+    return "Revisar a mudança e confirmar se o próximo marco continua válido.";
+  }
+
+  if (kind === "delayed") {
+    if (!item.hasOwner) return "Definir responsável e renegociar a data com o time envolvido.";
+    if (!item.hasSchedule) return "Criar cronograma com nova data acordada e responsáveis.";
+    return "Acionar responsável, registrar impedimento e renegociar o prazo.";
+  }
+
+  if (kind === "dueToday") {
+    return "Confirmar execução hoje ou atualizar o cronograma antes do fim do dia.";
+  }
+
+  if (!item.hasSchedule) return "Criar cronograma com atividades, datas e responsáveis.";
+  if (!item.hasOwner) return "Definir responsável pelo ticket antes de avançar.";
+  if (item.overdueDays > 0) return "Renegociar prazo e registrar plano de recuperação.";
+  if (item.hasCapacityConflict) return "Rebalancear recurso ou ajustar sobreposição de datas.";
+  if (!item.hasStarted) return "Validar início e mover o ticket para o fluxo correto.";
+  if (item.dueSoon) return "Confirmar se as atividades finais estão em andamento.";
+  if (item.noRecentUpdate) return "Cobrar atualização de status ou registrar impedimento.";
+  if (item.hasRisk) return "Revisar risco marcado e definir mitigação.";
+  if (item.canOrganizeDocumentation) return "Organizar documentação para liberar o próximo passo.";
+  return "Revisar o ticket e confirmar o próximo marco.";
+}
+
+const RESOLUTION_DEFINITIONS = {
+  noSchedule: {
+    label: "Sem cronograma",
+    reason: "O ticket ainda nao tem cronograma estruturado.",
+    recommendedAction: "Criar cronograma com atividades, datas e responsaveis.",
+  },
+  noOwner: {
+    label: "Sem responsavel",
+    reason: "O ticket nao tem responsavel definido.",
+    recommendedAction: "Definir responsavel pelo ticket antes de avancar.",
+  },
+  overdue: {
+    label: "Atrasado",
+    reason: "O prazo planejado ja venceu.",
+    recommendedAction: "Renegociar prazo e registrar plano de recuperacao.",
+  },
+  capacityConflict: {
+    label: "Conflito de recurso",
+    reason: "Ha sobreposicao de agenda para o mesmo recurso.",
+    recommendedAction: "Rebalancear recurso ou ajustar sobreposicao de datas.",
+  },
+  notStarted: {
+    label: "Sem inicio",
+    reason: "O ticket ainda nao foi marcado como iniciado.",
+    recommendedAction: "Validar inicio e mover o ticket para o fluxo correto.",
+  },
+  dueSoon: {
+    label: "Vence em breve",
+    reason: "O prazo esta proximo do vencimento.",
+    recommendedAction: "Confirmar se as atividades finais estao em andamento.",
+  },
+  noRecentUpdate: {
+    label: "Sem avanco",
+    reason: "O ticket esta sem atualizacao recente.",
+    recommendedAction: "Cobrar atualizacao de status ou registrar impedimento.",
+  },
+  risk: {
+    label: "Risco",
+    reason: "Existe risco marcado no cronograma.",
+    recommendedAction: "Revisar risco marcado e definir mitigacao.",
+  },
+  documentation: {
+    label: "Documentacao",
+    reason: "A documentacao ainda precisa ser organizada.",
+    recommendedAction: "Organizar documentacao para liberar o proximo passo.",
+  },
+};
+
+function makeResolutionProblem(type, item = {}, overrides = {}) {
+  const base = RESOLUTION_DEFINITIONS[type] || {};
+  return {
+    type,
+    label: overrides.label || base.label || type,
+    reason: overrides.reason || base.reason || "",
+    recommendedAction:
+      overrides.recommendedAction || base.recommendedAction || "",
+    key: item.key,
+    summary: item.summary,
+    owner: item.owner,
+    raw: item.raw,
+  };
+}
+
+function buildResolutionProblems(item) {
+  if (!item) return [];
+  const problems = [];
+
+  if (!item.hasSchedule) problems.push(makeResolutionProblem("noSchedule", item));
+  if (!item.hasOwner) problems.push(makeResolutionProblem("noOwner", item));
+  if (item.overdueDays > 0) {
+    problems.push(
+      makeResolutionProblem("overdue", item, {
+        label: `Atrasado ${item.overdueDays}d`,
+        reason:
+          item.overdueDays === 1
+            ? "Prazo venceu ha 1 dia."
+            : `Prazo venceu ha ${item.overdueDays} dias.`,
+      })
+    );
+  }
+  if (item.hasCapacityConflict) {
+    problems.push(makeResolutionProblem("capacityConflict", item));
+  }
+  if (!item.hasStarted) problems.push(makeResolutionProblem("notStarted", item));
+  if (item.dueSoon) {
+    problems.push(
+      makeResolutionProblem("dueSoon", item, {
+        label: item.dueInDays === 0 ? "Vence hoje" : `Vence em ${item.dueInDays}d`,
+      })
+    );
+  }
+  if (item.noRecentUpdate) {
+    problems.push(makeResolutionProblem("noRecentUpdate", item));
+  }
+  if (item.hasRisk) problems.push(makeResolutionProblem("risk", item));
+  if (item.canOrganizeDocumentation) {
+    problems.push(makeResolutionProblem("documentation", item));
+  }
+
+  return problems;
+}
+
+function decorateBriefingItem(item, kind) {
+  if (!item) return item;
+  const activityProblems = item.activityName
+    ? [
+        makeResolutionProblem("dueSoon", item, {
+          label: "Vence hoje",
+          reason: `${item.activityName} vence hoje.`,
+          recommendedAction:
+            "Confirmar conclusao ou atualizar a data da atividade no cronograma.",
+        }),
+      ]
+    : [];
+  return {
+    ...item,
+    briefingReason: item.briefingReason || getBriefingReason(item, kind),
+    recommendedAction: item.recommendedAction || getRecommendedAction(item, kind),
+    resolutionProblems:
+      item.resolutionProblems ||
+      (Array.isArray(item.actionReasons) ? buildResolutionProblems(item) : activityProblems),
+  };
+}
+
 export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = "" }) {
   const today0 = startOfTodayLocal();
   const calendarioIssues = Array.isArray(viewData?.calendarioIssues)
@@ -454,6 +689,24 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
         : "60+d";
     increment(agingCounter, agingLabel);
 
+    const baseItemForProblems = {
+      key,
+      raw: issue,
+      summary: issue?.summary || fields?.summary || "â€”",
+      owner,
+      hasSchedule,
+      hasOwner,
+      hasStarted,
+      hasRisk,
+      hasCapacityConflict: capacityConflict,
+      overdueDays,
+      dueInDays,
+      dueSoon,
+      noRecentUpdate,
+      canOrganizeDocumentation,
+    };
+    const resolutionProblems = buildResolutionProblems(baseItemForProblems);
+
     return {
       key,
       raw: issue,
@@ -482,6 +735,8 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
       noRecentUpdate,
       daysSinceUpdate,
       daysSinceCreated,
+      createdDate: Number.isNaN(createdDate.getTime()) ? null : createdDate,
+      updatedDate: Number.isNaN(updatedDate.getTime()) ? null : updatedDate,
       dueDate,
       nextMilestone,
       directorates,
@@ -490,6 +745,7 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
       activities,
       activitiesAtRisk,
       actionReasons,
+      resolutionProblems,
       queueScore,
       commentPreview: getCommentPreview(issue?.commentsText || issue?.lastCommentText),
       recentDone: doneRecently,
@@ -532,6 +788,64 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
       const bv = b.resolvedDate?.getTime() || 0;
       return bv - av;
     });
+
+  const filteredResourceRows = ownerFocus
+    ? resourceRows.filter((row) =>
+        filteredItems.some((item) => item.resources.includes(row.resource))
+      )
+    : resourceRows;
+
+  const dueTodayActivities = buildDueTodayActivities(filteredItems, today0);
+  const dueTodayIssues = filteredItems.filter((item) => item.dueInDays === 0);
+  const overdueItems = filteredItems
+    .filter((item) => item.overdueDays > 0)
+    .sort((a, b) => b.overdueDays - a.overdueDays || b.queueScore - a.queueScore);
+  const noScheduleItems = filteredItems
+    .filter((item) => !item.hasSchedule)
+    .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
+  const noOwnerItems = filteredItems
+    .filter((item) => !item.hasOwner)
+    .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
+  const dueNext7Items = filteredItems
+    .filter((item) => item.dueInDays != null && item.dueInDays >= 0 && item.dueInDays <= 7)
+    .sort((a, b) => a.dueInDays - b.dueInDays || b.queueScore - a.queueScore);
+  const resourceConflictItems = filteredItems
+    .filter((item) => item.hasCapacityConflict)
+    .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
+
+  const criticalAlerts = {
+    overdue: overdueItems,
+    noSchedule: noScheduleItems,
+    resourceConflicts: resourceConflictItems,
+    dueToday: [...dueTodayIssues, ...dueTodayActivities],
+    dueNext7: dueNext7Items,
+    noOwner: noOwnerItems,
+  };
+
+  const changedItems = [
+    ...filteredItems
+      .filter((item) => hasRecentDate(item.updatedDate, today0, 1))
+      .sort((a, b) => (b.updatedDate?.getTime() || 0) - (a.updatedDate?.getTime() || 0)),
+    ...doneRecent
+      .filter((item) => hasRecentDate(item.resolvedDate, today0, 1))
+      .map((item) => ({
+        ...item,
+        owner: "ConcluÃ­do",
+        statusName: item.statusName || "ConcluÃ­do",
+        reason: "ConcluÃ­do recentemente",
+      })),
+  ];
+
+  const dailyBriefing = {
+    changed: changedItems.slice(0, 12).map((item) => decorateBriefingItem(item, "changed")),
+    delayed: overdueItems.slice(0, 12).map((item) => decorateBriefingItem(item, "delayed")),
+    dueToday: criticalAlerts.dueToday
+      .slice(0, 12)
+      .map((item) => decorateBriefingItem(item, "dueToday")),
+    recommendedActions: actionQueue
+      .slice(0, 12)
+      .map((item) => decorateBriefingItem(item, "action")),
+  };
 
   const createdLast30 = filteredItems.filter((item) => (item.daysSinceCreated || 0) <= 30)
     .length;
@@ -578,11 +892,9 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     risks,
     roadmap,
     doneRecent,
-    resourceRows: ownerFocus
-      ? resourceRows.filter((row) =>
-          filteredItems.some((item) => item.resources.includes(row.resource))
-        )
-      : resourceRows,
+    resourceRows: filteredResourceRows,
+    criticalAlerts,
+    dailyBriefing,
     portfolio,
     presetCounts,
   };
