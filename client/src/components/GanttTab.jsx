@@ -178,6 +178,8 @@ function calcOverdueDays({ dueDate, statusName }) {
    Tooltip do Gantt (remove "From/To")
 ========================= */
 function GanttTooltipContent({ task, fontSize, fontFamily }) {
+  if (isGanttWindowBoundaryTask(task)) return null;
+
   const isProject = task?.type === "project";
   const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey || "—";
 
@@ -322,6 +324,50 @@ function getGanttWindowSpanDays(viewMode) {
   if (viewMode === ViewMode.Week) return 84;
   if (viewMode === ViewMode.Month) return 365;
   return 1095;
+}
+
+function getGanttColumnWidth(viewMode) {
+  if (viewMode === ViewMode.Day) return 48;
+  if (viewMode === ViewMode.Week) return 70;
+  return 90;
+}
+
+function getGanttTimelineColumns(viewMode) {
+  const spanDays = getGanttWindowSpanDays(viewMode);
+  if (viewMode === ViewMode.Day) return spanDays;
+  if (viewMode === ViewMode.Week) return Math.ceil(spanDays / 7);
+  if (viewMode === ViewMode.Month) return Math.ceil(spanDays / 30);
+  return Math.ceil(spanDays / 365);
+}
+
+function parsePxValue(value) {
+  const parsed = parseFloat(String(value || "").replace("px", ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isGanttWindowBoundaryTask(task) {
+  return Boolean(task?.isWindowBoundary);
+}
+
+function makeGanttWindowBoundaryTask(id, date) {
+  const safeBoundaryDate = safeDate(date) || new Date();
+  return {
+    id,
+    name: "",
+    type: "task",
+    start: cloneDate(safeBoundaryDate),
+    end: cloneDate(safeBoundaryDate),
+    progress: 0,
+    isDisabled: true,
+    isWindowBoundary: true,
+    displayOrder: Number.MAX_SAFE_INTEGER,
+    styles: {
+      backgroundColor: "transparent",
+      backgroundSelectedColor: "transparent",
+      progressColor: "transparent",
+      progressSelectedColor: "transparent",
+    },
+  };
 }
 
 function getTaskIssueKey(task) {
@@ -875,7 +921,9 @@ function TaskListTableFactory({
     }, [setSelectedTask]);
 
     const taskRows = tasks.filter(
-      (t) => t.type === "task" || t.type === "project"
+      (t) =>
+        !isGanttWindowBoundaryTask(t) &&
+        (t.type === "task" || t.type === "project")
     );
     const taskByRowId = useMemo(
       () => new Map(taskRows.map((t) => [String(t.id || ""), t])),
@@ -2144,35 +2192,30 @@ export function GanttTab({
       .filter(Boolean);
   }, [displayTasks, ganttWindow, lockedSet]);
 
+  const ganttRenderTasks = useMemo(() => {
+    const windowStart = ganttWindow?.start;
+    const windowEnd = ganttWindow?.end;
+    if (!windowStart || !windowEnd || !(ganttTasks || []).length) {
+      return ganttTasks || [];
+    }
+
+    return [
+      ...ganttTasks,
+      makeGanttWindowBoundaryTask("__gantt_window_start__", windowStart),
+      makeGanttWindowBoundaryTask("__gantt_window_end__", windowEnd),
+    ];
+  }, [ganttTasks, ganttWindow]);
+
+  const ganttColumnWidth = useMemo(() => getGanttColumnWidth(viewMode), [viewMode]);
+  const ganttVisibleTimelineWidth = useMemo(
+    () => getGanttTimelineColumns(viewMode) * ganttColumnWidth,
+    [ganttColumnWidth, viewMode]
+  );
+  const ganttLeadingOffset = ganttColumnWidth;
+
   const ganttContentWidth = useMemo(() => {
-    const datedTasks = (ganttTasks || []).filter(
-      (task) =>
-        task?.start instanceof Date &&
-        !Number.isNaN(task.start.getTime()) &&
-        task?.end instanceof Date &&
-        !Number.isNaN(task.end.getTime())
-    );
-
-    if (!datedTasks.length) return Math.max(1180, listCellWidth + 520);
-
-    const minStart = Math.min(...datedTasks.map((task) => task.start.getTime()));
-    const maxEnd = Math.max(...datedTasks.map((task) => task.end.getTime()));
-    const dayMs = 24 * 60 * 60 * 1000;
-    const spanDays = Math.max(1, Math.ceil((maxEnd - minStart) / dayMs) + 2);
-
-    const columnWidth =
-      viewMode === ViewMode.Day ? 48 : viewMode === ViewMode.Week ? 70 : 90;
-    const timelineColumns =
-      viewMode === ViewMode.Day
-        ? spanDays
-        : viewMode === ViewMode.Week
-        ? Math.ceil(spanDays / 7)
-        : viewMode === ViewMode.Month
-        ? Math.ceil(spanDays / 30)
-        : Math.ceil(spanDays / 365);
-
-    return Math.max(1180, listCellWidth + timelineColumns * columnWidth + 220);
-  }, [ganttTasks, listCellWidth, viewMode]);
+    return parsePxValue(listCellWidth) + ganttVisibleTimelineWidth;
+  }, [ganttVisibleTimelineWidth, listCellWidth]);
 
   const updateGanttScrollState = useCallback(() => {
     const root = ganttWrapRef.current;
@@ -2266,6 +2309,7 @@ export function GanttTab({
     (taskId) => {
       const id = String(taskId || "");
       if (!id) return;
+      if (id.startsWith("__gantt_window_")) return;
 
       setInspectorTaskId(id);
       setInspectorOpen(true);
@@ -2416,6 +2460,7 @@ export function GanttTab({
   const handleDateChange = useCallback(
     async (task) => {
       if (persistingDates || persistingMeta) return false;
+      if (isGanttWindowBoundaryTask(task)) return false;
       if (!task || task.type === "project" || task.isDisabled) return false;
       if (task.isCalendarClipped) return false;
 
@@ -2870,6 +2915,7 @@ export function GanttTab({
   const handleClick = useCallback(
     (task) => {
       if (persistingDates || persistingMeta) return;
+      if (isGanttWindowBoundaryTask(task)) return;
 
       openInspectorByTaskId(task?.id);
     },
@@ -2879,6 +2925,7 @@ export function GanttTab({
   const handleDoubleClick = useCallback(
     (task) => {
       if (persistingDates || persistingMeta) return;
+      if (isGanttWindowBoundaryTask(task)) return;
       const issueKey = getIssueKeyFromTaskId(task?.id) || task?.issueKey;
       if (!issueKey) return;
       openJira(issueKey);
@@ -3327,9 +3374,16 @@ export function GanttTab({
                   onClickCapture={handleGanttPanClickCapture}
                 >
                   {ganttTasks.length > 0 ? (
-                    <div style={{ width: `${ganttContentWidth}px` }}>
+                    <div
+                      className="gantt-range-clip"
+                      style={{
+                        width: `${ganttContentWidth}px`,
+                        "--gantt-visible-timeline-width": `${ganttVisibleTimelineWidth}px`,
+                        "--gantt-leading-offset": `${ganttLeadingOffset}px`,
+                      }}
+                    >
                       <Gantt
-                        tasks={ganttTasks}
+                        tasks={ganttRenderTasks}
                         viewMode={viewMode}
                         viewDate={ganttWindow.start}
                         preStepsCount={1}
@@ -3342,13 +3396,7 @@ export function GanttTab({
                         TaskListHeader={TaskListHeader}
                         TaskListTable={TaskListTable}
                         listCellWidth={listCellWidth}
-                        columnWidth={
-                          viewMode === ViewMode.Day
-                            ? 48
-                            : viewMode === ViewMode.Week
-                            ? 70
-                            : 90
-                        }
+                        columnWidth={ganttColumnWidth}
                         rowHeight={42}
                         barCornerRadius={8}
                       />

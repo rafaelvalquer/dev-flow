@@ -294,6 +294,21 @@ button.pdf {
   height: 0;
 }
 
+.gantt-range-clip ._CZjuD {
+  width: var(--gantt-visible-timeline-width) !important;
+  max-width: var(--gantt-visible-timeline-width);
+  overflow: hidden;
+}
+
+.gantt-range-clip ._CZjuD > svg,
+.gantt-range-clip ._CZjuD > ._2B2zv {
+  transform: translateX(calc(-1 * var(--gantt-leading-offset, 0px)));
+}
+
+.gantt-range-clip ._2k9Ys {
+  display: none;
+}
+
 .gantt-horizontal-scrollbar,
 .gantt-vertical-scrollbar {
   background: #fff;
