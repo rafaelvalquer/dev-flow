@@ -24,8 +24,10 @@ import {
 
 import AutomationTool from "@/components/tools/AutomationTool";
 import NiceIntegrationTool from "@/components/tools/NiceIntegrationTool";
+import AudioValidatorTool from "@/components/tools/AudioValidatorTool";
+import TrcAnalyzerTool from "@/components/tools/TrcAnalyzerTool";
 
-import { Mic, Sparkles, Workflow, Link2 } from "lucide-react";
+import { FileAudio, FileSearch, Link2, Mic, Sparkles, Workflow } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
@@ -43,6 +45,20 @@ const TOOL_DEFS = [
     title: "TTS (Texto → Áudio)",
     desc: "Gere preview em MP3 e baixe em WAV μ-law 8k mono, no padrão de URA NICE.",
     icon: Sparkles,
+    status: "ativo",
+  },
+  {
+    id: "audio-validator",
+    title: "Validador de Áudios URA",
+    desc: "Valide e converta áudios em massa para WAV μ-law 8k mono.",
+    icon: FileAudio,
+    status: "ativo",
+  },
+  {
+    id: "trc-analyzer",
+    title: "NICE Trace Analyzer",
+    desc: "Analise arquivos .TRC, timeline, APIs, falhas e fluxo da chamada.",
+    icon: FileSearch,
     status: "ativo",
   },
   {
@@ -173,6 +189,14 @@ export default function ToolsTab() {
 
     if (activeTool === "tts") {
       return <TextToSpeechTool serviceOnline={sttOnline === true} />;
+    }
+
+    if (activeTool === "audio-validator") {
+      return <AudioValidatorTool serviceOnline={sttOnline === true} />;
+    }
+
+    if (activeTool === "trc-analyzer") {
+      return <TrcAnalyzerTool />;
     }
 
     if (activeTool === "automacao") {

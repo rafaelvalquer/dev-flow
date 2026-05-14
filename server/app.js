@@ -15,6 +15,7 @@ import dbRoutes from "./routes/db.routes.js";
 import ticketsRouter from "./routes/tickets.js";
 import automationRouter from "./routes/automation.js";
 import niceRoutes from "./routes/nice.routes.js";
+import trcRoutes from "./routes/trc.routes.js";
 import healthRoutes from "./routes/health.routes.js";
 
 import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
@@ -47,6 +48,7 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   app.use(express.json({ limit: "2mb" }));
 
   const upload = createUpload();
+  const traceUpload = createUpload({ fileSizeMb: 50 });
 
   app.set("trust proxy", 1); // ok em dev também
 
@@ -59,6 +61,8 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   app.use("/api/jira", jiraRoutes({ upload, env }));
   app.use("/api/db", dbRoutes);
   app.use("/api/tickets", ticketsRouter);
+  app.use("/api/trc", trcRoutes({ upload, traceUpload }));
+  app.use("/api/nice/trace", trcRoutes({ upload, traceUpload }));
   app.use("/api/nice", niceRoutes({ env }));
 
   // NOVO: automação

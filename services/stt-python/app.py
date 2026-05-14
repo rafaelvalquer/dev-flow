@@ -112,9 +112,109 @@ def audio_attributes(path: str) -> dict:
     }
 
 
+def run_ffmpeg_filter(path: str, filter_name: str) -> str:
+    cmd = [FFMPEG, "-hide_banner", "-nostats", "-i", path, "-af", filter_name, "-f", "null", "-"]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    return (p.stderr or "") + "\n" + (p.stdout or "")
+
+
+def parse_volume_metrics(path: str) -> dict:
+    output = run_ffmpeg_filter(path, "volumedetect")
+    mean_volume = None
+    max_volume = None
+    for line in output.splitlines():
+        if "mean_volume:" in line:
+            try:
+                mean_volume = float(line.split("mean_volume:", 1)[1].split("dB", 1)[0].strip())
+            except Exception:
+                pass
+        if "max_volume:" in line:
+            try:
+                max_volume = float(line.split("max_volume:", 1)[1].split("dB", 1)[0].strip())
+            except Exception:
+                pass
+    return {"mean_db": mean_volume, "peak_db": max_volume}
+
+
+def parse_silence_metrics(path: str) -> dict:
+    output = run_ffmpeg_filter(path, "silencedetect=noise=-40dB:d=0.2")
+    duration = audio_attributes(path)["duration_sec"]
+    starts = []
+    ends = []
+    for line in output.splitlines():
+        if "silence_start:" in line:
+            try:
+                starts.append(float(line.split("silence_start:", 1)[1].strip()))
+            except Exception:
+                pass
+        if "silence_end:" in line:
+            try:
+                ends.append(float(line.split("silence_end:", 1)[1].split("|", 1)[0].strip()))
+            except Exception:
+                pass
+
+    initial = 0.0
+    final = 0.0
+    if starts and starts[0] <= 0.05 and ends:
+      initial = max(0.0, ends[0] - starts[0])
+    if starts and duration:
+      last_start = starts[-1]
+      last_end = ends[-1] if len(ends) >= len(starts) else duration
+      if last_end >= duration - 0.1:
+        final = max(0.0, duration - last_start)
+    return {"initial_sec": initial, "final_sec": final}
+
+
+def analyze_audio_file(path: str, original_name: str) -> dict:
+    metadata = audio_attributes(path)
+    volume = parse_volume_metrics(path)
+    silence = parse_silence_metrics(path)
+    format_name = (metadata.get("format_name") or "").lower()
+    codec = (metadata.get("codec") or "").lower()
+    issues = []
+
+    if "wav" not in format_name:
+        issues.append({"code": "not_wav", "label": "Arquivo não está em WAV."})
+    if codec != "u-law":
+        issues.append({"code": "codec", "label": "Codec diferente de μ-law."})
+    if metadata.get("sample_rate_hz") != TARGET_SR:
+        issues.append({"code": "sample_rate", "label": "Sample rate diferente de 8000 Hz."})
+    if metadata.get("channels") != TARGET_CH:
+        issues.append({"code": "channels", "label": "Áudio não está em mono."})
+    kbps = metadata.get("bit_rate_kbps") or 0
+    if kbps and not (56 <= kbps <= 72):
+        issues.append({"code": "bitrate", "label": "Bitrate fora do esperado (~64 kbps)."})
+    if (silence.get("initial_sec") or 0) >= 0.5:
+        issues.append({"code": "initial_silence", "label": "Silêncio inicial acima de 0.5s."})
+    if (silence.get("final_sec") or 0) >= 0.5:
+        issues.append({"code": "final_silence", "label": "Silêncio final acima de 0.5s."})
+    if volume.get("mean_db") is not None and volume["mean_db"] < -30:
+        issues.append({"code": "low_volume", "label": "Volume médio baixo."})
+    if volume.get("peak_db") is not None and volume["peak_db"] > -1:
+        issues.append({"code": "peak_volume", "label": "Pico de volume muito alto."})
+    if volume.get("mean_db") is not None and volume["mean_db"] > -12:
+        issues.append({"code": "high_volume", "label": "Volume médio alto."})
+
+    return {
+        "file": {"name": original_name, "size_bytes": os.path.getsize(path)},
+        "metadata": metadata,
+        "volume": volume,
+        "silence": silence,
+        "matches_target": metadata["matches_target"] and not issues,
+        "issues": issues,
+        "recommendations": ["Converter para WAV μ-law 8k mono."] if issues else [],
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/analyze")
+def analyze_audio(file: UploadFile = File(...)):
+    path = save_upload(file)
+    return analyze_audio_file(path, file.filename)
 
 
 @app.post("/transcribe")

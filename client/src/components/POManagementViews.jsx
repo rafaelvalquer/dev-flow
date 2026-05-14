@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
+  ChevronDown,
   CircleHelp,
   Clock3,
   FolderKanban,
@@ -48,6 +49,55 @@ function fmtDate(date) {
     day: "2-digit",
     month: "2-digit",
   }).format(date);
+}
+
+function truncateText(value, max = 88) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+}
+
+function AccordionCard({
+  title,
+  description,
+  icon: Icon,
+  count,
+  children,
+  className,
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <Card className={cn("rounded-2xl border-zinc-200 bg-white shadow-sm", className)}>
+      <CardHeader className="pb-3">
+        <button
+          type="button"
+          className="flex w-full items-start justify-between gap-3 text-left"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+        >
+          <div className="min-w-0">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-base text-zinc-900">
+              {Icon ? <Icon className="h-4 w-4 shrink-0 text-zinc-500" /> : null}
+              <span className="truncate">{title}</span>
+              {count != null ? (
+                <Badge className="shrink-0 rounded-full bg-zinc-900 text-white">
+                  {count}
+                </Badge>
+              ) : null}
+            </CardTitle>
+            {description ? <CardDescription className="mt-2">{description}</CardDescription> : null}
+          </div>
+          <ChevronDown
+            className={cn(
+              "mt-1 h-4 w-4 shrink-0 text-zinc-500 transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+      </CardHeader>
+      {open ? children : null}
+    </Card>
+  );
 }
 
 function MiniMetric({ title, value, subtitle, tone = "neutral" }) {
@@ -347,9 +397,9 @@ function OperationalItemButton({
         </div>
       </div>
       {badge ? (
-        <Badge className="max-w-[92px] shrink-0 truncate rounded-full border border-zinc-200 bg-white text-zinc-700">
-          {badge}
-        </Badge>
+        <div className="flex max-w-[136px] shrink-0 items-center rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-center text-[11px] font-bold uppercase leading-tight tracking-[0.12em] text-red-700 shadow-sm">
+          <span className="line-clamp-2 break-words">{badge}</span>
+        </div>
       ) : null}
     </div>
   );
@@ -768,23 +818,12 @@ export function POActionsHub({
         onResolveProblem={onResolveProblem}
       />
 
-      <CriticalAlertsPanel
-        insights={insights}
-        onOpenDetails={onOpenDetails}
-        onOpenSchedule={onOpenSchedule}
-        onResolveProblem={onResolveProblem}
-      />
-
-      <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base text-zinc-900">
-            Fila de ação do P.O
-          </CardTitle>
-          <CardDescription>
-            Ordenação automática por prioridade operacional para responder
-            rápido ao que precisa de ação agora.
-          </CardDescription>
-        </CardHeader>
+      <AccordionCard
+        title="Fila de ação do P.O"
+        description="Ordenação automática por prioridade operacional para responder rápido ao que precisa de ação agora."
+        icon={FolderKanban}
+        count={insights?.actionQueue?.length || 0}
+      >
         <CardContent className="grid gap-3 lg:grid-cols-2">
           {(insights?.actionQueue || []).slice(0, 8).map((item) => (
             <ActionQueueCard
@@ -802,10 +841,14 @@ export function POActionsHub({
             </div>
           ) : null}
         </CardContent>
-      </Card>
+      </AccordionCard>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+        <AccordionCard
+          title="Recortes do rito semanal"
+          description="Indicadores rápidos para conduzir o rito semanal do P.O."
+          icon={CalendarClock}
+        >
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-zinc-900">
               Recortes do rito semanal
@@ -829,9 +872,14 @@ export function POActionsHub({
               </div>
             ))}
           </CardContent>
-        </Card>
+        </AccordionCard>
 
-        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+        <AccordionCard
+          title="Concluídos recentes"
+          description="Fechamentos mais recentes para o fechamento semanal e status report."
+          icon={Clock3}
+          count={insights?.doneRecent?.length || 0}
+        >
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-zinc-900">
               Concluídos recentes
@@ -869,7 +917,7 @@ export function POActionsHub({
               </div>
             ) : null}
           </CardContent>
-        </Card>
+        </AccordionCard>
       </div>
     </div>
   );

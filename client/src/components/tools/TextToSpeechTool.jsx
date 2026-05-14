@@ -1,5 +1,6 @@
 // src/components/tools/TextToSpeechTool.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import JSZip from "jszip";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,38 @@ function baseName(fileName = "tts") {
 function buildFilename(prefix, ext) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `${baseName(prefix || "tts")}_${stamp}.${ext}`;
+}
+
+function safeFileStem(value = "") {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80) || "audio";
+}
+
+function parseBatchLines(value = "") {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const named = line.includes("|");
+      const [rawName, ...rest] = named ? line.split("|") : [];
+      const text = named ? rest.join("|").trim() : line;
+      const stem = named ? safeFileStem(rawName) : `audio_${String(index + 1).padStart(3, "0")}`;
+      return {
+        id: `${index}-${stem}`,
+        fileName: `${stem}.wav`,
+        text,
+        status: "idle",
+        validation: null,
+        error: null,
+        blob: null,
+      };
+    })
+    .filter((item) => item.text);
 }
 
 function parseFilenameFromContentDisposition(cd) {
@@ -68,6 +101,7 @@ async function fetchBlob(url, body) {
 
 export default function TextToSpeechTool() {
   const audioRef = useRef(null);
+  const [mode, setMode] = useState("single");
 
   const [text, setText] = useState("");
   const [voice, setVoice] = useState(""); // opcional
@@ -83,6 +117,9 @@ export default function TextToSpeechTool() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("idle"); // idle|ready|error
   const [error, setError] = useState(null);
+  const [batchText, setBatchText] = useState("");
+  const [batchItems, setBatchItems] = useState([]);
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const canGenerate = useMemo(
     () => String(text || "").trim().length > 0,
@@ -218,8 +255,177 @@ export default function TextToSpeechTool() {
     navigator.clipboard?.writeText(t).catch(() => {});
   }
 
+  async function validateBlob(blob, fileName) {
+    const form = new FormData();
+    form.append("file", blob, fileName);
+    const response = await fetch("/api/stt/analyze", { method: "POST", body: form });
+    if (!response.ok) return null;
+    return response.json().catch(() => null);
+  }
+
+  async function generateBatch() {
+    const parsed = parseBatchLines(batchText);
+    if (!parsed.length || batchBusy) return;
+    setBatchBusy(true);
+    setBatchItems(parsed.map((item) => ({ ...item, status: "queued" })));
+    const produced = [];
+
+    for (const item of parsed) {
+      setBatchItems((items) =>
+        items.map((current) =>
+          current.id === item.id ? { ...current, status: "processing", error: null } : current,
+        ),
+      );
+      try {
+        const payload = {
+          text: item.text,
+          ...(voice ? { voice } : {}),
+          ...(rate ? { rate: Number(rate) } : {}),
+          ...(volume ? { volume: Number(volume) } : {}),
+        };
+        const { blob } = await fetchBlob("/api/stt/tts_ulaw", payload);
+        const validation = await validateBlob(blob, item.fileName);
+        const done = {
+          ...item,
+          status: validation?.matches_target === false ? "warning" : "done",
+          validation,
+          blob,
+        };
+        produced.push(done);
+        setBatchItems((items) =>
+          items.map((current) => (current.id === item.id ? done : current)),
+        );
+      } catch (err) {
+        setBatchItems((items) =>
+          items.map((current) =>
+            current.id === item.id
+              ? { ...current, status: "error", error: String(err?.message || err) }
+              : current,
+          ),
+        );
+      }
+    }
+    setBatchBusy(false);
+  }
+
+  async function downloadBatchZip() {
+    const ready = batchItems.filter((item) => item.blob);
+    if (!ready.length) return;
+    const zip = new JSZip();
+    const report = ["arquivo;status;texto;problemas"];
+    ready.forEach((item) => {
+      zip.file(item.fileName, item.blob);
+      report.push(
+        [
+          item.fileName,
+          item.validation?.matches_target ? "OK NICE" : item.status,
+          `"${item.text.replace(/"/g, '""')}"`,
+          `"${(item.validation?.issues || []).map((issue) => issue.label || issue.code).join(" | ").replace(/"/g, '""')}"`,
+        ].join(";"),
+      );
+    });
+    zip.file("relatorio.csv", report.join("\n"));
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pacote_tts_nice_${new Date().toISOString().slice(0, 10)}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   return (
     <div className="grid gap-4">
+      <div className="inline-flex w-fit rounded-2xl bg-zinc-100 p-1">
+        {[
+          ["single", "Áudio único"],
+          ["batch", "Pacote de áudios"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              "rounded-xl px-3 py-2 text-sm font-semibold transition",
+              mode === id ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600",
+            )}
+            onClick={() => setMode(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "batch" ? (
+        <div className="grid gap-4">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="text-sm font-semibold text-zinc-900">
+              Gerador de pacote de áudios
+            </div>
+            <div className="mt-1 text-xs text-zinc-600">
+              Uma frase por linha ou `nome_do_arquivo | texto da frase`.
+            </div>
+            <textarea
+              value={batchText}
+              onChange={(event) => setBatchText(event.target.value)}
+              placeholder={"audio_boas_vindas | Olá, seja bem-vindo.\naudio_menu_1 | Para segunda via, digite 1."}
+              className="mt-3 min-h-[180px] w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                disabled={!parseBatchLines(batchText).length || batchBusy}
+                onClick={generateBatch}
+              >
+                {batchBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Gerar pacote
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                disabled={!batchItems.some((item) => item.blob)}
+                onClick={downloadBatchZip}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Baixar ZIP
+              </Button>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="grid gap-2">
+              {batchItems.map((item) => (
+                <div key={item.id} className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{item.fileName}</div>
+                      <div className="line-clamp-2 text-xs text-zinc-600">{item.text}</div>
+                    </div>
+                    <Badge className={cn(
+                      "border",
+                      item.status === "done" && "border-green-200 bg-green-50 text-green-700",
+                      item.status === "warning" && "border-amber-200 bg-amber-50 text-amber-800",
+                      item.status === "error" && "border-red-200 bg-red-50 text-red-700",
+                      !["done", "warning", "error"].includes(item.status) && "border-zinc-200 bg-zinc-50 text-zinc-700",
+                    )}>
+                      {item.status === "done" ? "OK NICE" : item.status === "warning" ? "Corrigir" : item.status === "error" ? "Erro" : "Processando"}
+                    </Badge>
+                  </div>
+                  {item.error ? <div className="mt-1 text-xs text-red-700">{item.error}</div> : null}
+                </div>
+              ))}
+              {!batchItems.length ? (
+                <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+                  Nenhum áudio gerado ainda.
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : (
+      <>
       {/* Input */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
         <div className="flex items-start justify-between gap-3">
@@ -444,6 +650,8 @@ export default function TextToSpeechTool() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

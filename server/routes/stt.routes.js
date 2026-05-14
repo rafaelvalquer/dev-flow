@@ -95,6 +95,39 @@ export default function sttRoutes({ upload, env }) {
     }
   });
 
+  router.post("/analyze", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res
+          .status(400)
+          .json({ error: "Nenhum arquivo enviado (campo 'file')" });
+      }
+
+      const form = new FormData();
+      const blob = new Blob([req.file.buffer], {
+        type: req.file.mimetype || "application/octet-stream",
+      });
+      form.append("file", blob, req.file.originalname);
+
+      const r = await fetchWithTimeout(`${STT_PY_BASE}/analyze`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: form,
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+
+      return sendUpstream(res, r, "application/json", {
+        service: "stt",
+        message: "Falha ao analisar áudio no serviço STT.",
+      });
+    } catch (err) {
+      console.error("STT analyze proxy error:", err);
+      return res
+        .status(500)
+        .json({ error: "Proxy error on STT analyze", details: String(err) });
+    }
+  });
+
   router.post("/tts", async (req, res) => {
     try {
       const { text, voice, rate, volume } = req.body || {};

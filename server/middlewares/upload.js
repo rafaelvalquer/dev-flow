@@ -1,9 +1,9 @@
 // server/middlewares/upload.js
 import multer from "multer";
 
-export function createUpload() {
+export function createUpload({ fileSizeMb = 20 } = {}) {
   return multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    limits: { fileSize: fileSizeMb * 1024 * 1024 },
   });
 }
