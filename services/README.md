@@ -14,9 +14,8 @@ Health:
 
 ## `cc-puppeteer`
 
-- Sessões automatizadas para NICE
-- Árvore do studio
-- Login, estado, screenshot e encerramento de sessão
+- Sessões automatizadas auxiliares
+- Login, estado, screenshot e encerramento de sessão para alvos suportados
 
 Health:
 

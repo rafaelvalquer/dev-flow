@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 
-import { niceRouter } from "./targets/nice/routes.js";
 import { portalIccRouter } from "./targets/portalicc/routes.js";
 import { countSessions, cleanupExpiredSessions } from "./sessions.js";
 import { closeBrowser } from "./puppeteer/browser.js";
@@ -30,14 +29,8 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// novos alvos
 app.use("/portalicc", portalIccRouter);
-app.use("/nice", niceRouter);
 
-// compatibilidade com o front antigo (mantém /sessions para NICE)
-app.use("/", niceRouter);
-
-// cleanup TTL
 const cleanupIntervalMs = Number(process.env.SESSION_CLEANUP_INTERVAL_MS || 60_000);
 setInterval(() => {
   cleanupExpiredSessions().catch(() => {});

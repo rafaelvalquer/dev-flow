@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 
 import { Badge } from "@/components/ui/badge";
@@ -9,25 +9,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  TooltipProvider,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  EmptyState,
-  ModuleHeader,
-  SectionCard,
-} from "@/components/layout/ModulePrimitives";
+import { EmptyState, ModuleHeader } from "@/components/layout/ModulePrimitives";
 
 import AutomationTool from "@/components/tools/AutomationTool";
-import NiceIntegrationTool from "@/components/tools/NiceIntegrationTool";
 import AudioValidatorTool from "@/components/tools/AudioValidatorTool";
-import TrcAnalyzerTool from "@/components/tools/TrcAnalyzerTool";
 
-import { FileAudio, FileSearch, Link2, Mic, Sparkles, Workflow } from "lucide-react";
+import { ChevronDown, FileAudio, Mic, Sparkles, Workflow } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
@@ -55,27 +43,159 @@ const TOOL_DEFS = [
     status: "ativo",
   },
   {
-    id: "trc-analyzer",
-    title: "NICE Trace Analyzer",
-    desc: "Analise arquivos .TRC, timeline, APIs, falhas e fluxo da chamada.",
-    icon: FileSearch,
-    status: "ativo",
-  },
-  {
     id: "automacao",
     title: "Automação",
     desc: "Crie fluxos de automação por ticket com gatilhos, decisões e ações.",
     icon: Workflow,
     status: "ativo",
   },
-  {
-    id: "nice",
-    title: "Integração NICE",
-    desc: "Conecte com o Contact Center por cluster com uma visão mais segura do serviço.",
-    icon: Link2,
-    status: "ativo",
-  },
 ];
+
+function CompactAccordion({
+  title,
+  description,
+  icon: Icon,
+  meta,
+  defaultOpen = true,
+  children,
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="p-0">
+        <button
+          type="button"
+          className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left transition hover:bg-zinc-50 md:px-5"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            {Icon ? (
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-700">
+                <Icon className="h-4.5 w-4.5" />
+              </div>
+            ) : null}
+
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="truncate text-base text-zinc-900">
+                  {title}
+                </CardTitle>
+                {meta}
+              </div>
+              {description ? (
+                <CardDescription className="mt-1 line-clamp-2 text-sm">
+                  {description}
+                </CardDescription>
+              ) : null}
+            </div>
+          </div>
+
+          <ChevronDown
+            className={cn(
+              "mt-1 h-4 w-4 shrink-0 text-zinc-500 transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+      </CardHeader>
+
+      {open ? <CardContent className="px-4 pb-4 pt-0 md:px-5">{children}</CardContent> : null}
+    </Card>
+  );
+}
+
+function ToolPickerAccordion({ tools, activeTool, onSelect }) {
+  const [open, setOpen] = useState(true);
+
+  return (
+    <Card className="overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:px-5">
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {tools.map((tool) => {
+              const Icon = tool.icon;
+              const isActive = tool.id === activeTool;
+
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => onSelect(tool.id)}
+                  aria-label={tool.title}
+                  aria-pressed={isActive}
+                  title={tool.title}
+                  className={cn(
+                    "grid h-11 w-11 place-items-center rounded-2xl border transition",
+                    isActive
+                      ? "border-red-200 bg-red-50 text-red-700 shadow-sm"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:border-red-100 hover:bg-red-50 hover:text-red-700",
+                  )}
+                >
+                  <Icon className="h-5 w-5" />
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-500 transition hover:bg-zinc-50"
+            onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
+            aria-label={open ? "Recolher ferramentas" : "Expandir ferramentas"}
+          >
+            <ChevronDown
+              className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+            />
+          </button>
+        </div>
+      </CardHeader>
+
+      {open ? (
+        <CardContent className="px-4 pb-4 pt-0 md:px-5">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {tools.map((tool) => {
+              const isActive = tool.id === activeTool;
+
+              return (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => onSelect(tool.id)}
+                  aria-pressed={isActive}
+                  className={cn(
+                    "group min-h-[82px] min-w-0 rounded-2xl border p-3 text-left transition",
+                    isActive
+                      ? "border-red-200 bg-red-50 shadow-sm"
+                      : "border-zinc-200 bg-white hover:border-red-100 hover:bg-zinc-50 hover:shadow-sm",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <div className="min-w-0 truncate text-sm font-semibold text-zinc-900">
+                        {tool.title}
+                      </div>
+                      {isActive ? (
+                        <Badge className="shrink-0 border border-red-200 bg-white text-red-700">
+                          Em uso
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-600">
+                      {tool.desc}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      ) : null}
+    </Card>
+  );
+}
 
 export default function ToolsTab() {
   const [activeTool, setActiveTool] = useState("transcricao");
@@ -86,8 +206,9 @@ export default function ToolsTab() {
 
   const active = useMemo(
     () => TOOL_DEFS.find((t) => t.id === activeTool) || TOOL_DEFS[0],
-    [activeTool]
+    [activeTool],
   );
+  const ActiveIcon = active.icon;
 
   const healthSummary = useMemo(() => {
     if (sttOnline === true) {
@@ -139,7 +260,7 @@ export default function ToolsTab() {
         setSttError(
           ok
             ? null
-            : j?.error || `Upstream status: ${j?.upstreamStatus || r.status}`
+            : j?.error || `Upstream status: ${j?.upstreamStatus || r.status}`,
         );
       } catch (err) {
         if (!mounted) return;
@@ -149,7 +270,7 @@ export default function ToolsTab() {
         setSttError(
           err?.name === "AbortError"
             ? "Timeout no health-check"
-            : String(err?.message || err)
+            : String(err?.message || err),
         );
       } finally {
         clearTimeout(t);
@@ -171,7 +292,7 @@ export default function ToolsTab() {
         "border",
         sttOnline === true && "border-green-200 bg-green-50 text-green-700",
         sttOnline === false && "border-red-200 bg-red-50 text-red-700",
-        sttOnline == null && "border-zinc-200 bg-zinc-50 text-zinc-700"
+        sttOnline == null && "border-zinc-200 bg-zinc-50 text-zinc-700",
       )}
     >
       {sttOnline === true
@@ -195,16 +316,8 @@ export default function ToolsTab() {
       return <AudioValidatorTool serviceOnline={sttOnline === true} />;
     }
 
-    if (activeTool === "trc-analyzer") {
-      return <TrcAnalyzerTool />;
-    }
-
     if (activeTool === "automacao") {
       return <AutomationTool />;
-    }
-
-    if (activeTool === "nice") {
-      return <NiceIntegrationTool />;
     }
 
     return (
@@ -216,136 +329,70 @@ export default function ToolsTab() {
   }
 
   return (
-    <TooltipProvider>
-      <motion.section
-        key="tools"
-        initial={{ opacity: 0, x: -12 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 12 }}
-        transition={{ duration: 0.25, ease: "easeInOut" }}
-        className="w-full tools-module"
-      >
-        <div className="mx-auto max-w-7xl px-2 py-4 tools-shell">
-          <ModuleHeader
-            eyebrow="Utilitários"
-            title="Ferramentas"
-            description="Escolha a ferramenta e siga direto para a execução."
-            badge="URA"
-            nextStep={null}
-            actions={
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">
-                  <span className="font-semibold text-zinc-900">{active.title}</span>
-                </div>
-                {healthBadge}
+    <motion.section
+      key="tools"
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 12 }}
+      transition={{ duration: 0.25, ease: "easeInOut" }}
+      className="w-full tools-module"
+    >
+      <div className="mx-auto grid max-w-7xl gap-4 px-2 py-4 tools-shell">
+        <ModuleHeader
+          eyebrow="Utilitários"
+          title="Ferramentas"
+          description="Escolha uma ferramenta e siga direto para a execução."
+          badge="URA"
+          nextStep={null}
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex max-w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
+                <ActiveIcon className="h-4 w-4 shrink-0 text-red-600" />
+                <span className="truncate font-semibold text-zinc-900">{active.title}</span>
               </div>
-            }
+              {healthBadge}
+            </div>
+          }
+        />
+
+        <ToolPickerAccordion
+          tools={TOOL_DEFS}
+          activeTool={activeTool}
+          onSelect={setActiveTool}
+        />
+
+        {sttOnline === false ? (
+          <EmptyState
+            title={healthSummary.title}
+            description={healthSummary.description}
+            tone="warning"
           />
+        ) : null}
 
-          <SectionCard
-            title="Ferramentas disponíveis"
-            description="Selecione uma opção para abrir a área de trabalho."
-            contentClassName="grid gap-3 md:grid-cols-2"
-          >
-            {TOOL_DEFS.map((tool) => {
-              const Icon = tool.icon;
-              const isActive = tool.id === activeTool;
-              const disabled = tool.status !== "ativo";
-
-              const card = (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => !disabled && setActiveTool(tool.id)}
-                  aria-pressed={isActive}
-                  disabled={disabled}
-                  className={cn(
-                    "rounded-[18px] border p-4 text-left transition",
-                    isActive
-                      ? "border-red-200 bg-red-50 shadow-sm"
-                      : "border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm",
-                    disabled && "opacity-60"
-                  )}
-                >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-zinc-50 text-zinc-900">
-                      <Icon className="h-4.5 w-4.5" />
-                    </div>
-
-                    {disabled ? (
-                      <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-                        Em breve
-                      </Badge>
-                    ) : isActive ? (
-                      <Badge className="border border-red-200 bg-red-100 text-red-700">
-                        Em uso
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-semibold text-zinc-900">
-                      {tool.title}
-                    </div>
-                    <div className="text-sm leading-5 text-zinc-600 line-clamp-2">
-                      {tool.desc}
-                    </div>
-                  </div>
-                </button>
-              );
-
-              return disabled ? (
-                <Tooltip key={tool.id}>
-                  <TooltipTrigger asChild>{card}</TooltipTrigger>
-                  <TooltipContent>Em breve</TooltipContent>
-                </Tooltip>
-              ) : (
-                card
-              );
-            })}
-          </SectionCard>
-
-          {sttOnline === false ? (
-            <EmptyState
-              title={healthSummary.title}
-              description={healthSummary.description}
-              tone="warning"
-            />
-          ) : null}
-
-          <div className="grid gap-4">
-            <Card className="rounded-2xl border-zinc-200">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0">
-                    <CardTitle className="text-base text-zinc-900">
-                      {active.title}
-                    </CardTitle>
-                    <CardDescription className="text-sm">
-                      {active.desc}
-                    </CardDescription>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
-                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                      <span className="font-medium text-zinc-900">Status:</span>{" "}
-                      {healthSummary.title}
-                    </div>
-                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                      <span className="font-medium text-zinc-900">Última verificação:</span>{" "}
-                      {sttLastCheck
-                        ? sttLastCheck.toLocaleTimeString("pt-BR")
-                        : "Aguardando"}
-                    </div>
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent>{renderActiveTool()}</CardContent>
-            </Card>
+        <CompactAccordion
+          title="Área de trabalho"
+          description={active.desc}
+          icon={ActiveIcon}
+          meta={
+            <Badge className="border border-red-200 bg-red-50 text-red-700">
+              {active.title}
+            </Badge>
+          }
+        >
+          <div className="mb-4 flex flex-wrap gap-2 text-xs text-zinc-500">
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <span className="font-medium text-zinc-900">Status:</span>{" "}
+              {healthSummary.title}
+            </div>
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <span className="font-medium text-zinc-900">Última verificação:</span>{" "}
+              {sttLastCheck ? sttLastCheck.toLocaleTimeString("pt-BR") : "Aguardando"}
+            </div>
           </div>
-        </div>
-      </motion.section>
-    </TooltipProvider>
+
+          {renderActiveTool()}
+        </CompactAccordion>
+      </div>
+    </motion.section>
   );
 }

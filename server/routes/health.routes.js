@@ -191,12 +191,6 @@ export default function healthRoutes({ env }) {
           `${env.STT_PY_BASE || "http://127.0.0.1:8000"}/health`,
           timeoutMs
         ),
-        checkJsonDependency(
-          "nice",
-          `${env.NICE_PUP_BASE || "http://127.0.0.1:8010"}/health`,
-          timeoutMs,
-          env.NICE_PUP_TOKEN ? { "x-internal-token": env.NICE_PUP_TOKEN } : {}
-        ),
       ]);
 
       const mongoState = mongoose.connection.readyState;
@@ -225,7 +219,6 @@ export default function healthRoutes({ env }) {
           model: env.GEMINI_MODEL || "gemini-2.5-flash",
         },
         stt: checks.find((item) => item.name === "stt"),
-        nice: checks.find((item) => item.name === "nice"),
       };
 
       const ok = Object.values(dependencies).every((dependency) => dependency?.ok);
