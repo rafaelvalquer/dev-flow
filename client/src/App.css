@@ -1548,3 +1548,16 @@ button {
 .fc .fc-day-sun .fc-daygrid-day-number {
   font-weight: 700;
 }
+
+.fc .fc-non-working-day {
+  background: #fff7ed;
+}
+
+.fc .fc-holiday {
+  background: #fef2f2;
+}
+
+.fc .fc-holiday .fc-daygrid-day-number {
+  color: #b91c1c;
+  font-weight: 800;
+}

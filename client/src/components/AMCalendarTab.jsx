@@ -20,6 +20,11 @@ import ptBrLocale from "@fullcalendar/core/locales/pt-br";
 import allLocales from "@fullcalendar/core/locales-all";
 
 import AMCalendarDashboard from "./AMCalendarDashboard";
+import {
+  findHolidayForDate,
+  isWorkingDay,
+  normalizeCalendarSettings,
+} from "@/utils/businessCalendar";
 
 /* =========================
    HELPERS
@@ -106,7 +111,12 @@ export default memo(function AMCalendarTab({
   setCalendarFilter,
   onPersistEventChange,
   changeHistory = [],
+  calendarSettings,
 }) {
+  const effectiveCalendarSettings = useMemo(
+    () => normalizeCalendarSettings(calendarSettings),
+    [calendarSettings],
+  );
   // ===== Range visível do FullCalendar (para o dashboard abaixo)
   const [visibleRange, setVisibleRange] = useState(() => {
     const now = new Date();
@@ -472,7 +482,14 @@ export default memo(function AMCalendarTab({
                 // ✅ Marca fins de semana com uma classe
                 dayCellClassNames={(arg) => {
                   const d = arg.date.getDay(); // 0 = domingo, 6 = sábado
-                  return d === 0 || d === 6 ? ["fc-weekend"] : [];
+                  const classes = d === 0 || d === 6 ? ["fc-weekend"] : [];
+                  if (!isWorkingDay(arg.date, effectiveCalendarSettings)) {
+                    classes.push("fc-non-working-day");
+                  }
+                  if (findHolidayForDate(arg.date, effectiveCalendarSettings)) {
+                    classes.push("fc-holiday");
+                  }
+                  return classes;
                 }}
               />
 

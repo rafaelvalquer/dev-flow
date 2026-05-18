@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   Blocks,
   ChevronRight,
@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings2,
   Sparkles,
 } from "lucide-react";
 import { Toaster } from "sonner";
@@ -17,6 +18,15 @@ import ChecklistGMUDTab from "./components/ChecklistGMUDTab";
 import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
 import ToolsTab from "./components/ToolsTab";
+import SystemSettingsTab from "./components/SystemSettingsTab";
+import {
+  fetchCalendarSettings,
+  saveCalendarSettings,
+} from "./lib/systemSettings";
+import {
+  DEFAULT_CALENDAR_SETTINGS,
+  normalizeCalendarSettings,
+} from "./utils/businessCalendar";
 
 import "react-day-picker/dist/style.css";
 
@@ -61,6 +71,16 @@ const MAIN_TABS = [
     icon: Sparkles,
     nextStep: "Escolha a ferramenta e execute sem sair do fluxo.",
   },
+  {
+    id: "settings",
+    title: "Configurações do Sistema",
+    eyebrow: "Administração global",
+    subtitle:
+      "Defina regras compartilhadas, dias úteis e feriados que orientam a operação.",
+    badge: "Sistema",
+    icon: Settings2,
+    nextStep: "Revise o calendário global antes de recalcular cronogramas.",
+  },
 ];
 
 export default function App() {
@@ -70,6 +90,35 @@ export default function App() {
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
   const [rdmTitle, setRdmTitle] = useState("");
   const [rdmDueDate, setRdmDueDate] = useState("");
+  const [calendarSettings, setCalendarSettings] = useState(
+    DEFAULT_CALENDAR_SETTINGS
+  );
+  const [calendarSettingsLoading, setCalendarSettingsLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setCalendarSettingsLoading(true);
+    fetchCalendarSettings()
+      .then((settings) => {
+        if (active) setCalendarSettings(normalizeCalendarSettings(settings));
+      })
+      .catch((err) => {
+        console.warn("[App] Falha ao carregar calendario global.", err);
+      })
+      .finally(() => {
+        if (active) setCalendarSettingsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleSaveCalendarSettings(nextSettings) {
+    const saved = await saveCalendarSettings(nextSettings);
+    setCalendarSettings(normalizeCalendarSettings(saved));
+    return saved;
+  }
 
   const currentTab = useMemo(
     () => MAIN_TABS.find((tab) => tab.id === mainTab) || MAIN_TABS[0],
@@ -102,8 +151,14 @@ export default function App() {
         status: "Utilitários disponíveis",
         helper: "Acesso rápido às integrações do ambiente.",
       },
+      settings: {
+        status: calendarSettingsLoading
+          ? "Carregando calendário"
+          : "Calendário global",
+        helper: "Dias úteis e feriados compartilhados.",
+      },
     }),
-    [gmudProgressPct, rdmDueDate, rdmTitle]
+    [calendarSettingsLoading, gmudProgressPct, rdmDueDate, rdmTitle]
   );
 
   const contentClassName = [
@@ -276,11 +331,19 @@ export default function App() {
 
               {visitedTabs.has("am") ? (
                 <div hidden={mainTab !== "am"}>
-                  <AMPanelTab />
+                  <AMPanelTab calendarSettings={calendarSettings} />
                 </div>
               ) : null}
 
               {mainTab === "tools" ? <ToolsTab /> : null}
+
+              {mainTab === "settings" ? (
+                <SystemSettingsTab
+                  calendarSettings={calendarSettings}
+                  calendarSettingsLoading={calendarSettingsLoading}
+                  onSaveCalendarSettings={handleSaveCalendarSettings}
+                />
+              ) : null}
             </section>
           </main>
         </div>

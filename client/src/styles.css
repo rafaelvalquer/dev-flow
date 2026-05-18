@@ -294,6 +294,10 @@ button.pdf {
   height: 0;
 }
 
+.gantt-range-clip {
+  position: relative;
+}
+
 .gantt-range-clip ._CZjuD {
   width: var(--gantt-visible-timeline-width) !important;
   max-width: var(--gantt-visible-timeline-width);
@@ -307,6 +311,22 @@ button.pdf {
 
 .gantt-range-clip ._2k9Ys {
   display: none;
+}
+
+.gantt-non-working-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.gantt-non-working-day {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(248, 113, 113, 0.18);
+  border-left: 1px solid rgba(220, 38, 38, 0.18);
+  border-right: 1px solid rgba(220, 38, 38, 0.12);
 }
 
 .gantt-horizontal-scrollbar,

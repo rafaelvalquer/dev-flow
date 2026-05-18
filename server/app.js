@@ -8,13 +8,16 @@ import { fileURLToPath } from "url";
 import { env } from "./config/env.js";
 import { createUpload } from "./middlewares/upload.js";
 import { requestContext } from "./middlewares/requestContext.js";
+import { attachUser } from "./middlewares/auth.js";
 
+import authRoutes from "./routes/auth.routes.js";
 import sttRoutes from "./routes/stt.routes.js";
 import jiraRoutes from "./routes/jira.routes.js";
 import dbRoutes from "./routes/db.routes.js";
 import ticketsRouter from "./routes/tickets.js";
 import automationRouter from "./routes/automation.js";
 import healthRoutes from "./routes/health.routes.js";
+import settingsRouter from "./routes/settings.routes.js";
 
 import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
 import { startAutomationJob } from "./jobs/automationJob.js";
@@ -23,12 +26,10 @@ import { AppError, createErrorPayload } from "./utils/http.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// evita duplicar job em dev/hmr/múltiplos imports
 function startAutomationJobOnce() {
   if (globalThis.__automationJobStarted) return;
   globalThis.__automationJobStarted = true;
 
-  // allow opt-out via env
   if (String(env.AUTOMATION_JOB_ENABLED || "true").toLowerCase() === "false")
     return;
 
@@ -42,26 +43,8 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   const app = express();
 
   app.use(requestContext);
-  app.use(cors());
+  app.use(cors({ credentials: true, origin: true }));
   app.use(express.json({ limit: "2mb" }));
-
-  const upload = createUpload();
-
-  app.set("trust proxy", 1); // ok em dev também
-
-  // RDM Co-pilot (mantém igual)
-  registerRdmCopilotRoutes(app, upload, env);
-
-  // APIs (mantém paths /api/* iguais)
-  app.use("/health", healthRoutes({ env }));
-  app.use("/api/stt", sttRoutes({ upload, env }));
-  app.use("/api/jira", jiraRoutes({ upload, env }));
-  app.use("/api/db", dbRoutes);
-  app.use("/api/tickets", ticketsRouter);
-
-  // NOVO: automação
-  app.use("/api/automation", automationRouter);
-
   app.use(
     session({
       name: "devflow.sid",
@@ -71,21 +54,34 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
       cookie: {
         httpOnly: true,
         sameSite: "lax",
-        secure: false, // em produção com HTTPS, coloque true
-        maxAge: 60 * 60 * 1000, // 1h
+        secure: false,
+        maxAge: 60 * 60 * 1000,
       },
-    }),
+    })
   );
+  app.use(attachUser);
 
-  // IMPORTANTE: só inicie após Mongo estar conectado (ideal: chamar createApp({startJobs:false}) e start no entrypoint)
+  const upload = createUpload();
+
+  app.set("trust proxy", 1);
+
+  registerRdmCopilotRoutes(app, upload, env);
+
+  app.use("/health", healthRoutes({ env }));
+  app.use("/api/auth", authRoutes({ env }));
+  app.use("/api/stt", sttRoutes({ upload, env }));
+  app.use("/api/jira", jiraRoutes({ upload, env }));
+  app.use("/api/db", dbRoutes);
+  app.use("/api/tickets", ticketsRouter);
+  app.use("/api/settings", settingsRouter);
+  app.use("/api/automation", automationRouter);
+
   if (startJobs) startAutomationJobOnce();
 
-  // Produção: servir build do Vite
   const resolvedClientDist =
     clientDist || path.join(__dirname, "..", "client", "dist");
   app.use(express.static(resolvedClientDist));
 
-  // catch-all para qualquer rota que NÃO comece com /api
   app.get(/^(?!\/api\/).*/, (_req, res) => {
     res.sendFile(path.join(resolvedClientDist, "index.html"));
   });

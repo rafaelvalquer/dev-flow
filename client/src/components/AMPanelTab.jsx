@@ -109,6 +109,11 @@ import {
   toCalendarEvents,
 } from "../utils/cronograma";
 import {
+  containsNonWorkingDays,
+  normalizeCalendarSettings,
+  toLocalDate,
+} from "../utils/businessCalendar";
+import {
   buildPoInsights,
   filterPoViewData,
   getScopedIssueKeysFromPreset,
@@ -1063,7 +1068,11 @@ function summarizeProgressiveLoadWarning(failures = [], doneError = null) {
 /* =========================
    //#region COMPONENT
 ========================= */
-export default function AMPanelTab() {
+export default function AMPanelTab({ calendarSettings }) {
+  const effectiveCalendarSettings = useMemo(
+    () => normalizeCalendarSettings(calendarSettings),
+    [calendarSettings],
+  );
   const [subView, setSubView] = useState("acoes"); // acoes | portfolio | calendario | gantt | dashboard
   const [loading, setLoading] = useState(false);
   const [reloadProgress, setReloadProgress] = useState({
@@ -2356,6 +2365,7 @@ export default function AMPanelTab() {
               setCalendarFilter={setCalendarFilter}
               onPersistEventChange={persistEventChange}
               changeHistory={changeHistory}
+              calendarSettings={effectiveCalendarSettings}
             />
           )}
 
@@ -2374,6 +2384,7 @@ export default function AMPanelTab() {
                 onPersistDateChange={persistGanttDateChange}
                 onPersistMetaChange={persistGanttMetaChange}
                 changeHistory={changeHistory}
+                calendarSettings={effectiveCalendarSettings}
                 onOpenDetails={(key) => {
                   setDetailsKey(key);
                   setDetailsOpen(true);
@@ -2406,6 +2417,7 @@ export default function AMPanelTab() {
               loading={loading}
               dueDateDraft={dueDateDraft}
               setDueDateDraft={setDueDateDraft}
+              calendarSettings={effectiveCalendarSettings}
             />
           )}
 
@@ -5292,6 +5304,7 @@ function CronogramaEditorModal({
   loading,
   dueDateDraft,
   setDueDateDraft,
+  calendarSettings,
 }) {
   const [saveAttempted, setSaveAttempted] = useState(false);
 
@@ -5358,6 +5371,22 @@ function CronogramaEditorModal({
     return end;
   }
 
+  function parseActivityDateRange(raw, refYear) {
+    const match = String(raw || "").match(/(\d{2}\/\d{2})(?:\s*a\s*(\d{2}\/\d{2}))?/i);
+    if (!match) return null;
+
+    const start = parseBrDayMonthToDate(match[1], refYear);
+    let end = parseBrDayMonthToDate(match[2] || match[1], refYear);
+    if (!start || !end) return null;
+
+    if (end.getTime() < start.getTime()) {
+      end = new Date(end);
+      end.setFullYear(end.getFullYear() + 1);
+    }
+
+    return { start, end };
+  }
+
   const dueDateObj = useMemo(
     () => parseIsoDateLocal(dueDateDraft),
     [dueDateDraft],
@@ -5381,6 +5410,21 @@ function CronogramaEditorModal({
   const invalidCustomActivity = preparedDraft.find(
     (activity) => activity.isCustom && !activity.name,
   );
+
+  const nonWorkingActivityCount = useMemo(() => {
+    const baseYear = dueDateObj?.getFullYear?.() || new Date().getFullYear();
+    return preparedDraft.reduce((total, activity) => {
+      const range = parseActivityDateRange(activity?.data, baseYear);
+      if (!range) return total;
+      return containsNonWorkingDays(
+        toLocalDate(range.start),
+        toLocalDate(range.end),
+        calendarSettings,
+      )
+        ? total + 1
+        : total;
+    }, 0);
+  }, [calendarSettings, dueDateObj, preparedDraft]);
 
   const dueBeforeImplant =
     !!dueDateObj &&
@@ -5552,6 +5596,14 @@ function CronogramaEditorModal({
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
                   Toda atividade customizada precisa ter um nome antes de
                   salvar.
+                </div>
+              )}
+
+              {nonWorkingActivityCount > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                  {nonWorkingActivityCount} atividade(s) passam por dias não
+                  úteis. O Gantt exibirá a duração contando apenas dias úteis
+                  configurados.
                 </div>
               )}
 

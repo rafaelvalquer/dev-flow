@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
+  HelpCircle,
   History,
   Loader2,
   Search,
@@ -28,6 +29,14 @@ import {
 } from "lucide-react";
 
 import GanttTaskInspectorDrawer from "./GanttTaskInspectorDrawer";
+import {
+  addBusinessDays,
+  businessDurationDays,
+  findHolidayForDate,
+  isWorkingDay,
+  nextWorkingDay,
+  normalizeCalendarSettings,
+} from "@/utils/businessCalendar";
 
 /* =========================
    Helpers
@@ -99,7 +108,11 @@ function addDays(d, n) {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function inclusiveDurationDays(start, end) {
+function inclusiveDurationDays(start, end, calendarSettings) {
+  if (calendarSettings) {
+    return businessDurationDays(start, end, calendarSettings);
+  }
+
   const s = safeDate(start);
   const e = safeDate(end);
   if (!s || !e) return 1;
@@ -107,11 +120,21 @@ function inclusiveDurationDays(start, end) {
   return Math.max(1, Math.ceil(diff / MS_PER_DAY) + 1);
 }
 
-function endFromInclusiveDays(start, days) {
+function endFromInclusiveDays(start, days, calendarSettings) {
   const s = safeDate(start);
   if (!s) return null;
   const duration = Math.max(1, parseInt(String(days || 1), 10) || 1);
+  if (calendarSettings) {
+    return addBusinessDays(s, duration, calendarSettings);
+  }
   return addDays(s, duration - 1);
+}
+
+function nextStartAfterEnd(end, calendarSettings) {
+  const nextDay = addDays(end, 1);
+  return calendarSettings
+    ? nextWorkingDay(nextDay, calendarSettings, { includeCurrent: true })
+    : nextDay;
 }
 
 function inclusiveEndFromCalendarEvent(start, eventEnd) {
@@ -160,6 +183,34 @@ function inferDueDateFromIssue(iss) {
   // fim do dia
   const d = new Date(`${s}T23:59:59.999`);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function userName(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.map(userName).filter(Boolean).join(", ");
+  if (typeof value === "object") {
+    return String(
+      value.displayName ||
+        value.name ||
+        value.value ||
+        value.label ||
+        value.emailAddress ||
+        value.key ||
+        ""
+    ).trim();
+  }
+  return String(value).trim();
+}
+
+function getIssueOwnerName(issue) {
+  return (
+    userName(issue?.assignee) ||
+    userName(issue?.responsavel) ||
+    userName(issue?.owner) ||
+    userName(issue?.fields?.assignee) ||
+    "Sem responsável"
+  );
 }
 
 function calcOverdueDays({ dueDate, statusName }) {
@@ -340,6 +391,13 @@ function getGanttTimelineColumns(viewMode) {
   return Math.ceil(spanDays / 365);
 }
 
+const GANTT_RANGE_LABELS = [
+  ["Day", ViewMode.Day],
+  ["Week", ViewMode.Week],
+  ["Month", ViewMode.Month],
+  ["Year", ViewMode.Year],
+];
+
 function parsePxValue(value) {
   const parsed = parseFloat(String(value || "").replace("px", ""));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -360,7 +418,7 @@ function makeGanttWindowBoundaryTask(id, date) {
     progress: 0,
     isDisabled: true,
     isWindowBoundary: true,
-    displayOrder: Number.MAX_SAFE_INTEGER,
+    displayOrder: Number.POSITIVE_INFINITY,
     styles: {
       backgroundColor: "transparent",
       backgroundSelectedColor: "transparent",
@@ -649,6 +707,7 @@ export function buildGanttTasksFromViewData({
 
     if (!activityTasks.length) continue;
 
+    const issueOwnerName = getIssueOwnerName(iss);
     let ordered = [...activityTasks];
 
     const customOrder = orderOverrides?.get?.(issueKey) || null;
@@ -714,7 +773,7 @@ export function buildGanttTasksFromViewData({
 
         issueKey,
         activityId: "",
-        recurso: "",
+        recurso: issueOwnerName,
         area: "",
         risk: false,
 
@@ -904,6 +963,7 @@ function TaskListTableFactory({
   rowDragStateRef,
   onRowPointerDown,
   busy,
+  getDurationDays,
 
   onOpenInspectorByTaskId, // ✅ NOVO
   ganttSetSelectedTaskIdRef, // ✅ NOVO (ref p/ selecionar via Drawer)
@@ -932,7 +992,10 @@ function TaskListTableFactory({
     const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
 
     function calcDurationDays(t) {
-      return inclusiveDurationDays(getTaskOriginalStart(t), getTaskOriginalEnd(t));
+      return (
+        getDurationDays?.(getTaskOriginalStart(t), getTaskOriginalEnd(t), t) ||
+        inclusiveDurationDays(getTaskOriginalStart(t), getTaskOriginalEnd(t))
+      );
     }
 
     // ✅ edição inline (Dias)
@@ -1166,7 +1229,12 @@ function TaskListTableFactory({
               {/* ✅ Recurso (editável inline) */}
               <div className="min-w-0">
                 {isProject ? (
-                  <span className="text-zinc-300">—</span>
+                  <span
+                    className="block truncate text-zinc-600"
+                    title={t.recurso || "Sem responsável"}
+                  >
+                    {t.recurso || "Sem responsável"}
+                  </span>
                 ) : editingMeta.id === t.id &&
                   editingMeta.field === "recurso" ? (
                   <Input
@@ -1497,7 +1565,12 @@ export function GanttTab({
   onOpenDetails,
   onPersistMetaChange,
   changeHistory = [],
+  calendarSettings,
 }) {
+  const effectiveCalendarSettings = useMemo(
+    () => normalizeCalendarSettings(calendarSettings),
+    [calendarSettings],
+  );
   const [viewMode, setViewMode] = useState(ViewMode.Week);
   const [ganttWindowStart, setGanttWindowStart] = useState(null);
   const [groupByTicket, setGroupByTicket] = useState(true);
@@ -1766,14 +1839,6 @@ export function GanttTab({
   const getGanttHorizontalScrollTarget = useCallback(() => {
     const root = ganttWrapRef.current;
     if (!root) return null;
-
-    const candidates = root.querySelectorAll("._2k9Ys");
-    for (const node of candidates) {
-      if (node.scrollWidth > node.clientWidth + 1) return node;
-    }
-
-    if (root.scrollWidth > root.clientWidth + 1) return root;
-
     return root;
   }, []);
 
@@ -2220,6 +2285,43 @@ export function GanttTab({
     return parsePxValue(listCellWidth) + ganttVisibleTimelineWidth;
   }, [ganttVisibleTimelineWidth, listCellWidth]);
 
+  const nonWorkingDayColumns = useMemo(() => {
+    if (viewMode !== ViewMode.Day || !ganttWindow?.start) return [];
+
+    const listWidth = parsePxValue(listCellWidth);
+    const days = getGanttTimelineColumns(viewMode);
+    const columns = [];
+
+    for (let index = 0; index < days; index += 1) {
+      const date = addDays(ganttWindow.start, index);
+      if (isWorkingDay(date, effectiveCalendarSettings)) continue;
+
+      const holiday = findHolidayForDate(date, effectiveCalendarSettings);
+      const weekday = new Intl.DateTimeFormat("pt-BR", {
+        weekday: "long",
+        day: "2-digit",
+        month: "2-digit",
+      }).format(date);
+
+      columns.push({
+        key: date.toISOString(),
+        left: listWidth + index * ganttColumnWidth,
+        width: ganttColumnWidth,
+        label: holiday?.name
+          ? `${weekday} - ${holiday.name}`
+          : `${weekday} - dia não útil`,
+      });
+    }
+
+    return columns;
+  }, [
+    effectiveCalendarSettings,
+    ganttColumnWidth,
+    ganttWindow?.start,
+    listCellWidth,
+    viewMode,
+  ]);
+
   const updateGanttScrollState = useCallback(() => {
     const root = ganttWrapRef.current;
     if (!root) return;
@@ -2456,6 +2558,11 @@ export function GanttTab({
         : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
     );
 
+  const getBusinessDurationDays = useCallback(
+    (start, end) => inclusiveDurationDays(start, end, effectiveCalendarSettings),
+    [effectiveCalendarSettings],
+  );
+
   /* =========================
      ✅ handleDateChange
      com cascata quando encadeado
@@ -2511,11 +2618,12 @@ export function GanttTab({
         const next = taskById.get(nextId);
         if (!next) break;
 
-        const nextStart = addDays(cur.end, 1);
+        const nextStart = nextStartAfterEnd(cur.end, effectiveCalendarSettings);
 
         const nextEnd = endFromInclusiveDays(
           nextStart,
-          inclusiveDurationDays(next.start, next.end)
+          inclusiveDurationDays(next.start, next.end, effectiveCalendarSettings),
+          effectiveCalendarSettings
         );
 
         const nextUpdate = {
@@ -2548,6 +2656,7 @@ export function GanttTab({
       nextById,
       taskById,
       onPersistDateChange,
+      effectiveCalendarSettings,
     ]
   );
 
@@ -2620,7 +2729,11 @@ export function GanttTab({
         safeDate(getTaskOriginalStart(task)) || safeDate(baseOriginal.start);
       if (!start) return false;
 
-      const nextEnd = addDays(start, d - 1);
+      const nextEnd = endFromInclusiveDays(
+        start,
+        d,
+        effectiveCalendarSettings,
+      );
 
       return await handleDateChange({
         ...task,
@@ -2630,7 +2743,7 @@ export function GanttTab({
         isCalendarClipped: false,
       });
     },
-    [handleDateChange, taskById]
+    [effectiveCalendarSettings, handleDateChange, taskById]
   );
 
   const handleDateInputChange = useCallback(
@@ -2646,14 +2759,22 @@ export function GanttTab({
       const nextDate = safeDate(value);
       if (!currentStart || !currentEnd || !nextDate) return false;
 
-      const durationDays = inclusiveDurationDays(currentStart, currentEnd);
+      const durationDays = inclusiveDurationDays(
+        currentStart,
+        currentEnd,
+        effectiveCalendarSettings,
+      );
 
       let nextStart = currentStart;
       let nextEnd = currentEnd;
 
       if (field === "start") {
         nextStart = nextDate;
-        nextEnd = endFromInclusiveDays(nextStart, durationDays);
+        nextEnd = endFromInclusiveDays(
+          nextStart,
+          durationDays,
+          effectiveCalendarSettings,
+        );
       } else {
         nextEnd = nextDate;
         if (nextEnd < currentStart) {
@@ -2669,7 +2790,7 @@ export function GanttTab({
         isCalendarClipped: false,
       });
     },
-    [handleDateChange, taskById]
+    [effectiveCalendarSettings, handleDateChange, taskById]
   );
 
   const handleReorderActivity = useCallback(
@@ -2721,14 +2842,18 @@ export function GanttTab({
         .map((d) => d.getTime());
       if (!validStarts.length) return false;
 
-      let cursor = new Date(Math.min(...validStarts));
+      let cursor =
+        nextWorkingDay(new Date(Math.min(...validStarts)), effectiveCalendarSettings, {
+          includeCurrent: true,
+        }) || new Date(Math.min(...validStarts));
       const updates = orderedTasks.map((task) => {
         const nextStart = new Date(cursor);
         const nextEnd = endFromInclusiveDays(
           nextStart,
-          inclusiveDurationDays(task.start, task.end)
+          inclusiveDurationDays(task.start, task.end, effectiveCalendarSettings),
+          effectiveCalendarSettings
         );
-        cursor = addDays(nextEnd, 1);
+        cursor = nextStartAfterEnd(nextEnd, effectiveCalendarSettings);
         return {
           ...task,
           start: nextStart,
@@ -2767,6 +2892,7 @@ export function GanttTab({
       safeTasks,
       orderOverrides,
       onPersistDateChange,
+      effectiveCalendarSettings,
     ]
   );
 
@@ -3094,6 +3220,7 @@ export function GanttTab({
       rowDragStateRef,
       onRowPointerDown: handleRowPointerDown,
       busy,
+      getDurationDays: getBusinessDurationDays,
 
       onOpenInspectorByTaskId: openInspectorByTaskId,
       ganttSetSelectedTaskIdRef,
@@ -3110,6 +3237,7 @@ export function GanttTab({
     handleMetaChangeFromGrid,
     handleRowPointerDown,
     busy,
+    getBusinessDurationDays,
     openInspectorByTaskId,
   ]);
 
@@ -3244,12 +3372,7 @@ export function GanttTab({
                 </Button>
 
                 <div className="inline-flex items-center rounded-xl border border-zinc-200 bg-white p-1">
-                  {[
-                    ["Day", ViewMode.Day],
-                    ["Week", ViewMode.Week],
-                    ["Month", ViewMode.Month],
-                    ["Year", ViewMode.Year],
-                  ].map(([label, mode]) => (
+                  {GANTT_RANGE_LABELS.map(([label, mode]) => (
                     <Button
                       key={label}
                       type="button"
@@ -3283,6 +3406,31 @@ export function GanttTab({
                 <span className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600">
                   {fmtDateBR(ganttWindow.start)} - {fmtDateBR(ganttWindow.end)}
                 </span>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex h-10 cursor-help items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-600">
+                      <HelpCircle className="h-3.5 w-3.5 text-zinc-400" />
+                      {getGanttWindowSpanDays(viewMode)} dias
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[260px]">
+                    <div className="grid gap-1 text-xs">
+                      <div className="font-semibold text-zinc-900">
+                        Quantidade exibida por visão
+                      </div>
+                      {GANTT_RANGE_LABELS.map(([label, mode]) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between gap-5"
+                        >
+                          <span>{label}</span>
+                          <strong>{getGanttWindowSpanDays(mode)} dias</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
 
                 <Button
                   type="button"
@@ -3359,6 +3507,13 @@ export function GanttTab({
                   </span>
                 ))}
 
+                {viewMode === ViewMode.Day ? (
+                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-zinc-700">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-red-200" />
+                    <span>Dias não úteis</span>
+                  </span>
+                ) : null}
+
                 {legendItems.length > 18 ? (
                   <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
                     {legendItems.length - 18}
@@ -3406,6 +3561,24 @@ export function GanttTab({
                         rowHeight={42}
                         barCornerRadius={8}
                       />
+                      {nonWorkingDayColumns.length ? (
+                        <div
+                          className="gantt-non-working-overlay"
+                          aria-hidden="true"
+                        >
+                          {nonWorkingDayColumns.map((column) => (
+                            <span
+                              key={column.key}
+                              className="gantt-non-working-day"
+                              style={{
+                                left: `${column.left}px`,
+                                width: `${column.width}px`,
+                              }}
+                              title={column.label}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="p-6 text-sm text-zinc-600">

@@ -11,8 +11,11 @@ const UserSchema = new mongoose.Schema(
       index: true,
       unique: true,
     },
+    passwordHash: { type: String, trim: true, default: "" },
+    jiraApiToken: { type: String, trim: true, default: "" },
     role: { type: String, trim: true, default: "user" },
     jiraAccountId: { type: String, trim: true },
+    lastLoginAt: { type: Date },
   },
   { timestamps: true }
 );

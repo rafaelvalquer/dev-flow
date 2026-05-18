@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import { sendUpstream } from "../utils/sendUpstream.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
 import { AppError, fetchWithTimeout, sendError } from "../utils/http.js";
+import { requireAuth } from "../middlewares/auth.js";
 
 /* =========================================================
    JIRA CLIENT (SERVER-SIDE) — use em Jobs/Services internos
@@ -281,15 +282,23 @@ export default function jiraRoutes({ upload, env }) {
 
   const JIRA_BASE =
     env.JIRA_BASE || "https://clarobr-jsw-tecnologia.atlassian.net";
-  const JIRA_EMAIL = env.JIRA_EMAIL;
-  const JIRA_TOKEN = env.JIRA_API_TOKEN;
 
-  if (!JIRA_EMAIL || !JIRA_TOKEN) {
-    console.warn("[WARN] Defina JIRA_EMAIL e JIRA_API_TOKEN no .env");
-  }
+  router.use(requireAuth);
+  router.use((req, res, next) => {
+    if (req.user?.email && req.user?.jiraApiToken) return next();
+    return res.status(401).json({
+      error: {
+        code: "JIRA_CREDENTIALS_REQUIRED",
+        message: "Credenciais Jira nao cadastradas para este usuario.",
+      },
+    });
+  });
 
-  const jiraHeaders = (extra = {}) =>
-    makeJiraHeaders({ email: JIRA_EMAIL, token: JIRA_TOKEN }, extra);
+  const jiraHeaders = (req, extra = {}) =>
+    makeJiraHeaders(
+      { email: req.user.email, token: req.user.jiraApiToken },
+      extra
+    );
 
   // GET issue
   router.get("/issue/:key", async (req, res) => {
@@ -300,7 +309,7 @@ export default function jiraRoutes({ upload, env }) {
         key
       )}?fields=${encodeURIComponent(fields)}`;
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       return sendUpstream(res, r, "application/json", {
@@ -320,7 +329,7 @@ export default function jiraRoutes({ upload, env }) {
     try {
       const url = `${JIRA_BASE}/rest/api/3/priority`;
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       return sendUpstream(res, r, "application/json", {
@@ -346,7 +355,7 @@ export default function jiraRoutes({ upload, env }) {
       )}&maxResults=${encodeURIComponent(maxResults)}`;
 
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       return sendUpstream(res, r, "application/json", {
@@ -379,7 +388,7 @@ export default function jiraRoutes({ upload, env }) {
         `&maxResults=${encodeURIComponent(maxResults)}`;
 
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       return sendUpstream(res, r, "application/json", {
@@ -401,7 +410,7 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue`;
       const r = await fetchWithTimeout(url, {
         method: "POST",
-        headers: jiraHeaders({ "Content-Type": "application/json" }),
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
@@ -426,7 +435,7 @@ export default function jiraRoutes({ upload, env }) {
         key
       )}/transitions${qs ? `?${qs}` : ""}`;
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       return sendUpstream(res, r, "application/json", {
@@ -451,7 +460,7 @@ export default function jiraRoutes({ upload, env }) {
       )}/transitions`;
       const r = await fetchWithTimeout(url, {
         method: "POST",
-        headers: jiraHeaders({ "Content-Type": "application/json" }),
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
@@ -476,7 +485,7 @@ export default function jiraRoutes({ upload, env }) {
         key
       )}/comment`;
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       return sendUpstream(res, r, "application/json", {
@@ -500,7 +509,7 @@ export default function jiraRoutes({ upload, env }) {
       )}/comment`;
       const r = await fetchWithTimeout(url, {
         method: "POST",
-        headers: jiraHeaders({ "Content-Type": "application/json" }),
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
@@ -525,7 +534,7 @@ export default function jiraRoutes({ upload, env }) {
       )}/comment/${encodeURIComponent(id)}`;
       const r = await fetchWithTimeout(url, {
         method: "PUT",
-        headers: jiraHeaders({ "Content-Type": "application/json" }),
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
@@ -549,7 +558,7 @@ export default function jiraRoutes({ upload, env }) {
         key
       )}?fields=${encodeURIComponent("attachment")}`;
       const r = await fetchWithTimeout(url, {
-        headers: jiraHeaders(),
+        headers: jiraHeaders(req),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       if (!r.ok)
@@ -607,7 +616,7 @@ export default function jiraRoutes({ upload, env }) {
         )}/attachments`;
         const r = await fetchWithTimeout(url, {
           method: "POST",
-          headers: jiraHeaders({ "X-Atlassian-Token": "no-check" }),
+          headers: jiraHeaders(req, { "X-Atlassian-Token": "no-check" }),
           body: form,
           timeoutMs: env.REQUEST_TIMEOUT_MS,
         });
@@ -634,7 +643,7 @@ export default function jiraRoutes({ upload, env }) {
         id
       )}`;
       const metaResp = await fetchWithTimeout(metaUrl, {
-        headers: jiraHeaders({ Accept: "application/json" }),
+        headers: jiraHeaders(req, { Accept: "application/json" }),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
       if (!metaResp.ok)
@@ -651,7 +660,7 @@ export default function jiraRoutes({ upload, env }) {
         meta.size && Number.isFinite(meta.size) ? String(meta.size) : null;
 
       const first = await fetchWithTimeout(jiraContentUrl, {
-        headers: jiraHeaders({ Accept: "*/*" }),
+        headers: jiraHeaders(req, { Accept: "*/*" }),
         redirect: "manual",
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
@@ -711,7 +720,7 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}${endpoint}`;
       const r = await fetchWithTimeout(url, {
         method: "POST",
-        headers: jiraHeaders({ "Content-Type": "application/json" }),
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
         timeoutMs,
       });
@@ -735,7 +744,7 @@ export default function jiraRoutes({ upload, env }) {
       const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(key)}`;
       const r = await fetchWithTimeout(url, {
         method: "PUT",
-        headers: jiraHeaders({ "Content-Type": "application/json" }),
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
         body: JSON.stringify(req.body),
         timeoutMs: env.REQUEST_TIMEOUT_MS,
       });
