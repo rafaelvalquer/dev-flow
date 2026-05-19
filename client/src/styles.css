@@ -318,6 +318,7 @@ button.pdf {
   inset: 0;
   z-index: 5;
   pointer-events: none;
+  transform: translateX(calc(-1 * var(--gantt-leading-offset, 0px)));
 }
 
 .gantt-non-working-day {

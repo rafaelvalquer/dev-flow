@@ -2305,6 +2305,24 @@ export function GanttTab({
     return effectiveListWidthPx + ganttVisibleTimelineWidth;
   }, [effectiveListWidthPx, ganttVisibleTimelineWidth]);
 
+  const ganttRenderKey = useMemo(
+    () =>
+      [
+        viewMode,
+        ganttWindow?.start?.getTime?.() || 0,
+        ganttColumnWidth,
+        effectiveListWidthPx,
+        calendarOnlyMode ? "calendar-only" : "with-table",
+      ].join("::"),
+    [
+      calendarOnlyMode,
+      effectiveListWidthPx,
+      ganttColumnWidth,
+      ganttWindow?.start,
+      viewMode,
+    ],
+  );
+
   const nonWorkingDayColumns = useMemo(() => {
     if (viewMode !== ViewMode.Day || !ganttWindow?.start) return [];
 
@@ -3594,6 +3612,7 @@ export function GanttTab({
                 >
                   {ganttTasks.length > 0 ? (
                     <div
+                      key={ganttRenderKey}
                       className="gantt-range-clip"
                       style={{
                         width: `${ganttContentWidth}px`,
