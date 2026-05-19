@@ -125,7 +125,10 @@ function endFromInclusiveDays(start, days, calendarSettings) {
   if (!s) return null;
   const duration = Math.max(1, parseInt(String(days || 1), 10) || 1);
   if (calendarSettings) {
-    return addBusinessDays(s, duration, calendarSettings);
+    const workingStart = nextWorkingDay(s, calendarSettings, {
+      includeCurrent: true,
+    });
+    return addBusinessDays(workingStart || s, duration, calendarSettings);
   }
   return addDays(s, duration - 1);
 }
@@ -1575,6 +1578,7 @@ export function GanttTab({
   const [ganttWindowStart, setGanttWindowStart] = useState(null);
   const [groupByTicket, setGroupByTicket] = useState(true);
   const [onlyInProgress, setOnlyInProgress] = useState(true);
+  const [calendarOnlyMode, setCalendarOnlyMode] = useState(false);
   const [selectedIssueKey, setSelectedIssueKey] = useState("");
   const [quickView, setQuickView] = useState("po");
   const [collapsedProjects, setCollapsedProjects] = useState(() => new Set());
@@ -2267,12 +2271,26 @@ export function GanttTab({
       return ganttTasks || [];
     }
 
+    const renderTasks =
+      viewMode === ViewMode.Day
+        ? ganttTasks.map((task) => {
+            if (!task || isGanttWindowBoundaryTask(task)) return task;
+            const end = safeDate(task.end);
+            if (!end) return task;
+            return {
+              ...task,
+              end: addDays(end, 1),
+              visualEndAdjusted: true,
+            };
+          })
+        : ganttTasks;
+
     return [
-      ...ganttTasks,
+      ...renderTasks,
       makeGanttWindowBoundaryTask("__gantt_window_start__", windowStart),
       makeGanttWindowBoundaryTask("__gantt_window_end__", windowEnd),
     ];
-  }, [ganttTasks, ganttWindow]);
+  }, [ganttTasks, ganttWindow, viewMode]);
 
   const ganttColumnWidth = useMemo(() => getGanttColumnWidth(viewMode), [viewMode]);
   const ganttVisibleTimelineWidth = useMemo(
@@ -2280,15 +2298,16 @@ export function GanttTab({
     [ganttColumnWidth, viewMode]
   );
   const ganttLeadingOffset = ganttColumnWidth;
+  const effectiveListCellWidth = calendarOnlyMode ? "" : listCellWidth;
+  const effectiveListWidthPx = calendarOnlyMode ? 0 : parsePxValue(listCellWidth);
 
   const ganttContentWidth = useMemo(() => {
-    return parsePxValue(listCellWidth) + ganttVisibleTimelineWidth;
-  }, [ganttVisibleTimelineWidth, listCellWidth]);
+    return effectiveListWidthPx + ganttVisibleTimelineWidth;
+  }, [effectiveListWidthPx, ganttVisibleTimelineWidth]);
 
   const nonWorkingDayColumns = useMemo(() => {
     if (viewMode !== ViewMode.Day || !ganttWindow?.start) return [];
 
-    const listWidth = parsePxValue(listCellWidth);
     const days = getGanttTimelineColumns(viewMode);
     const columns = [];
 
@@ -2305,7 +2324,7 @@ export function GanttTab({
 
       columns.push({
         key: date.toISOString(),
-        left: listWidth + index * ganttColumnWidth,
+        left: effectiveListWidthPx + index * ganttColumnWidth,
         width: ganttColumnWidth,
         label: holiday?.name
           ? `${weekday} - ${holiday.name}`
@@ -2316,9 +2335,9 @@ export function GanttTab({
     return columns;
   }, [
     effectiveCalendarSettings,
+    effectiveListWidthPx,
     ganttColumnWidth,
     ganttWindow?.start,
-    listCellWidth,
     viewMode,
   ]);
 
@@ -2576,6 +2595,20 @@ export function GanttTab({
 
       const baseId = String(task.id || "");
       const baseOriginal = taskById.get(baseId) || task;
+      const taskStart = safeDate(task.start) || safeDate(getTaskOriginalStart(task));
+      const taskEnd = safeDate(task.end) || safeDate(getTaskOriginalEnd(task));
+      const normalizedTaskStart =
+        effectiveCalendarSettings && taskStart
+          ? nextWorkingDay(taskStart, effectiveCalendarSettings, {
+              includeCurrent: true,
+            }) || taskStart
+          : taskStart;
+      const normalizedTaskEnd =
+        task.visualEndAdjusted && taskEnd ? addDays(taskEnd, -1) : taskEnd;
+      const normalizedEnd =
+        normalizedTaskStart && normalizedTaskEnd && normalizedTaskEnd < normalizedTaskStart
+          ? normalizedTaskStart
+          : normalizedTaskEnd;
 
       const base = {
         ...baseOriginal,
@@ -2595,8 +2628,9 @@ export function GanttTab({
             getActivityIdFromTaskId(task.id)) ??
             ""
         ).trim(),
-        start: safeDate(task.start) || safeDate(getTaskOriginalStart(task)),
-        end: safeDate(task.end) || safeDate(getTaskOriginalEnd(task)),
+        start: normalizedTaskStart,
+        end: normalizedEnd,
+        visualEndAdjusted: false,
       };
 
       if (!base.issueKey || !base.activityId) return false;
@@ -2729,8 +2763,13 @@ export function GanttTab({
         safeDate(getTaskOriginalStart(task)) || safeDate(baseOriginal.start);
       if (!start) return false;
 
+      const workingStart =
+        nextWorkingDay(start, effectiveCalendarSettings, {
+          includeCurrent: true,
+        }) || start;
+
       const nextEnd = endFromInclusiveDays(
-        start,
+        workingStart,
         d,
         effectiveCalendarSettings,
       );
@@ -2738,7 +2777,7 @@ export function GanttTab({
       return await handleDateChange({
         ...task,
         ...baseOriginal,
-        start,
+        start: workingStart,
         end: nextEnd,
         isCalendarClipped: false,
       });
@@ -2769,7 +2808,10 @@ export function GanttTab({
       let nextEnd = currentEnd;
 
       if (field === "start") {
-        nextStart = nextDate;
+        nextStart =
+          nextWorkingDay(nextDate, effectiveCalendarSettings, {
+            includeCurrent: true,
+          }) || nextDate;
         nextEnd = endFromInclusiveDays(
           nextStart,
           durationDays,
@@ -3457,6 +3499,22 @@ export function GanttTab({
                 >
                   Somente em andamento
                 </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    "rounded-xl border-zinc-200 bg-white",
+                    calendarOnlyMode && "border-red-200 bg-red-50 text-red-700"
+                  )}
+                  onClick={() => {
+                    setCalendarOnlyMode((v) => !v);
+                    resetGanttHorizontalScroll();
+                  }}
+                  aria-pressed={calendarOnlyMode}
+                >
+                  {calendarOnlyMode ? "Mostrar tabela" : "Só calendário"}
+                </Button>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -3556,7 +3614,7 @@ export function GanttTab({
                         TooltipContent={GanttTooltipContent}
                         TaskListHeader={TaskListHeader}
                         TaskListTable={TaskListTable}
-                        listCellWidth={listCellWidth}
+                        listCellWidth={effectiveListCellWidth}
                         columnWidth={ganttColumnWidth}
                         rowHeight={42}
                         barCornerRadius={8}

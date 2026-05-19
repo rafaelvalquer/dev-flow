@@ -1994,15 +1994,19 @@ export default function AMPanelTab({ calendarSettings }) {
           });
         }
 
-        for (const issueKey of byIssue.keys()) {
-          const issue = nextCalendarioIssues.find(
-            (x) =>
-              String(x?.key || "")
-                .trim()
-                .toUpperCase() === issueKey,
-          );
-          if (issue)
-            applyCronogramaPatchLocal(issueKey, issue.atividades || []);
+        try {
+          for (const issueKey of byIssue.keys()) {
+            const issue = nextCalendarioIssues.find(
+              (x) =>
+                String(x?.key || "")
+                  .trim()
+                  .toUpperCase() === issueKey,
+            );
+            if (issue)
+              applyCronogramaPatchLocal(issueKey, issue.atividades || []);
+          }
+        } catch (cacheErr) {
+          console.warn("Falha ao atualizar cache local do cronograma.", cacheErr);
         }
 
         updateChangeHistoryStatus(

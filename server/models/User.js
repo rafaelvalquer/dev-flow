@@ -15,6 +15,7 @@ const UserSchema = new mongoose.Schema(
     jiraApiToken: { type: String, trim: true, default: "" },
     role: { type: String, trim: true, default: "user" },
     jiraAccountId: { type: String, trim: true },
+    jiraTokenUpdatedAt: { type: Date },
     lastLoginAt: { type: Date },
   },
   { timestamps: true }

@@ -8,6 +8,7 @@ export function publicUser(user) {
     email: user.email || "",
     role: user.role || "user",
     jiraAccountId: user.jiraAccountId || "",
+    jiraTokenUpdatedAt: user.jiraTokenUpdatedAt || null,
     lastLoginAt: user.lastLoginAt || null,
   };
 }

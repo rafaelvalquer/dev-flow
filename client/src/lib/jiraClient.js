@@ -8,8 +8,11 @@ function isJsonResponse(res) {
 }
 
 async function readBody(res) {
-  if (isJsonResponse(res)) return await res.json();
-  return await res.text();
+  if (res.status === 204 || res.status === 205) return null;
+  const text = await res.text();
+  if (!text) return null;
+  if (isJsonResponse(res)) return JSON.parse(text);
+  return text;
 }
 
 function toErrorPayload(status, body) {

@@ -2,12 +2,18 @@
 import {
   Blocks,
   ChevronRight,
+  Download,
   FileText,
+  KeyRound,
   LayoutDashboard,
+  LogIn,
+  LogOut,
+  Mail,
   PanelLeftClose,
   PanelLeftOpen,
   Settings2,
   Sparkles,
+  UserPlus,
 } from "lucide-react";
 import { Toaster } from "sonner";
 
@@ -19,6 +25,12 @@ import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
 import ToolsTab from "./components/ToolsTab";
 import SystemSettingsTab from "./components/SystemSettingsTab";
+import {
+  fetchCurrentUser,
+  loginUser,
+  logoutUser,
+  registerUser,
+} from "./lib/auth";
 import {
   fetchCalendarSettings,
   saveCalendarSettings,
@@ -83,7 +95,7 @@ const MAIN_TABS = [
   },
 ];
 
-export default function App() {
+function AppShell({ currentUser, onLogout, onUserUpdated }) {
   const [mainTab, setMainTab] = useState("gmud");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [visitedTabs, setVisitedTabs] = useState(() => new Set(["gmud"]));
@@ -232,6 +244,29 @@ export default function App() {
               </div>
             </div>
 
+            <div className="app-user-card">
+              <div className="app-user-card__avatar" aria-hidden="true">
+                {String(currentUser?.name || currentUser?.email || "?")
+                  .slice(0, 1)
+                  .toUpperCase()}
+              </div>
+
+              <div className="app-user-card__content">
+                <strong>{currentUser?.name || "Usuario"}</strong>
+                <span>{currentUser?.email}</span>
+              </div>
+
+              <button
+                type="button"
+                className="app-user-card__logout"
+                onClick={onLogout}
+                aria-label="Sair"
+                title="Sair"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+
             <nav className="app-nav" role="tablist" aria-label="Módulos">
               {MAIN_TABS.map((tab) => {
                 const TabIcon = tab.icon;
@@ -339,9 +374,11 @@ export default function App() {
 
               {mainTab === "settings" ? (
                 <SystemSettingsTab
+                  currentUser={currentUser}
                   calendarSettings={calendarSettings}
                   calendarSettingsLoading={calendarSettingsLoading}
                   onSaveCalendarSettings={handleSaveCalendarSettings}
+                  onUserUpdated={onUserUpdated}
                 />
               ) : null}
             </section>
@@ -351,5 +388,188 @@ export default function App() {
 
       <Toaster richColors position="top-right" />
     </>
+  );
+}
+
+function AuthScreen({ onAuthenticated }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [jiraApiToken, setJiraApiToken] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const isRegister = mode === "register";
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const user = isRegister
+        ? await registerUser({ email, password, jiraApiToken })
+        : await loginUser({ email, password });
+      onAuthenticated(user);
+    } catch (err) {
+      setError(err?.message || "Nao foi possivel autenticar.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function toggleMode() {
+    setMode((value) => (value === "login" ? "register" : "login"));
+    setError("");
+  }
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel" aria-labelledby="auth-title">
+        <div className="auth-brand">
+          <img
+            className="auth-brand__logo"
+            src="https://upload.wikimedia.org/wikipedia/commons/0/0c/Claro.svg"
+            alt="Logo Claro"
+          />
+          <div>
+            <span>Claro Dev Flow</span>
+            <h1 id="auth-title">
+              {isRegister ? "Criar acesso" : "Entrar na plataforma"}
+            </h1>
+          </div>
+        </div>
+
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <label className="auth-field">
+            <span>E-mail corporativo</span>
+            <div className="auth-field__control">
+              <Mail className="h-4 w-4" />
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                required
+              />
+            </div>
+          </label>
+
+          <label className="auth-field">
+            <span>Senha</span>
+            <div className="auth-field__control">
+              <KeyRound className="h-4 w-4" />
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete={isRegister ? "new-password" : "current-password"}
+                minLength={8}
+                required
+              />
+            </div>
+          </label>
+
+          {isRegister ? (
+            <label className="auth-field">
+              <span>Token do Jira</span>
+              <div className="auth-field__control">
+                <KeyRound className="h-4 w-4" />
+                <input
+                  type="password"
+                  value={jiraApiToken}
+                  onChange={(event) => setJiraApiToken(event.target.value)}
+                  autoComplete="off"
+                  required
+                />
+              </div>
+            </label>
+          ) : null}
+
+          {error ? <p className="auth-error">{error}</p> : null}
+
+          <button type="submit" className="auth-submit" disabled={submitting}>
+            {isRegister ? (
+              <UserPlus className="h-4 w-4" />
+            ) : (
+              <LogIn className="h-4 w-4" />
+            )}
+            {submitting
+              ? "Validando..."
+              : isRegister
+                ? "Cadastrar e entrar"
+                : "Entrar"}
+          </button>
+        </form>
+
+        <div className="auth-actions">
+          <button type="button" onClick={toggleMode}>
+            {isRegister ? "Ja tenho cadastro" : "Criar cadastro"}
+          </button>
+
+          {isRegister ? (
+            <a
+              href="/tutorials/apresentacao-criar-token-api-jira.pptx"
+              download
+            >
+              <Download className="h-4 w-4" />
+              Baixar tutorial do token
+            </a>
+          ) : null}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+
+    fetchCurrentUser()
+      .then((user) => {
+        if (active) setCurrentUser(user);
+      })
+      .catch(() => {
+        if (active) setCurrentUser(null);
+      })
+      .finally(() => {
+        if (active) setAuthLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleLogout() {
+    await logoutUser().catch(() => null);
+    setCurrentUser(null);
+  }
+
+  if (authLoading) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel auth-panel--loading">
+          <span className="auth-loading-dot" />
+          <p>Carregando sessão...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthScreen onAuthenticated={setCurrentUser} />;
+  }
+
+  return (
+    <AppShell
+      currentUser={currentUser}
+      onLogout={handleLogout}
+      onUserUpdated={setCurrentUser}
+    />
   );
 }

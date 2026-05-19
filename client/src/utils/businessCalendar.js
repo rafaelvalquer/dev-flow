@@ -129,7 +129,7 @@ export function addBusinessDays(
   settings = DEFAULT_CALENDAR_SETTINGS,
 ) {
   const total = Math.max(1, parseInt(String(amount || 1), 10) || 1);
-  let cursor = toLocalDate(start);
+  let cursor = nextWorkingDay(start, settings, { includeCurrent: true });
   if (!cursor) return null;
 
   let counted = 1;
@@ -154,8 +154,8 @@ export function businessDurationDays(
 
   const min = first <= last ? first : last;
   const max = first <= last ? last : first;
-  let cursor = addCalendarDays(min, 1);
-  let count = 1;
+  let cursor = min;
+  let count = 0;
 
   for (let guard = 0; cursor <= max && guard < 3700; guard += 1) {
     if (isWorkingDay(cursor, settings)) count += 1;

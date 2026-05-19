@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import User from "../models/User.js";
-import { publicUser } from "../middlewares/auth.js";
+import { publicUser, requireAuth } from "../middlewares/auth.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
 import { fetchWithTimeout } from "../utils/http.js";
 
@@ -74,6 +74,14 @@ function startSession(req, user) {
   req.session.userId = String(user._id);
 }
 
+function assertCurrentPassword(user, currentPassword) {
+  if (!verifyPassword(String(currentPassword || ""), user.passwordHash)) {
+    const error = new Error("Senha atual invalida.");
+    error.status = 401;
+    throw error;
+  }
+}
+
 export default function authRoutes({ env }) {
   const router = Router();
 
@@ -116,6 +124,7 @@ export default function authRoutes({ env }) {
         passwordHash: hashPassword(password),
         jiraApiToken,
         jiraAccountId: jiraUser.accountId || "",
+        jiraTokenUpdatedAt: new Date(),
         lastLoginAt: new Date(),
       });
 
@@ -142,6 +151,74 @@ export default function authRoutes({ env }) {
       startSession(req, user);
       res.json({ ok: true, user: publicUser(user) });
     } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/password", requireAuth, async (req, res, next) => {
+    try {
+      const currentPassword = String(req.body?.currentPassword || "");
+      const newPassword = String(req.body?.newPassword || "");
+
+      assertCurrentPassword(req.user, currentPassword);
+
+      if (newPassword.length < 8) {
+        return res
+          .status(400)
+          .json({ error: "A nova senha deve ter pelo menos 8 caracteres." });
+      }
+
+      req.user.passwordHash = hashPassword(newPassword);
+      await req.user.save();
+
+      res.json({ ok: true, user: publicUser(req.user) });
+    } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      next(err);
+    }
+  });
+
+  router.put("/jira-token", requireAuth, async (req, res, next) => {
+    try {
+      const currentPassword = String(req.body?.currentPassword || "");
+      const jiraApiToken = String(
+        req.body?.jiraApiToken || req.body?.token || ""
+      ).trim();
+
+      assertCurrentPassword(req.user, currentPassword);
+
+      if (!jiraApiToken) {
+        return res.status(400).json({ error: "Informe o novo token do Jira." });
+      }
+
+      let jiraUser;
+      try {
+        jiraUser = await validateJiraToken({
+          env,
+          email: req.user.email,
+          token: jiraApiToken,
+        });
+      } catch (err) {
+        return res
+          .status(err.status === 401 || err.status === 403 ? err.status : 400)
+          .json({
+            error: err.message || "Nao foi possivel validar o token do Jira.",
+          });
+      }
+
+      req.user.jiraApiToken = jiraApiToken;
+      req.user.jiraAccountId = jiraUser.accountId || req.user.jiraAccountId;
+      req.user.name = jiraUser.displayName || req.user.name;
+      req.user.jiraTokenUpdatedAt = new Date();
+      await req.user.save();
+
+      res.json({ ok: true, user: publicUser(req.user) });
+    } catch (err) {
+      if (err.status) {
+        return res.status(err.status).json({ error: err.message });
+      }
       next(err);
     }
   });

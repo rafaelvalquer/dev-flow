@@ -1,0 +1,67 @@
+async function readAuthResponse(res) {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message =
+      body?.error?.message || body?.error || body?.message || `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+export async function fetchCurrentUser() {
+  const res = await fetch("/api/auth/me", { credentials: "include" });
+  const body = await readAuthResponse(res);
+  return body.user || null;
+}
+
+export async function loginUser({ email, password }) {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
+
+export async function registerUser({ email, password, jiraApiToken }) {
+  const res = await fetch("/api/auth/register", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, jiraApiToken }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
+
+export async function logoutUser() {
+  const res = await fetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+  });
+  await readAuthResponse(res);
+}
+
+export async function updatePassword({ currentPassword, newPassword }) {
+  const res = await fetch("/api/auth/password", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
+
+export async function updateJiraToken({ currentPassword, jiraApiToken }) {
+  const res = await fetch("/api/auth/jira-token", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, jiraApiToken }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
