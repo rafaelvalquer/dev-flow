@@ -6,9 +6,12 @@ import {
   Download,
   KeyRound,
   Loader2,
+  Palette,
   Plus,
+  RefreshCw,
   Save,
   Settings2,
+  ShieldCheck,
   Trash2,
   User,
 } from "lucide-react";
@@ -26,7 +29,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { updateJiraToken, updatePassword } from "@/lib/auth";
+import {
+  testJiraStatus,
+  updateJiraToken,
+  updatePassword,
+  updatePreferences,
+  updateProfile,
+} from "@/lib/auth";
 import { ModuleHeader } from "@/components/layout/ModulePrimitives";
 import {
   countActiveHolidays,
@@ -48,6 +57,42 @@ function makeHoliday() {
 function formatDateTime(value, fallback = "Nao informado") {
   if (!value) return fallback;
   return new Date(value).toLocaleString("pt-BR");
+}
+
+const TAB_OPTIONS = [
+  { value: "gmud", label: "Central do Desenvolvedor" },
+  { value: "rdm", label: "RDM" },
+  { value: "am", label: "Painel PO" },
+  { value: "tools", label: "Ferramentas" },
+  { value: "settings", label: "Configuracoes" },
+];
+
+const DEFAULT_PREFERENCES = {
+  theme: "claro",
+  defaultTab: "gmud",
+  sidebarCollapsed: false,
+};
+
+const THEME_OPTIONS = [
+  { value: "claro", label: "Claro", helper: "Vermelho Claro e superficies claras" },
+  { value: "grafite", label: "Grafite", helper: "Cinza elegante com acoes em vermelho" },
+  { value: "oceano", label: "Oceano", helper: "Azuis suaves com acentos teal" },
+  { value: "verde", label: "Verde", helper: "Verdes claros com contraste azul" },
+];
+
+function normalizePreferences(preferences = {}) {
+  const validTabs = new Set(TAB_OPTIONS.map((tab) => tab.value));
+  const validThemes = new Set(THEME_OPTIONS.map((theme) => theme.value));
+  const theme = preferences.theme === "light" ? "claro" : preferences.theme;
+  return {
+    theme: validThemes.has(theme)
+      ? theme
+      : DEFAULT_PREFERENCES.theme,
+    defaultTab: validTabs.has(preferences.defaultTab)
+      ? preferences.defaultTab
+      : DEFAULT_PREFERENCES.defaultTab,
+    sidebarCollapsed: Boolean(preferences.sidebarCollapsed),
+  };
 }
 
 export default function SystemSettingsTab({
@@ -74,11 +119,24 @@ export default function SystemSettingsTab({
     currentPassword: "",
     jiraApiToken: "",
   });
+  const [profileName, setProfileName] = useState(currentUser?.name || "");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [jiraStatusLoading, setJiraStatusLoading] = useState(false);
+  const [jiraStatus, setJiraStatus] = useState(null);
+  const [preferencesDraft, setPreferencesDraft] = useState(() =>
+    normalizePreferences(currentUser?.preferences)
+  );
+  const [preferencesSaving, setPreferencesSaving] = useState(false);
 
   useEffect(() => {
     if (dirty) return;
     setDraft(normalizeCalendarSettings(calendarSettings));
   }, [calendarSettings, dirty]);
+
+  useEffect(() => {
+    setProfileName(currentUser?.name || "");
+    setPreferencesDraft(normalizePreferences(currentUser?.preferences));
+  }, [currentUser]);
 
   const preview = useMemo(() => {
     const normalized = normalizeCalendarSettings(draft);
@@ -189,6 +247,54 @@ export default function SystemSettingsTab({
       toast.error(err?.message || "Nao foi possivel atualizar o token Jira.");
     } finally {
       setTokenSaving(false);
+    }
+  }
+
+  async function handleProfileSave(event) {
+    event.preventDefault();
+
+    setProfileSaving(true);
+    try {
+      const user = await updateProfile({ name: profileName });
+      onUserUpdated?.(user);
+      toast.success("Perfil atualizado.");
+    } catch (err) {
+      toast.error(err?.message || "Nao foi possivel atualizar o perfil.");
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function handleJiraStatusTest() {
+    setJiraStatusLoading(true);
+    setJiraStatus(null);
+    try {
+      const status = await testJiraStatus();
+      setJiraStatus(status);
+      toast.success("Conexao Jira validada.");
+    } catch (err) {
+      setJiraStatus({
+        ok: false,
+        error: err?.message || "Nao foi possivel testar a conexao Jira.",
+      });
+      toast.error(err?.message || "Nao foi possivel testar a conexao Jira.");
+    } finally {
+      setJiraStatusLoading(false);
+    }
+  }
+
+  async function handlePreferencesSave(event) {
+    event.preventDefault();
+
+    setPreferencesSaving(true);
+    try {
+      const user = await updatePreferences(preferencesDraft);
+      onUserUpdated?.(user);
+      toast.success("Preferencias salvas.");
+    } catch (err) {
+      toast.error(err?.message || "Nao foi possivel salvar as preferencias.");
+    } finally {
+      setPreferencesSaving(false);
     }
   }
 
@@ -512,6 +618,116 @@ export default function SystemSettingsTab({
               <div className="grid gap-4 xl:grid-cols-2">
                 <form
                   className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4"
+                  onSubmit={handleProfileSave}
+                >
+                  <div>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                      <User className="h-4 w-4 text-red-600" />
+                      Perfil basico
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      Edite somente o nome de exibicao. O e-mail permanece fixo.
+                    </p>
+                  </div>
+
+                  <Input
+                    value={profileName}
+                    onChange={(event) => setProfileName(event.target.value)}
+                    placeholder="Nome de exibicao"
+                    className="h-10 rounded-xl border-zinc-200 bg-white"
+                    maxLength={120}
+                  />
+
+                  <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                    E-mail:{" "}
+                    <strong className="break-all text-zinc-900">
+                      {currentUser?.email || "Nao informado"}
+                    </strong>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                    disabled={profileSaving}
+                  >
+                    {profileSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    Salvar perfil
+                  </Button>
+                </form>
+
+                <section className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                      <ShieldCheck className="h-4 w-4 text-red-600" />
+                      Status Jira
+                    </h3>
+                    <p className="text-xs text-zinc-500">
+                      Teste o token atual sem alterar a credencial salva.
+                    </p>
+                  </div>
+
+                  {jiraStatus ? (
+                    <div
+                      className={cn(
+                        "rounded-xl border px-3 py-3 text-sm",
+                        jiraStatus.ok
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                          : "border-red-200 bg-red-50 text-red-900"
+                      )}
+                    >
+                      {jiraStatus.ok ? (
+                        <div className="grid gap-1">
+                          <strong>Conexao Jira validada.</strong>
+                          <span>
+                            {jiraStatus.jiraUser?.displayName ||
+                              "Usuario Jira"}{" "}
+                            {jiraStatus.jiraUser?.emailAddress
+                              ? `- ${jiraStatus.jiraUser.emailAddress}`
+                              : ""}
+                          </span>
+                          {jiraStatus.jiraUser?.accountId ? (
+                            <span className="break-all text-xs">
+                              accountId: {jiraStatus.jiraUser.accountId}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <strong>
+                          {jiraStatus.error ||
+                            "Nao foi possivel validar o token Jira."}
+                        </strong>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
+                      Nenhum teste executado nesta sessao.
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-zinc-200 bg-white"
+                    onClick={handleJiraStatusTest}
+                    disabled={jiraStatusLoading}
+                  >
+                    {jiraStatusLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Testar conexao Jira
+                  </Button>
+                </section>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <form
+                  className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4"
                   onSubmit={handlePasswordSave}
                 >
                   <div>
@@ -652,29 +868,108 @@ export default function SystemSettingsTab({
                 </form>
               </div>
 
-              <section className="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
-                <h3 className="text-sm font-semibold text-zinc-900">
-                  Backlog do menu
-                </h3>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {[
-                    "Perfil basico e nome de exibicao",
-                    "Teste de conexao com Jira",
-                    "Aviso de rotacao de token",
-                    "Preferencias pessoais",
-                    "Sessoes ativas",
-                    "Administracao de usuarios",
-                    "Recuperacao de senha",
-                  ].map((item) => (
-                    <div
-                      key={item}
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700"
-                    >
-                      {item}
-                    </div>
-                  ))}
+              <form
+                className="grid gap-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4"
+                onSubmit={handlePreferencesSave}
+              >
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                    <Palette className="h-4 w-4 text-red-600" />
+                    Preferencias pessoais
+                  </h3>
+                  <p className="text-xs text-zinc-500">
+                    Estas escolhas ficam salvas no seu usuario e valem no
+                    proximo login.
+                  </p>
                 </div>
-              </section>
+
+                <div className="grid items-start gap-3 md:grid-cols-3">
+                  <label className="grid gap-2 text-xs font-semibold text-zinc-700">
+                    <span>Tema</span>
+                    <select
+                      value={preferencesDraft.theme}
+                      onChange={(event) =>
+                        setPreferencesDraft((current) => ({
+                          ...current,
+                          theme: event.target.value,
+                        }))
+                      }
+                      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                    >
+                      {THEME_OPTIONS.map((theme) => (
+                        <option key={theme.value} value={theme.value}>
+                          {theme.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                      {
+                        THEME_OPTIONS.find(
+                          (theme) => theme.value === preferencesDraft.theme
+                        )?.helper
+                      }
+                    </span>
+                  </label>
+
+                  <label className="grid gap-2 text-xs font-semibold text-zinc-700">
+                    <span>Aba inicial</span>
+                    <select
+                      value={preferencesDraft.defaultTab}
+                      onChange={(event) =>
+                        setPreferencesDraft((current) => ({
+                          ...current,
+                          defaultTab: event.target.value,
+                        }))
+                      }
+                      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                    >
+                      {TAB_OPTIONS.map((tab) => (
+                        <option key={tab.value} value={tab.value}>
+                          {tab.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                      Modulo aberto ao iniciar a plataforma.
+                    </span>
+                  </label>
+
+                  <div className="grid gap-2 text-xs font-semibold text-zinc-700">
+                    <span>Layout</span>
+                    <label className="flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700">
+                      <input
+                        type="checkbox"
+                        checked={preferencesDraft.sidebarCollapsed}
+                        onChange={(event) =>
+                          setPreferencesDraft((current) => ({
+                            ...current,
+                            sidebarCollapsed: event.target.checked,
+                          }))
+                        }
+                      />
+                      Iniciar menu lateral recolhido
+                    </label>
+                    <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                      Controla o estado inicial do menu.
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                    disabled={preferencesSaving}
+                  >
+                    {preferencesSaving ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    Salvar preferencias
+                  </Button>
+                </div>
+              </form>
             </CardContent>
           </Card>
         )}

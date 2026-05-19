@@ -109,7 +109,10 @@ import {
   toCalendarEvents,
 } from "../utils/cronograma";
 import {
+  addBusinessDays,
+  businessDurationDays,
   containsNonWorkingDays,
+  nextWorkingDay,
   normalizeCalendarSettings,
   toLocalDate,
 } from "../utils/businessCalendar";
@@ -5311,6 +5314,7 @@ function CronogramaEditorModal({
   calendarSettings,
 }) {
   const [saveAttempted, setSaveAttempted] = useState(false);
+  const [daysDraftById, setDaysDraftById] = useState({});
 
   if (!issue) return null;
 
@@ -5337,6 +5341,30 @@ function CronogramaEditorModal({
     const mon = Number(m[2]);
     const d = new Date(year, mon - 1, day, 0, 0, 0, 0);
     return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatDayMonth(date) {
+    if (!date || !(date instanceof Date) || Number.isNaN(date.getTime())) {
+      return "";
+    }
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    return `${day}/${month}`;
+  }
+
+  function formatActivityRangeFromDays(start, days) {
+    const parsedDays = Math.max(1, parseInt(String(days || 1), 10) || 1);
+    const workingStart =
+      nextWorkingDay(start, calendarSettings, { includeCurrent: true }) ||
+      start;
+    const end = addBusinessDays(workingStart, parsedDays, calendarSettings);
+    if (!workingStart || !end) return "";
+
+    const startText = formatDayMonth(workingStart);
+    const endText = formatDayMonth(end);
+    return parsedDays <= 1 || startText === endText
+      ? startText
+      : `${startText} a ${endText}`;
   }
 
   function deriveIsCustom(activity) {
@@ -5389,6 +5417,14 @@ function CronogramaEditorModal({
     }
 
     return { start, end };
+  }
+
+  function getActivityBusinessDays(activity, refYear) {
+    const range = parseActivityDateRange(activity?.data, refYear);
+    if (!range) return "";
+    return String(
+      businessDurationDays(range.start, range.end, calendarSettings),
+    );
   }
 
   const dueDateObj = useMemo(
@@ -5445,6 +5481,73 @@ function CronogramaEditorModal({
     });
   }
 
+  function setActivityDate(idx, value) {
+    const currentActivity = draft?.[idx];
+    const refYear = dueDateObj?.getFullYear?.() || new Date().getFullYear();
+    const selectedRange = parseActivityDateRange(value, refYear);
+    const draftDays = Math.max(
+      1,
+      parseInt(String(daysDraftById[currentActivity?.id] || ""), 10) || 1,
+    );
+    const isSingleDate =
+      selectedRange && !/\s+a\s+/i.test(String(value || ""));
+    const shouldApplyPendingDays =
+      currentActivity &&
+      !String(currentActivity.data || "").trim() &&
+      isSingleDate &&
+      draftDays > 1;
+
+    setDraft((prev) => {
+      const next = prev.map((x) => ({ ...x }));
+      const activity = next[idx];
+      if (!activity) return prev;
+
+      if (shouldApplyPendingDays) {
+        activity.data =
+          formatActivityRangeFromDays(selectedRange.start, draftDays) || value;
+      } else {
+        activity.data = value;
+      }
+
+      return next;
+    });
+
+    if (shouldApplyPendingDays && currentActivity?.id) {
+      setModeById((prev) => ({ ...prev, [currentActivity.id]: "range" }));
+    }
+  }
+
+  function setActivityBusinessDays(idx, value) {
+    const parsedDays = Math.max(1, parseInt(String(value || ""), 10) || 1);
+    const currentActivity = draft?.[idx];
+
+    setDaysDraftById((prev) => {
+      if (!currentActivity?.id) return prev;
+      return { ...prev, [currentActivity.id]: String(parsedDays) };
+    });
+
+    setDraft((prev) => {
+      const next = prev.map((x) => ({ ...x }));
+      const activity = next[idx];
+      if (!activity) return prev;
+
+      const refYear = dueDateObj?.getFullYear?.() || new Date().getFullYear();
+      const range = parseActivityDateRange(activity.data, refYear);
+      if (!range?.start) return next;
+
+      const nextData = formatActivityRangeFromDays(range.start, parsedDays);
+      if (nextData) activity.data = nextData;
+      return next;
+    });
+
+    if (currentActivity?.id && String(currentActivity.data || "").trim()) {
+      setModeById((prev) => ({
+        ...prev,
+        [currentActivity.id]: parsedDays > 1 ? "range" : "single",
+      }));
+    }
+  }
+
   function moveRow(idx, direction) {
     setDraft((prev) => {
       const target = idx + direction;
@@ -5495,6 +5598,18 @@ function CronogramaEditorModal({
       return next;
     });
   }, [draft, issue?.key]);
+
+  useEffect(() => {
+    setDaysDraftById((prev) => {
+      const next = {};
+      const baseYear = dueDateObj?.getFullYear?.() || new Date().getFullYear();
+      (draft || []).forEach((activity) => {
+        const calculated = getActivityBusinessDays(activity, baseYear);
+        next[activity.id] = calculated || prev[activity.id] || "";
+      });
+      return next;
+    });
+  }, [calendarSettings, draft, dueDateObj, issue?.key]);
 
   return (
     <Dialog
@@ -5612,10 +5727,11 @@ function CronogramaEditorModal({
               )}
 
               <div className="overflow-x-auto overflow-y-hidden md:overflow-visible rounded-2xl border border-zinc-200">
-                <div className="min-w-[920px] md:min-w-0">
-                  <div className="sticky top-0 z-10 hidden md:grid md:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)_110px] gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700">
+                <div className="min-w-[1040px] md:min-w-0">
+                  <div className="sticky top-0 z-10 hidden md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(170px,1fr)_80px_minmax(130px,1fr)_minmax(130px,1fr)_110px] gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700">
                     <div>Atividade</div>
                     <div>Data</div>
+                    <div>Dias</div>
                     <div>Recurso</div>
                     <div>Área</div>
                     <div>Ações</div>
@@ -5634,7 +5750,7 @@ function CronogramaEditorModal({
                           key={a.id}
                           className={cn(
                             "border-t border-zinc-200 px-3 py-2",
-                            "md:grid md:grid-cols-[minmax(240px,1.5fr)_minmax(180px,1fr)_minmax(140px,1fr)_minmax(140px,1fr)_110px] md:items-start md:gap-2",
+                            "md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(170px,1fr)_80px_minmax(130px,1fr)_minmax(130px,1fr)_110px] md:items-start md:gap-2",
                             "grid gap-3",
                           )}
                         >
@@ -5672,9 +5788,35 @@ function CronogramaEditorModal({
                               onModeChange={(m) =>
                                 setModeById((prev) => ({ ...prev, [a.id]: m }))
                               }
-                              onChange={(val) => setCell(idx, "data", val)}
+                              onChange={(val) => setActivityDate(idx, val)}
                               disabled={loading}
                               className="w-full"
+                            />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                              Dias
+                            </div>
+                            <Input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={
+                                getActivityBusinessDays(
+                                  a,
+                                  dueDateObj?.getFullYear?.() ||
+                                    new Date().getFullYear(),
+                                ) ||
+                                daysDraftById[a.id] ||
+                                ""
+                              }
+                              onChange={(e) =>
+                                setActivityBusinessDays(idx, e.target.value)
+                              }
+                              placeholder="1"
+                              disabled={loading}
+                              className="h-10 rounded-xl border-zinc-200 bg-white text-center focus-visible:ring-red-500"
                             />
                           </div>
 

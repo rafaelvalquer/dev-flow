@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   Blocks,
+  Check,
   ChevronRight,
   Download,
   FileText,
@@ -15,7 +16,7 @@ import {
   Sparkles,
   UserPlus,
 } from "lucide-react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 
 import "./App.css";
 import "./module-primitives.css";
@@ -41,6 +42,21 @@ import {
 } from "./utils/businessCalendar";
 
 import "react-day-picker/dist/style.css";
+
+const AUTH_SESSION_EXPIRED_EVENT = "devflow:auth-session-expired";
+
+function isSameOriginApiRequest(input) {
+  try {
+    const rawUrl = typeof input === "string" ? input : input?.url;
+    if (!rawUrl) return false;
+    const url = new URL(rawUrl, window.location.origin);
+    return (
+      url.origin === window.location.origin && url.pathname.startsWith("/api/")
+    );
+  } catch {
+    return false;
+  }
+}
 
 const MAIN_TABS = [
   {
@@ -95,10 +111,19 @@ const MAIN_TABS = [
   },
 ];
 
+const MAIN_TAB_IDS = new Set(MAIN_TABS.map((tab) => tab.id));
+
+function normalizeDefaultTab(tabId) {
+  return MAIN_TAB_IDS.has(tabId) ? tabId : "gmud";
+}
+
 function AppShell({ currentUser, onLogout, onUserUpdated }) {
-  const [mainTab, setMainTab] = useState("gmud");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [visitedTabs, setVisitedTabs] = useState(() => new Set(["gmud"]));
+  const preferredTab = normalizeDefaultTab(currentUser?.preferences?.defaultTab);
+  const [mainTab, setMainTab] = useState(preferredTab);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    Boolean(currentUser?.preferences?.sidebarCollapsed)
+  );
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set([preferredTab]));
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
   const [rdmTitle, setRdmTitle] = useState("");
   const [rdmDueDate, setRdmDueDate] = useState("");
@@ -125,6 +150,21 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    const nextTab = normalizeDefaultTab(currentUser?.preferences?.defaultTab);
+    setMainTab(nextTab);
+    setVisitedTabs((prev) => {
+      if (prev.has(nextTab)) return prev;
+      const next = new Set(prev);
+      next.add(nextTab);
+      return next;
+    });
+  }, [currentUser?.preferences?.defaultTab]);
+
+  useEffect(() => {
+    setSidebarCollapsed(Boolean(currentUser?.preferences?.sidebarCollapsed));
+  }, [currentUser?.preferences?.sidebarCollapsed]);
 
   async function handleSaveCalendarSettings(nextSettings) {
     const saved = await saveCalendarSettings(nextSettings);
@@ -196,6 +236,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
   return (
     <>
       <div
+        data-theme={currentUser?.preferences?.theme || "claro"}
         className={`app-shell app-shell--${mainTab} ${
           sidebarCollapsed ? "app-shell--sidebar-collapsed" : ""
         }`}
@@ -396,6 +437,7 @@ function AuthScreen({ onAuthenticated }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [jiraApiToken, setJiraApiToken] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -409,7 +451,7 @@ function AuthScreen({ onAuthenticated }) {
     try {
       const user = isRegister
         ? await registerUser({ email, password, jiraApiToken })
-        : await loginUser({ email, password });
+        : await loginUser({ email, password, rememberMe });
       onAuthenticated(user);
     } catch (err) {
       setError(err?.message || "Nao foi possivel autenticar.");
@@ -421,6 +463,7 @@ function AuthScreen({ onAuthenticated }) {
   function toggleMode() {
     setMode((value) => (value === "login" ? "register" : "login"));
     setError("");
+    setRememberMe(false);
   }
 
   return (
@@ -486,6 +529,20 @@ function AuthScreen({ onAuthenticated }) {
             </label>
           ) : null}
 
+          {!isRegister ? (
+            <label className="auth-remember">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+              />
+              <span className="auth-remember__box" aria-hidden="true">
+                {rememberMe ? <Check className="h-3.5 w-3.5" /> : null}
+              </span>
+              <span>Manter logado</span>
+            </label>
+          ) : null}
+
           {error ? <p className="auth-error">{error}</p> : null}
 
           <button type="submit" className="auth-submit" disabled={submitting}>
@@ -525,6 +582,49 @@ function AuthScreen({ onAuthenticated }) {
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    const originalFetch = window.fetch;
+
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+
+      if (response.status === 401 && isSameOriginApiRequest(args[0])) {
+        response
+          .clone()
+          .json()
+          .then((payload) => {
+            if (payload?.error?.code === "AUTH_REQUIRED") {
+              window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+            }
+          })
+          .catch(() => null);
+      }
+
+      return response;
+    };
+
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      setCurrentUser((user) => {
+        if (user) toast.error("Sessao expirada. Entre novamente.");
+        return null;
+      });
+    }
+
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => {
+      window.removeEventListener(
+        AUTH_SESSION_EXPIRED_EVENT,
+        handleSessionExpired,
+      );
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;

@@ -1,5 +1,24 @@
 import User from "../models/User.js";
 
+const DEFAULT_PREFERENCES = {
+  theme: "claro",
+  defaultTab: "gmud",
+  sidebarCollapsed: false,
+};
+
+const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
+
+function publicPreferences(preferences = {}) {
+  const theme = preferences.theme === "light" ? "claro" : preferences.theme;
+  return {
+    theme: VALID_THEMES.has(theme)
+      ? theme
+      : DEFAULT_PREFERENCES.theme,
+    defaultTab: preferences.defaultTab || DEFAULT_PREFERENCES.defaultTab,
+    sidebarCollapsed: Boolean(preferences.sidebarCollapsed),
+  };
+}
+
 export function publicUser(user) {
   if (!user) return null;
   return {
@@ -10,6 +29,7 @@ export function publicUser(user) {
     jiraAccountId: user.jiraAccountId || "",
     jiraTokenUpdatedAt: user.jiraTokenUpdatedAt || null,
     lastLoginAt: user.lastLoginAt || null,
+    preferences: publicPreferences(user.preferences),
   };
 }
 

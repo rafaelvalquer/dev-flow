@@ -14,12 +14,12 @@ export async function fetchCurrentUser() {
   return body.user || null;
 }
 
-export async function loginUser({ email, password }) {
+export async function loginUser({ email, password, rememberMe = false }) {
   const res = await fetch("/api/auth/login", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, rememberMe }),
   });
   const body = await readAuthResponse(res);
   return body.user;
@@ -61,6 +61,35 @@ export async function updateJiraToken({ currentPassword, jiraApiToken }) {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ currentPassword, jiraApiToken }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
+
+export async function updateProfile({ name }) {
+  const res = await fetch("/api/auth/profile", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
+
+export async function testJiraStatus() {
+  const res = await fetch("/api/auth/jira-status", {
+    credentials: "include",
+  });
+  return await readAuthResponse(res);
+}
+
+export async function updatePreferences(preferences) {
+  const res = await fetch("/api/auth/preferences", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ preferences }),
   });
   const body = await readAuthResponse(res);
   return body.user;

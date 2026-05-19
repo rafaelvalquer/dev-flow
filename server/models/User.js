@@ -1,6 +1,15 @@
 // server/models/User.js
 import mongoose from "mongoose";
 
+const UserPreferencesSchema = new mongoose.Schema(
+  {
+    theme: { type: String, trim: true, default: "claro" },
+    defaultTab: { type: String, trim: true, default: "gmud" },
+    sidebarCollapsed: { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
 const UserSchema = new mongoose.Schema(
   {
     name: { type: String, trim: true },
@@ -17,6 +26,14 @@ const UserSchema = new mongoose.Schema(
     jiraAccountId: { type: String, trim: true },
     jiraTokenUpdatedAt: { type: Date },
     lastLoginAt: { type: Date },
+    preferences: {
+      type: UserPreferencesSchema,
+      default: () => ({
+        theme: "claro",
+        defaultTab: "gmud",
+        sidebarCollapsed: false,
+      }),
+    },
   },
   { timestamps: true }
 );

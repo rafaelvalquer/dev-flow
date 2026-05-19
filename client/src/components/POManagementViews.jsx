@@ -114,21 +114,26 @@ function MiniMetric({ title, value, subtitle, tone = "neutral" }) {
 
 function CompactList({ title, items, emptyText = "Sem dados." }) {
   return (
-    <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+    <Card className="min-w-0 overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm text-zinc-900">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-2">
+      <CardContent
+        className={cn(
+          "grid min-w-0 gap-2 pr-1",
+          items?.length ? "max-h-72 overflow-y-auto" : "",
+        )}
+      >
         {items?.length ? (
           items.map((item) => (
             <div
               key={`${title}-${item.name}`}
-              className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+              className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
             >
-              <span className="truncate text-sm font-medium text-zinc-800">
+              <span className="min-w-0 truncate text-sm font-medium text-zinc-800">
                 {item.name}
               </span>
-              <Badge className="rounded-full bg-zinc-900 text-white">
+              <Badge className="shrink-0 rounded-full bg-zinc-900 text-white">
                 {item.value}
               </Badge>
             </div>

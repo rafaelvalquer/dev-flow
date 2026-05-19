@@ -7,6 +7,15 @@ import { fetchWithTimeout } from "../utils/http.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HASH_PREFIX = "scrypt";
+const VALID_TABS = new Set(["gmud", "rdm", "am", "tools", "settings"]);
+const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
+const SHORT_SESSION_MS = 60 * 60 * 1000;
+const REMEMBER_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_PREFERENCES = {
+  theme: "claro",
+  defaultTab: "gmud",
+  sidebarCollapsed: false,
+};
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -70,8 +79,11 @@ async function validateJiraToken({ env, email, token }) {
   return payload || {};
 }
 
-function startSession(req, user) {
+function startSession(req, user, { rememberMe = false } = {}) {
   req.session.userId = String(user._id);
+  req.session.cookie.maxAge = rememberMe
+    ? REMEMBER_SESSION_MS
+    : SHORT_SESSION_MS;
 }
 
 function assertCurrentPassword(user, currentPassword) {
@@ -80,6 +92,24 @@ function assertCurrentPassword(user, currentPassword) {
     error.status = 401;
     throw error;
   }
+}
+
+function normalizePreferences(rawPreferences = {}) {
+  const rawTheme = String(
+    rawPreferences.theme || DEFAULT_PREFERENCES.theme
+  ).trim();
+  const theme = rawTheme === "light" ? "claro" : rawTheme;
+  const defaultTab = String(
+    rawPreferences.defaultTab || DEFAULT_PREFERENCES.defaultTab
+  ).trim();
+
+  return {
+    theme: VALID_THEMES.has(theme) ? theme : DEFAULT_PREFERENCES.theme,
+    defaultTab: VALID_TABS.has(defaultTab)
+      ? defaultTab
+      : DEFAULT_PREFERENCES.defaultTab,
+    sidebarCollapsed: Boolean(rawPreferences.sidebarCollapsed),
+  };
 }
 
 export default function authRoutes({ env }) {
@@ -139,6 +169,7 @@ export default function authRoutes({ env }) {
     try {
       const email = normalizeEmail(req.body?.email);
       const password = String(req.body?.password || "");
+      const rememberMe = Boolean(req.body?.rememberMe);
 
       const user = await User.findOne({ email });
       if (!user || !verifyPassword(password, user.passwordHash)) {
@@ -148,8 +179,65 @@ export default function authRoutes({ env }) {
       user.lastLoginAt = new Date();
       await user.save();
 
-      startSession(req, user);
+      startSession(req, user, { rememberMe });
       res.json({ ok: true, user: publicUser(user) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put("/profile", requireAuth, async (req, res, next) => {
+    try {
+      const name = String(req.body?.name || "").trim().slice(0, 120);
+      req.user.name = name;
+      await req.user.save();
+
+      res.json({ ok: true, user: publicUser(req.user) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/jira-status", requireAuth, async (req, res) => {
+    if (!req.user.jiraApiToken) {
+      return res.status(400).json({
+        ok: false,
+        error: "Token Jira nao cadastrado para este usuario.",
+      });
+    }
+
+    try {
+      const jiraUser = await validateJiraToken({
+        env,
+        email: req.user.email,
+        token: req.user.jiraApiToken,
+      });
+
+      return res.json({
+        ok: true,
+        jiraUser: {
+          accountId: jiraUser.accountId || "",
+          displayName: jiraUser.displayName || "",
+          emailAddress: jiraUser.emailAddress || "",
+          active: jiraUser.active !== false,
+        },
+      });
+    } catch (err) {
+      return res
+        .status(err.status === 401 || err.status === 403 ? err.status : 400)
+        .json({
+          ok: false,
+          error: err.message || "Nao foi possivel validar o token do Jira.",
+        });
+    }
+  });
+
+  router.put("/preferences", requireAuth, async (req, res, next) => {
+    try {
+      req.user.preferences = normalizePreferences(req.body?.preferences || req.body);
+      await req.user.save();
+
+      res.json({ ok: true, user: publicUser(req.user) });
     } catch (err) {
       next(err);
     }
