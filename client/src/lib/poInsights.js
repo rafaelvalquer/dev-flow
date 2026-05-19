@@ -410,9 +410,9 @@ const RESOLUTION_DEFINITIONS = {
     recommendedAction: "Criar cronograma com atividades, datas e responsaveis.",
   },
   noOwner: {
-    label: "Sem responsavel",
-    reason: "O ticket nao tem responsavel definido.",
-    recommendedAction: "Definir responsavel pelo ticket antes de avancar.",
+    label: "Sem responsável",
+    reason: "O ticket não tem responsável definido.",
+    recommendedAction: "Definir responsável pelo ticket antes de avançar.",
   },
   overdue: {
     label: "Atrasado",
@@ -435,7 +435,7 @@ const RESOLUTION_DEFINITIONS = {
     recommendedAction: "Confirmar se as atividades finais estao em andamento.",
   },
   noRecentUpdate: {
-    label: "Sem avanco",
+    label: "Sem avanço",
     reason: "O ticket esta sem atualizacao recente.",
     recommendedAction: "Cobrar atualizacao de status ou registrar impedimento.",
   },
@@ -527,7 +527,25 @@ function decorateBriefingItem(item, kind) {
   };
 }
 
-export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = "" }) {
+function matchesOwner(item, ownerAccountId = "", ownerFocus = "") {
+  const accountId = String(ownerAccountId || "").trim();
+  if (accountId && String(item?.assigneeAccountId || "").trim() === accountId) {
+    return true;
+  }
+  if (accountId && item?.assigneeAccountId) return false;
+  return ownerFocus
+    ? normalizeStr(item?.owner).includes(normalizeStr(ownerFocus))
+    : false;
+}
+
+export function buildPoInsights({
+  rawIssues,
+  viewData,
+  doneRows,
+  ownerFocus = "",
+  ownerAccountId = "",
+  excludeDoneFromOperationalSummary = false,
+}) {
   const today0 = startOfTodayLocal();
   const calendarioIssues = Array.isArray(viewData?.calendarioIssues)
     ? viewData.calendarioIssues
@@ -540,13 +558,6 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
   );
   const { conflictByIssue, resourceRows } = buildConflictMaps(calendarioIssues);
 
-  const directorateCounter = createEmptyCounter();
-  const componentCounter = createEmptyCounter();
-  const ownerCounter = createEmptyCounter();
-  const statusCounter = createEmptyCounter();
-  const laneCounter = createEmptyCounter();
-  const agingCounter = createEmptyCounter();
-
   const items = (rawIssues || []).map((issue) => {
     const fields = issue?.fields || {};
     const key = String(issue?.key || "").trim().toUpperCase();
@@ -555,6 +566,8 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
       fields?.assignee?.displayName ||
       fields?.assignee?.name ||
       "Sem responsável";
+    const assigneeAccountId =
+      issue?.assigneeAccountId || fields?.assignee?.accountId || "";
     const createdDate = new Date(
       issue?.createdRaw || issue?.created || fields?.created || Date.now()
     );
@@ -669,31 +682,21 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     if (noRecentUpdate) queueScore += 30;
     if (hasRisk) queueScore += 25;
 
-    directorates.forEach((value) => increment(directorateCounter, value));
-    components.forEach((value) => increment(componentCounter, value));
-    increment(ownerCounter, owner);
-    increment(statusCounter, humanStatusMacro(macro));
-    increment(laneCounter, processLane);
-
-    const agingLabel =
-      daysSinceCreated == null
-        ? "Sem data"
-        : daysSinceCreated <= 7
-        ? "0-7d"
-        : daysSinceCreated <= 14
-        ? "8-14d"
-        : daysSinceCreated <= 30
-        ? "15-30d"
-        : daysSinceCreated <= 60
-        ? "31-60d"
-        : "60+d";
-    increment(agingCounter, agingLabel);
-
     const baseItemForProblems = {
       key,
       raw: issue,
-      summary: issue?.summary || fields?.summary || "â€”",
+      summary: issue?.summary || fields?.summary || "—",
       owner,
+      assigneeAccountId,
+      assigneeDisplayName:
+        issue?.assigneeDisplayName || fields?.assignee?.displayName || owner,
+      assigneeEmailAddress:
+        issue?.assigneeEmailAddress || fields?.assignee?.emailAddress || "",
+      assigneeAvatarUrl:
+        issue?.assigneeAvatarUrl ||
+        fields?.assignee?.avatarUrls?.["48x48"] ||
+        fields?.assignee?.avatarUrls?.["32x32"] ||
+        "",
       hasSchedule,
       hasOwner,
       hasStarted,
@@ -712,6 +715,16 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
       raw: issue,
       summary: issue?.summary || fields?.summary || "—",
       owner,
+      assigneeAccountId,
+      assigneeDisplayName:
+        issue?.assigneeDisplayName || fields?.assignee?.displayName || owner,
+      assigneeEmailAddress:
+        issue?.assigneeEmailAddress || fields?.assignee?.emailAddress || "",
+      assigneeAvatarUrl:
+        issue?.assigneeAvatarUrl ||
+        fields?.assignee?.avatarUrls?.["48x48"] ||
+        fields?.assignee?.avatarUrls?.["32x32"] ||
+        "",
       statusName,
       statusMacro: macro,
       statusMacroLabel: humanStatusMacro(macro),
@@ -752,12 +765,54 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     };
   });
 
-  const filteredItems = ownerFocus
-    ? items.filter((item) => normalizeStr(item.owner).includes(normalizeStr(ownerFocus)))
+  const filteredItems = ownerAccountId || ownerFocus
+    ? items.filter((item) => matchesOwner(item, ownerAccountId, ownerFocus))
     : items;
 
+  const filteredDirectorateCounter = createEmptyCounter();
+  const filteredComponentCounter = createEmptyCounter();
+  const filteredOwnerCounter = createEmptyCounter();
+  const filteredStatusCounter = createEmptyCounter();
+  const filteredLaneCounter = createEmptyCounter();
+  const filteredAgingCounter = createEmptyCounter();
+
+  filteredItems.forEach((item) => {
+    (item.directorates || []).forEach((value) =>
+      increment(filteredDirectorateCounter, value)
+    );
+    (item.components || []).forEach((value) =>
+      increment(filteredComponentCounter, value)
+    );
+    increment(filteredOwnerCounter, item.owner);
+    increment(filteredStatusCounter, item.statusMacroLabel);
+    increment(filteredLaneCounter, item.processLane);
+
+    const agingLabel =
+      item.daysSinceCreated == null
+        ? "Sem data"
+        : item.daysSinceCreated <= 7
+        ? "0-7d"
+        : item.daysSinceCreated <= 14
+        ? "8-14d"
+        : item.daysSinceCreated <= 30
+        ? "15-30d"
+        : item.daysSinceCreated <= 60
+        ? "31-60d"
+        : "60+d";
+    increment(filteredAgingCounter, agingLabel);
+  });
+
+  const isOperationalDoneItem = (item) =>
+    Boolean(item?.recentDone) ||
+    isDoneStatus(item?.statusName) ||
+    normalizeStr(item?.processLane) === "concluidos recentes";
+
   const actionQueue = filteredItems
-    .filter((item) => !item.recentDone)
+    .filter((item) =>
+      excludeDoneFromOperationalSummary
+        ? !isOperationalDoneItem(item)
+        : !item.recentDone
+    )
     .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
 
   const risks = filteredItems
@@ -780,36 +835,50 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
         key: String(row?.key || "").trim().toUpperCase(),
         summary: row?.summary || "—",
         statusName: row?.statusName || "Concluído",
+        owner: row?.assignee || row?.assigneeDisplayName || "",
+        assigneeAccountId: row?.assigneeAccountId || "",
         resolvedDate: Number.isNaN(resolved.getTime()) ? null : resolved,
       };
     })
+    .filter((item) =>
+      ownerAccountId || ownerFocus
+        ? matchesOwner(item, ownerAccountId, ownerFocus)
+        : true
+    )
     .sort((a, b) => {
       const av = a.resolvedDate?.getTime() || 0;
       const bv = b.resolvedDate?.getTime() || 0;
       return bv - av;
     });
 
-  const filteredResourceRows = ownerFocus
-    ? resourceRows.filter((row) =>
-        filteredItems.some((item) => item.resources.includes(row.resource))
-      )
+  const filteredResourceRows = ownerAccountId || ownerFocus
+    ? buildConflictMaps(
+        filteredItems.map((item) => ({
+          key: item.key,
+          atividades: item.activities || [],
+        }))
+      ).resourceRows
     : resourceRows;
 
-  const dueTodayActivities = buildDueTodayActivities(filteredItems, today0);
-  const dueTodayIssues = filteredItems.filter((item) => item.dueInDays === 0);
-  const overdueItems = filteredItems
+  const operationalItems = excludeDoneFromOperationalSummary
+    ? filteredItems.filter((item) => !isOperationalDoneItem(item))
+    : filteredItems;
+
+  const dueTodayActivities = buildDueTodayActivities(operationalItems, today0);
+  const dueTodayIssues = operationalItems.filter((item) => item.dueInDays === 0);
+  const overdueItems = operationalItems
     .filter((item) => item.overdueDays > 0)
     .sort((a, b) => b.overdueDays - a.overdueDays || b.queueScore - a.queueScore);
-  const noScheduleItems = filteredItems
+  const noScheduleItems = operationalItems
     .filter((item) => !item.hasSchedule)
     .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
-  const noOwnerItems = filteredItems
+  const noOwnerItems = operationalItems
     .filter((item) => !item.hasOwner)
     .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
-  const dueNext7Items = filteredItems
+  const dueNext7Items = operationalItems
     .filter((item) => item.dueInDays != null && item.dueInDays >= 0 && item.dueInDays <= 7)
     .sort((a, b) => a.dueInDays - b.dueInDays || b.queueScore - a.queueScore);
-  const resourceConflictItems = filteredItems
+  const resourceConflictItems = operationalItems
     .filter((item) => item.hasCapacityConflict)
     .sort((a, b) => b.queueScore - a.queueScore || a.summary.localeCompare(b.summary));
 
@@ -822,24 +891,29 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     noOwner: noOwnerItems,
   };
 
+  const briefingItems = operationalItems;
+  const briefingOverdueItems = overdueItems;
+  const briefingDueTodayItems = criticalAlerts.dueToday;
+  const briefingDoneRecent = excludeDoneFromOperationalSummary ? [] : doneRecent;
+
   const changedItems = [
-    ...filteredItems
+    ...briefingItems
       .filter((item) => hasRecentDate(item.updatedDate, today0, 1))
       .sort((a, b) => (b.updatedDate?.getTime() || 0) - (a.updatedDate?.getTime() || 0)),
-    ...doneRecent
+    ...briefingDoneRecent
       .filter((item) => hasRecentDate(item.resolvedDate, today0, 1))
       .map((item) => ({
         ...item,
-        owner: "ConcluÃ­do",
-        statusName: item.statusName || "ConcluÃ­do",
-        reason: "ConcluÃ­do recentemente",
+        owner: "Concluído",
+        statusName: item.statusName || "Concluído",
+        reason: "Concluído recentemente",
       })),
   ];
 
   const dailyBriefing = {
     changed: changedItems.slice(0, 12).map((item) => decorateBriefingItem(item, "changed")),
-    delayed: overdueItems.slice(0, 12).map((item) => decorateBriefingItem(item, "delayed")),
-    dueToday: criticalAlerts.dueToday
+    delayed: briefingOverdueItems.slice(0, 12).map((item) => decorateBriefingItem(item, "delayed")),
+    dueToday: briefingDueTodayItems
       .slice(0, 12)
       .map((item) => decorateBriefingItem(item, "dueToday")),
     recommendedActions: actionQueue
@@ -865,18 +939,18 @@ export function buildPoInsights({ rawIssues, viewData, doneRows, ownerFocus = ""
     completedLast30,
     createdLast30,
     throughputDelta: completedLast30 - createdLast30,
-    statusMacro: toCounterArray(statusCounter, 8),
-    lanes: toCounterArray(laneCounter, 8),
-    owners: toCounterArray(ownerCounter, 8),
-    directorates: toCounterArray(directorateCounter, 8),
-    components: toCounterArray(componentCounter, 8),
-    aging: toCounterArray(agingCounter, 8),
+    statusMacro: toCounterArray(filteredStatusCounter, 8),
+    lanes: toCounterArray(filteredLaneCounter, 8),
+    owners: toCounterArray(filteredOwnerCounter, 8),
+    directorates: toCounterArray(filteredDirectorateCounter, 8),
+    components: toCounterArray(filteredComponentCounter, 8),
+    aging: toCounterArray(filteredAgingCounter, 8),
   };
 
   const presetCounts = {
     all: filteredItems.length,
-    mine: ownerFocus
-      ? items.filter((item) => normalizeStr(item.owner).includes(normalizeStr(ownerFocus)))
+    mine: ownerAccountId || ownerFocus
+      ? items.filter((item) => matchesOwner(item, ownerAccountId, ownerFocus))
           .length
       : 0,
     overdue: filteredItems.filter((item) => item.overdueDays > 0).length,
@@ -913,13 +987,18 @@ export function getPoPresetLabel(preset) {
   );
 }
 
-export function getScopedIssueKeysFromPreset({ insights, activePreset, ownerFocus }) {
+export function getScopedIssueKeysFromPreset({
+  insights,
+  activePreset,
+  ownerFocus,
+  ownerAccountId = "",
+}) {
   const items = Array.isArray(insights?.items) ? insights.items : [];
 
   const scoped = items.filter((item) => {
     if (activePreset === "mine") {
-      if (!ownerFocus) return false;
-      return normalizeStr(item.owner).includes(normalizeStr(ownerFocus));
+      if (!ownerAccountId && !ownerFocus) return false;
+      return matchesOwner(item, ownerAccountId, ownerFocus);
     }
     if (activePreset === "overdue") return item.overdueDays > 0;
     if (activePreset === "noSchedule") return !item.hasSchedule;

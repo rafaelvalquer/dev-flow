@@ -1,4 +1,4 @@
-// src/components/AMPanelTab.jsx
+﻿// src/components/AMPanelTab.jsx
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -829,7 +829,11 @@ function buildExecutiveReportHtml({ viewData, rawIssues, doneRows, filters }) {
   };
   const filterParts = [
     `Recorte: ${presetLabels[filters?.activePreset] || filters?.activePreset || "Todos"}`,
-    filters?.ownerFocus ? `Responsável: ${filters.ownerFocus}` : "",
+    filters?.ownerAccountId
+      ? `Responsável Jira: ${filters.ownerFocus || filters.ownerAccountId}`
+      : filters?.ownerFocus
+        ? `Responsável: ${filters.ownerFocus}`
+        : "",
     filters?.calendarFilter ? `Busca: ${filters.calendarFilter}` : "",
     filters?.subView ? `Aba: ${filters.subView}` : "",
   ].filter(Boolean);
@@ -1071,12 +1075,145 @@ function summarizeProgressiveLoadWarning(failures = [], doneError = null) {
 /* =========================
    //#region COMPONENT
 ========================= */
-export default function AMPanelTab({ calendarSettings }) {
+function PersonalPortfolioView({
+  insights,
+  rows,
+  doneRows,
+  loading,
+  jiraUserName,
+  onOpenDetails,
+  onOpenSchedule,
+  onOpenDocumentation,
+  onResolveProblem,
+}) {
+  const portfolio = insights?.portfolio || {};
+  const alerts = insights?.criticalAlerts || {};
+  const kpis = [
+    { label: "Meus tickets", value: portfolio.total || 0, tone: "zinc" },
+    { label: "Atrasados", value: portfolio.overdue || 0, tone: "red" },
+    { label: "Próximos 7 dias", value: portfolio.dueThisWeek || 0, tone: "amber" },
+    { label: "Sem cronograma", value: portfolio.noSchedule || 0, tone: "slate" },
+    { label: "Com risco", value: portfolio.atRisk || 0, tone: "red" },
+    {
+      label: "Sem avanço",
+      value: (insights?.filteredItems || []).filter((item) => item.noRecentUpdate)
+        .length,
+      tone: "amber",
+    },
+  ];
+
+  const toneClasses = {
+    zinc: "border-zinc-200 bg-white text-zinc-900",
+    red: "border-red-200 bg-red-50 text-red-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    slate: "border-slate-200 bg-slate-50 text-slate-800",
+  };
+
+  return (
+    <section className="grid gap-4">
+      <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <CardTitle className="text-base text-zinc-900">
+                Minha Carteira
+              </CardTitle>
+              <CardDescription>
+                Recorte pessoal de {jiraUserName || "usuario Jira"} com tickets
+                atribuídos no Jira.
+              </CardDescription>
+            </div>
+            <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+              Filtro por accountId
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          {kpis.map((kpi) => (
+            <div
+              key={kpi.label}
+              className={cn(
+                "rounded-2xl border p-3",
+                toneClasses[kpi.tone] || toneClasses.zinc
+              )}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide opacity-75">
+                {kpi.label}
+              </div>
+              <div className="mt-1 text-2xl font-bold">{kpi.value}</div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base text-zinc-900">
+            Vencimentos da semana
+          </CardTitle>
+          <CardDescription>Tickets e atividades com data próxima.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid max-h-[420px] gap-2 overflow-auto md:grid-cols-2 xl:grid-cols-3">
+          {(alerts.dueNext7 || []).length ? (
+            alerts.dueNext7.slice(0, 12).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left hover:bg-white"
+                onClick={() => onOpenDetails?.(item.key)}
+              >
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <code className="max-w-[70%] truncate rounded-md bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700">
+                    {item.key}
+                  </code>
+                  <Badge className="shrink-0 rounded-full bg-zinc-900 text-white">
+                    {item.dueInDays === 0 ? "Hoje" : `${item.dueInDays}d`}
+                  </Badge>
+                </div>
+                <div className="mt-1 line-clamp-2 break-words text-sm font-medium text-zinc-900">
+                  {item.summary}
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-5 text-sm text-zinc-500 md:col-span-2 xl:col-span-3">
+              Nenhum vencimento nos próximos 7 dias.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <POActionsHub
+        personalMode
+        insights={insights}
+        onOpenDetails={onOpenDetails}
+        onOpenSchedule={onOpenSchedule}
+        onOpenDocumentation={onOpenDocumentation}
+        onResolveProblem={onResolveProblem}
+      />
+
+      <POPortfolioHub
+        personalMode
+        insights={insights}
+        onOpenDetails={onOpenDetails}
+      />
+
+      <AMDashboardTab rows={rows} doneRows={doneRows} loading={loading} />
+    </section>
+  );
+}
+
+export default function AMPanelTab({
+  calendarSettings,
+  currentUser,
+  personalMode = false,
+  onConfigureUser,
+}) {
   const effectiveCalendarSettings = useMemo(
     () => normalizeCalendarSettings(calendarSettings),
     [calendarSettings],
   );
-  const [subView, setSubView] = useState("acoes"); // acoes | portfolio | calendario | gantt | dashboard
+  const [subView, setSubView] = useState(personalMode ? "dashboard" : "acoes"); // acoes | portfolio | calendario | gantt | dashboard
   const [loading, setLoading] = useState(false);
   const [reloadProgress, setReloadProgress] = useState({
     active: false,
@@ -1087,8 +1224,10 @@ export default function AMPanelTab({ calendarSettings }) {
   });
   const reloadRunRef = useRef(0);
   const [err, setErr] = useState("");
-  const [activePreset, setActivePreset] = useState("all");
-  const [ownerFocus, setOwnerFocus] = useState("");
+  const [activePreset, setActivePreset] = useState(personalMode ? "mine" : "all");
+  const [ownerFocus, setOwnerFocus] = useState(
+    currentUser?.jiraDisplayName || currentUser?.name || ""
+  );
 
   const [rawIssues, setRawIssues] = useState([]);
   const [viewData, setViewData] = useState({
@@ -1148,6 +1287,30 @@ export default function AMPanelTab({ calendarSettings }) {
   const [persisting, setPersisting] = useState(false);
   const [changeHistory, setChangeHistory] = useState([]);
   const busy = Boolean(loading || persisting);
+  const ownerAccountId = String(currentUser?.jiraAccountId || "").trim();
+  const effectiveOwnerFocus =
+    currentUser?.jiraDisplayName || ownerFocus || currentUser?.name || "";
+  const insightOwnerAccountId = personalMode ? ownerAccountId : "";
+  const insightOwnerFocus = personalMode ? effectiveOwnerFocus : "";
+  const effectiveActivePreset =
+    !personalMode && activePreset === "mine" ? "all" : activePreset;
+
+  useEffect(() => {
+    if (!personalMode) return;
+    setActivePreset("mine");
+  }, [personalMode, ownerAccountId]);
+
+  useEffect(() => {
+    if (!personalMode && activePreset === "mine") {
+      setActivePreset("all");
+    }
+  }, [activePreset, personalMode]);
+
+  useEffect(() => {
+    if (currentUser?.jiraDisplayName) {
+      setOwnerFocus(currentUser.jiraDisplayName);
+    }
+  }, [currentUser?.jiraDisplayName]);
 
   const addChangeHistory = useCallback((entry) => {
     if (!entry?.id) return;
@@ -1384,18 +1547,33 @@ export default function AMPanelTab({ calendarSettings }) {
         rawIssues,
         viewData,
         doneRows,
-        ownerFocus,
+        ownerFocus: insightOwnerFocus,
+        ownerAccountId: insightOwnerAccountId,
+        excludeDoneFromOperationalSummary: personalMode,
       }),
-    [rawIssues, viewData, doneRows, ownerFocus],
+    [
+      rawIssues,
+      viewData,
+      doneRows,
+      insightOwnerFocus,
+      insightOwnerAccountId,
+      personalMode,
+    ],
   );
   const scopedIssueKeys = useMemo(
     () =>
       getScopedIssueKeysFromPreset({
         insights: poInsights,
-        activePreset,
-        ownerFocus,
+        activePreset: effectiveActivePreset,
+        ownerFocus: insightOwnerFocus,
+        ownerAccountId: insightOwnerAccountId,
       }),
-    [poInsights, activePreset, ownerFocus],
+    [
+      poInsights,
+      effectiveActivePreset,
+      insightOwnerFocus,
+      insightOwnerAccountId,
+    ],
   );
   const scopedViewData = useMemo(
     () => filterPoViewData(viewData, scopedIssueKeys),
@@ -1413,15 +1591,30 @@ export default function AMPanelTab({ calendarSettings }) {
     [rawIssues, scopedIssueKeys],
   );
   const scopedDoneRows = useMemo(
-    () =>
-      doneRows.filter((issue) =>
+    () => {
+      if (personalMode) {
+        const accountId = String(ownerAccountId || "").trim();
+        const ownerName = String(effectiveOwnerFocus || "").trim().toLowerCase();
+        return doneRows.filter((issue) => {
+          const issueAccountId = String(issue?.assigneeAccountId || "").trim();
+          if (accountId && issueAccountId) return issueAccountId === accountId;
+          if (!ownerName) return false;
+          const issueOwner = String(
+            issue?.assignee || issue?.assigneeDisplayName || "",
+          ).toLowerCase();
+          return issueOwner.includes(ownerName);
+        });
+      }
+
+      return doneRows.filter((issue) =>
         scopedIssueKeys.has(
           String(issue?.key || "")
             .trim()
             .toUpperCase(),
         ),
-      ),
-    [doneRows, scopedIssueKeys],
+      );
+    },
+    [doneRows, effectiveOwnerFocus, ownerAccountId, personalMode, scopedIssueKeys],
   );
   const scopedAlertas = useMemo(
     () => scopedViewData.alertas || [],
@@ -1445,16 +1638,18 @@ export default function AMPanelTab({ calendarSettings }) {
       rawIssues: scopedRawIssues,
       doneRows: scopedDoneRows,
       filters: {
-        activePreset,
-        ownerFocus,
+        activePreset: effectiveActivePreset,
+        ownerFocus: insightOwnerFocus,
+        ownerAccountId: insightOwnerAccountId,
         calendarFilter,
         subView,
       },
     });
   }, [
-    activePreset,
+    effectiveActivePreset,
     calendarFilter,
-    ownerFocus,
+    insightOwnerFocus,
+    insightOwnerAccountId,
     scopedDoneRows,
     scopedRawIssues,
     scopedViewData,
@@ -2189,13 +2384,21 @@ export default function AMPanelTab({ calendarSettings }) {
                 </div>
                 <div>
                   <h1 className="text-lg font-semibold tracking-tight text-zinc-900">
-                    Painel
+                    {personalMode ? "Minha Carteira" : "Painel"}
                   </h1>
+                  {personalMode ? (
+                    <p className="text-xs text-zinc-500">
+                      {currentUser?.jiraDisplayName ||
+                        "Tickets filtrados pelo seu usuario Jira"}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
               {/* Navegação Tickets / Calendário + Reload */}
               <div className="flex flex-wrap items-center gap-2">
+                {!personalMode ? (
+                  <>
                 <Button
                   type="button"
                   variant="outline"
@@ -2250,6 +2453,8 @@ export default function AMPanelTab({ calendarSettings }) {
                   <LayoutDashboard className="mr-2 h-4 w-4" />
                   Dashboard
                 </Button>
+                  </>
+                ) : null}
 
                 <Button
                   type="button"
@@ -2290,6 +2495,7 @@ export default function AMPanelTab({ calendarSettings }) {
             </div>
           )}
 
+          {!personalMode ? (
           <div className="mb-4">
             <POPresetBar
               activePreset={activePreset}
@@ -2297,13 +2503,57 @@ export default function AMPanelTab({ calendarSettings }) {
               presetCounts={poInsights?.presetCounts}
               ownerFocus={ownerFocus}
               setOwnerFocus={setOwnerFocus}
+              showMinePreset={false}
             />
           </div>
+          ) : null}
+
+          {personalMode && !ownerAccountId ? (
+            <Card className="rounded-2xl border-amber-200 bg-amber-50 shadow-sm">
+              <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle className="text-base text-amber-950">
+                    Configure seu usuario Jira
+                  </CardTitle>
+                  <CardDescription className="mt-1 text-amber-900">
+                    Minha Carteira usa o accountId do Jira para encontrar seus
+                    tickets com precisao.
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                  onClick={onConfigureUser}
+                >
+                  Abrir Configuracoes
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {personalMode && ownerAccountId ? (
+            <PersonalPortfolioView
+              insights={poInsights}
+              rows={scopedRawIssues}
+              doneRows={scopedDoneRows}
+              loading={loading}
+              jiraUserName={currentUser?.jiraDisplayName || effectiveOwnerFocus}
+              onOpenDetails={(key) => {
+                setDetailsKey(key);
+                setDetailsOpen(true);
+              }}
+              onOpenSchedule={(ticket) => openEditor(ticket?.raw || ticket)}
+              onOpenDocumentation={(ticket) =>
+                openDocumentationOrganizer(ticket?.raw || ticket)
+              }
+              onResolveProblem={openResolutionProblem}
+            />
+          ) : null}
 
           {/* =========================
             AÇÕES DO P.O
         ========================= */}
-          {subView === "acoes" && (
+          {!personalMode && subView === "acoes" && (
             <div className="grid gap-4">
               <POActionsHub
                 insights={poInsights}
@@ -2347,7 +2597,7 @@ export default function AMPanelTab({ calendarSettings }) {
             </div>
           )}
 
-          {subView === "portfolio" && (
+          {!personalMode && subView === "portfolio" && (
             <section className="grid gap-3">
               <POPortfolioHub
                 insights={poInsights}
@@ -2362,7 +2612,7 @@ export default function AMPanelTab({ calendarSettings }) {
           {/* =========================
             CALENDÁRIO (3 modos + filtro)
         ========================= */}
-          {subView === "calendario" && (
+          {!personalMode && subView === "calendario" && (
             <AMCalendarTab
               viewData={scopedViewData}
               busy={busy}
@@ -2379,7 +2629,7 @@ export default function AMPanelTab({ calendarSettings }) {
           {/* =========================
              GANTT (gantt-task-react)
          ========================= */}
-          {subView === "gantt" && (
+          {!personalMode && subView === "gantt" && (
             <section className="grid gap-3">
               <GanttTab
                 loading={loading}
@@ -2403,7 +2653,7 @@ export default function AMPanelTab({ calendarSettings }) {
           {/* =========================
             DASHBOARD (React-Grid-Layout + Recharts)
            ========================= */}
-          {subView === "dashboard" && (
+          {!personalMode && subView === "dashboard" && (
             <section className="grid gap-3">
               <AMDashboardTab
                 rows={scopedRawIssues}
@@ -3910,7 +4160,7 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
                   Anexos e pastas
                 </div>
                 <div className="text-xs text-zinc-500">
-                  {attachments.length} anexo(s). Pastas vazias nÃ£o entram no
+                  {attachments.length} anexo(s). Pastas vazias não entram no
                   ZIP.
                 </div>
               </div>

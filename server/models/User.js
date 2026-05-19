@@ -24,6 +24,10 @@ const UserSchema = new mongoose.Schema(
     jiraApiToken: { type: String, trim: true, default: "" },
     role: { type: String, trim: true, default: "user" },
     jiraAccountId: { type: String, trim: true },
+    jiraDisplayName: { type: String, trim: true, default: "" },
+    jiraEmailAddress: { type: String, trim: true, default: "" },
+    jiraAvatarUrl: { type: String, trim: true, default: "" },
+    jiraUserUpdatedAt: { type: Date },
     jiraTokenUpdatedAt: { type: Date },
     lastLoginAt: { type: Date },
     preferences: {

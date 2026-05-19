@@ -67,7 +67,7 @@ export const PO_JQL_BODY = {
 export const PO_DONE_LAST_30D_JQL_BODY = {
   jql: "project = ICON AND statusCategory = Done AND resolved >= -30d ORDER BY resolved ASC",
   maxResults: 200,
-  fields: ["key", "summary", "status", "resolutiondate"],
+  fields: ["key", "summary", "status", "resolutiondate", "assignee"],
 };
 
 export async function fetchPoActiveRows() {
@@ -82,6 +82,14 @@ export async function fetchPoDoneLast30Days() {
     summary: i?.fields?.summary || "",
     statusName: i?.fields?.status?.name || "",
     resolutionDateRaw: i?.fields?.resolutiondate || "",
+    assignee: i?.fields?.assignee?.displayName || "",
+    assigneeAccountId: i?.fields?.assignee?.accountId || "",
+    assigneeDisplayName: i?.fields?.assignee?.displayName || "",
+    assigneeEmailAddress: i?.fields?.assignee?.emailAddress || "",
+    assigneeAvatarUrl:
+      i?.fields?.assignee?.avatarUrls?.["48x48"] ||
+      i?.fields?.assignee?.avatarUrls?.["32x32"] ||
+      "",
   }));
 }
 
@@ -116,6 +124,13 @@ export async function fetchPoIssueDetail(key) {
     createdRaw: issue?.fields?.created || "",
     updated: issue?.fields?.updated || "",
     assignee: issue?.fields?.assignee?.displayName || "",
+    assigneeAccountId: issue?.fields?.assignee?.accountId || "",
+    assigneeDisplayName: issue?.fields?.assignee?.displayName || "",
+    assigneeEmailAddress: issue?.fields?.assignee?.emailAddress || "",
+    assigneeAvatarUrl:
+      issue?.fields?.assignee?.avatarUrls?.["48x48"] ||
+      issue?.fields?.assignee?.avatarUrls?.["32x32"] ||
+      "",
     labels: issue?.fields?.labels || [],
     attachments: issue?.fields?.attachment || [],
     issueType: issue?.fields?.issuetype?.name || "",
@@ -153,6 +168,13 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
       createdRaw: issue?.fields?.created || "",
       updated: issue?.fields?.updated || "",
       assignee: issue?.fields?.assignee?.displayName || "",
+      assigneeAccountId: issue?.fields?.assignee?.accountId || "",
+      assigneeDisplayName: issue?.fields?.assignee?.displayName || "",
+      assigneeEmailAddress: issue?.fields?.assignee?.emailAddress || "",
+      assigneeAvatarUrl:
+        issue?.fields?.assignee?.avatarUrls?.["48x48"] ||
+        issue?.fields?.assignee?.avatarUrls?.["32x32"] ||
+        "",
       labels: issue?.fields?.labels || [],
       attachments: issue?.fields?.attachment || [],
       issueType: issue?.fields?.issuetype?.name || "",

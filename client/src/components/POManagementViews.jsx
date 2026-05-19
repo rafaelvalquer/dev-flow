@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CalendarClock,
@@ -260,8 +260,8 @@ const ALARM_HELP_ITEMS = [
     description: "Ticket nao possui atividades planejadas no cronograma.",
   },
   {
-    label: "Sem responsavel",
-    description: "Ticket nao possui assignee/responsavel definido.",
+    label: "Sem responsável",
+    description: "Ticket não possui assignee/responsável definido.",
   },
   {
     label: "Atrasado",
@@ -277,11 +277,11 @@ const ALARM_HELP_ITEMS = [
   },
   {
     label: "Vence em breve",
-    description: "Ticket vence hoje ou nos proximos 7 dias.",
+    description: "Ticket vence hoje ou nos próximos 7 dias.",
   },
   {
-    label: "Sem avanco",
-    description: "Ticket esta ha 7 dias ou mais sem atualizacao.",
+    label: "Sem avanço",
+    description: "Ticket está há 7 dias ou mais sem atualização.",
   },
   {
     label: "Risco",
@@ -300,7 +300,7 @@ function AlarmHelpTooltip() {
         <button
           type="button"
           className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900"
-          aria-label="Ver criterios dos alarmes"
+          aria-label="Ver critérios dos alarmes"
         >
           <CircleHelp className="h-4 w-4" />
         </button>
@@ -478,14 +478,14 @@ function CriticalAlertsPanel({
       getBadge: () => "Recurso",
     },
     {
-      title: "Proximos 7 dias",
+      title: "Próximos 7 dias",
       tone: "info",
       items: alerts.dueNext7 || [],
       getBadge: (item) =>
         item.dueInDays === 0 ? "Hoje" : `${item.dueInDays || 0}d`,
     },
     {
-      title: "Sem responsavel",
+      title: "Sem responsável",
       tone: "warning",
       items: alerts.noOwner || [],
       getBadge: () => "Definir",
@@ -498,7 +498,7 @@ function CriticalAlertsPanel({
         <div className="flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-red-600" />
           <CardTitle className="text-base text-zinc-900">
-            Alertas criticos
+            Alertas críticos
           </CardTitle>
         </div>
         <CardDescription>
@@ -600,11 +600,11 @@ function DailyBriefingPanel({
     },
     {
       key: "recommendedActions",
-      title: "Acoes recomendadas",
+      title: "Ações recomendadas",
       icon: ShieldAlert,
       items: briefing.recommendedActions || [],
-      emptyText: "Sem acoes recomendadas.",
-      getBadge: (item) => item.resolutionProblems?.[0]?.label || "Acao",
+      emptyText: "Sem ações recomendadas.",
+      getBadge: (item) => item.resolutionProblems?.[0]?.label || "Ação",
     },
   ];
   const selectedSection =
@@ -622,7 +622,7 @@ function DailyBriefingPanel({
               </CardTitle>
             </div>
             <CardDescription className="mt-2">
-              Leitura rapida para orientar acompanhamento, cobranca e proximos passos.
+              Leitura rápida para orientar acompanhamento, cobrança e próximos passos.
             </CardDescription>
           </div>
           <AlarmHelpTooltip />
@@ -675,8 +675,12 @@ export function POPresetBar({
   presetCounts,
   ownerFocus,
   setOwnerFocus,
+  jiraUser,
+  showMinePreset = true,
 }) {
-  const presets = ["all", "mine", "overdue", "noSchedule", "atRisk", "next7d"];
+  const presets = showMinePreset
+    ? ["all", "mine", "overdue", "noSchedule", "atRisk", "next7d"]
+    : ["all", "overdue", "noSchedule", "atRisk", "next7d"];
 
   return (
     <Card className="rounded-xl border-zinc-200 bg-white/90 shadow-none">
@@ -692,14 +696,26 @@ export function POPresetBar({
             </div>
           </div>
 
-          <div className="w-full lg:w-[260px]">
-            <Input
-              value={ownerFocus}
-              onChange={(event) => setOwnerFocus?.(event.target.value)}
-              placeholder="Meu nome para 'Meus projetos'"
-              className="h-9 rounded-lg border-zinc-200 bg-white text-sm focus-visible:ring-red-500"
-            />
-          </div>
+          {showMinePreset ? (
+            jiraUser?.accountId ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                Meus projetos: {jiraUser.displayName || "usuario Jira"}
+              </div>
+            ) : (
+              <div className="w-full lg:w-[260px]">
+                <Input
+                  value={ownerFocus}
+                  onChange={(event) => setOwnerFocus?.(event.target.value)}
+                  placeholder="Meu nome para 'Meus projetos'"
+                  className="h-9 rounded-lg border-zinc-200 bg-white text-sm focus-visible:ring-red-500"
+                />
+              </div>
+            )
+          ) : (
+            <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">
+              Visão global do Painel PO
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-1.5">
@@ -716,7 +732,11 @@ export function POPresetBar({
                     "border-red-200 bg-red-50 text-red-700",
                 )}
                 onClick={() => setActivePreset?.(preset)}
-                disabled={preset === "mine" && !String(ownerFocus || "").trim()}
+                disabled={
+                  preset === "mine" &&
+                  !jiraUser?.accountId &&
+                  !String(ownerFocus || "").trim()
+                }
               >
                 {getPoPresetLabel(preset)}
                 <Badge className="ml-1.5 rounded-full bg-zinc-800 px-1.5 py-0 text-[10px] text-white">
@@ -732,6 +752,7 @@ export function POPresetBar({
 }
 
 export function POActionsHub({
+  personalMode = false,
   insights,
   onOpenDetails,
   onOpenSchedule,
@@ -810,11 +831,13 @@ export function POActionsHub({
 
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {laneCards.map((card) => (
-          <MiniMetric key={card.title} {...card} />
-        ))}
-      </div>
+      {!personalMode ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {laneCards.map((card) => (
+            <MiniMetric key={card.title} {...card} />
+          ))}
+        </div>
+      ) : null}
 
       <DailyBriefingPanel
         insights={insights}
@@ -848,6 +871,7 @@ export function POActionsHub({
         </CardContent>
       </AccordionCard>
 
+      {!personalMode ? (
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.2fr_0.8fr]">
         <AccordionCard
           title="Recortes do rito semanal"
@@ -924,6 +948,7 @@ export function POActionsHub({
           </CardContent>
         </AccordionCard>
       </div>
+      ) : null}
     </div>
   );
 }
@@ -956,18 +981,17 @@ function PortfolioTableRow({ item, onOpenDetails, right }) {
   );
 }
 
-export function POPortfolioHub({ insights, onOpenDetails }) {
+export function POPortfolioHub({ personalMode = false, insights, onOpenDetails }) {
   const [portfolioTab, setPortfolioTab] = useState("portfolio");
 
   return (
     <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-base text-zinc-900">
-          Leituras de portfólio
+          {personalMode ? "Leituras da minha carteira" : "Leituras de portfólio"}
         </CardTitle>
         <CardDescription>
-          Consolida performance, capacidade, riscos e roadmap sobre a mesma base
-          operacional do módulo P.O.
+          {personalMode ? "Consolida performance, capacidade, riscos e roadmap sobre meus tickets atribuídos." : "Consolida performance, capacidade, riscos e roadmap sobre a mesma base operacional do módulo P.O."}
         </CardDescription>
       </CardHeader>
 
@@ -995,13 +1019,13 @@ export function POPortfolioHub({ insights, onOpenDetails }) {
           <TabsContent value="portfolio" className="mt-4 grid gap-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MiniMetric
-                title="Projetos no recorte"
+                title={personalMode ? "Tickets no meu recorte" : "Projetos no recorte"}
                 value={insights?.portfolio?.total || 0}
-                subtitle="Base ativa do módulo P.O"
+                subtitle={personalMode ? "Tickets atribuídos a mim" : "Base ativa do módulo P.O"}
                 tone="neutral"
               />
               <MiniMetric
-                title="Projetos em risco"
+                title={personalMode ? "Tickets em risco" : "Projetos em risco"}
                 value={insights?.portfolio?.atRisk || 0}
                 subtitle="Atrasos, risco ou conflito de recurso"
                 tone="danger"

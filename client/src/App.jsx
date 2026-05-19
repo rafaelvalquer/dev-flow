@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   Blocks,
+  Briefcase,
   Check,
   ChevronRight,
   Download,
@@ -88,6 +89,16 @@ const MAIN_TABS = [
     badge: "Jira",
     icon: LayoutDashboard,
     nextStep: "Use a visão certa para decidir rápido e agir sem trocar de contexto.",
+  },
+  {
+    id: "my",
+    title: "Minha Carteira",
+    eyebrow: "Foco pessoal",
+    subtitle:
+      "Veja seus tickets, riscos, vencimentos e próximos passos a partir do seu usuário Jira.",
+    badge: "Meu Jira",
+    icon: Briefcase,
+    nextStep: "Configure seu usuário Jira e acompanhe sua fila pessoal.",
   },
   {
     id: "tools",
@@ -199,6 +210,10 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
         status: "Monitoramento ativo",
         helper: "Alertas, calendário, Gantt e dashboard no mesmo fluxo.",
       },
+      my: {
+        status: currentUser?.jiraAccountId ? "Perfil Jira ativo" : "Configurar Jira",
+        helper: currentUser?.jiraDisplayName || "Selecione seu usuário Jira.",
+      },
       tools: {
         status: "Utilitários disponíveis",
         helper: "Acesso rápido às integrações do ambiente.",
@@ -210,12 +225,19 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
         helper: "Dias úteis e feriados compartilhados.",
       },
     }),
-    [calendarSettingsLoading, gmudProgressPct, rdmDueDate, rdmTitle]
+    [
+      calendarSettingsLoading,
+      currentUser?.jiraAccountId,
+      currentUser?.jiraDisplayName,
+      gmudProgressPct,
+      rdmDueDate,
+      rdmTitle,
+    ]
   );
 
   const contentClassName = [
     "app-module",
-    mainTab === "am" ? "app-module--flush" : "",
+    mainTab === "am" || mainTab === "my" ? "app-module--flush" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -361,7 +383,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   <span className="app-chip app-chip--solid">
                     {currentTab.badge}
                   </span>
-                  {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" ? (
+                  {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" && mainTab !== "my" ? (
                     <>
                       <span className="app-chip">{tabMeta[mainTab].status}</span>
                       <span className="app-chip">{tabMeta[mainTab].helper}</span>
@@ -371,7 +393,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   ) : null}
                 </div>
 
-                {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" ? (
+                {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" && mainTab !== "my" ? (
                   <div className="app-hero__focus">
                     <span className="app-hero__focus-label">Próxima ação</span>
                     <strong>{currentTab.nextStep}</strong>
@@ -407,7 +429,21 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 
               {visitedTabs.has("am") ? (
                 <div hidden={mainTab !== "am"}>
-                  <AMPanelTab calendarSettings={calendarSettings} />
+                  <AMPanelTab
+                    calendarSettings={calendarSettings}
+                    currentUser={currentUser}
+                  />
+                </div>
+              ) : null}
+
+              {visitedTabs.has("my") ? (
+                <div hidden={mainTab !== "my"}>
+                  <AMPanelTab
+                    calendarSettings={calendarSettings}
+                    currentUser={currentUser}
+                    personalMode
+                    onConfigureUser={() => selectMainTab("settings")}
+                  />
                 </div>
               ) : null}
 

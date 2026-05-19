@@ -77,6 +77,22 @@ export async function updateProfile({ name }) {
   return body.user;
 }
 
+export async function updateJiraUser(jiraUser = {}) {
+  const res = await fetch("/api/auth/jira-user", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      accountId: jiraUser.accountId || "",
+      displayName: jiraUser.displayName || "",
+      emailAddress: jiraUser.emailAddress || "",
+      avatarUrl: jiraUser.avatarUrl || "",
+    }),
+  });
+  const body = await readAuthResponse(res);
+  return body.user;
+}
+
 export async function testJiraStatus() {
   const res = await fetch("/api/auth/jira-status", {
     credentials: "include",

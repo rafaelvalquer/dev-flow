@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CalendarDays,
+  ChevronsUpDown,
   Check,
   Download,
   KeyRound,
@@ -14,11 +15,21 @@ import {
   ShieldCheck,
   Trash2,
   User,
+  UserX,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Card,
   CardContent,
@@ -27,15 +38,22 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
   testJiraStatus,
+  updateJiraUser,
   updateJiraToken,
   updatePassword,
   updatePreferences,
   updateProfile,
 } from "@/lib/auth";
+import { jiraSearchUsers } from "@/lib/jiraClient";
 import { ModuleHeader } from "@/components/layout/ModulePrimitives";
 import {
   countActiveHolidays,
@@ -59,10 +77,43 @@ function formatDateTime(value, fallback = "Nao informado") {
   return new Date(value).toLocaleString("pt-BR");
 }
 
+function initials(value = "") {
+  const parts = String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return (parts[0]?.[0] || "?").toUpperCase();
+}
+
+function mapJiraUser(user) {
+  if (!user) return null;
+  return {
+    accountId: user?.accountId || "",
+    displayName: user?.displayName || user?.name || user?.emailAddress || "",
+    emailAddress: user?.emailAddress || "",
+    avatarUrl:
+      user?.avatarUrl ||
+      user?.avatarUrls?.["48x48"] ||
+      user?.avatarUrls?.["32x32"] ||
+      "",
+    active: user?.active !== false,
+  };
+}
+
+function useDebouncedValue(value, delayMs = 250) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 const TAB_OPTIONS = [
   { value: "gmud", label: "Central do Desenvolvedor" },
   { value: "rdm", label: "RDM" },
   { value: "am", label: "Painel PO" },
+  { value: "my", label: "Minha Carteira" },
   { value: "tools", label: "Ferramentas" },
   { value: "settings", label: "Configuracoes" },
 ];
@@ -123,6 +174,12 @@ export default function SystemSettingsTab({
   const [profileSaving, setProfileSaving] = useState(false);
   const [jiraStatusLoading, setJiraStatusLoading] = useState(false);
   const [jiraStatus, setJiraStatus] = useState(null);
+  const [jiraUserSaving, setJiraUserSaving] = useState(false);
+  const [jiraUserOpen, setJiraUserOpen] = useState(false);
+  const [jiraUserQuery, setJiraUserQuery] = useState("");
+  const [jiraUserOptions, setJiraUserOptions] = useState([]);
+  const [jiraUserLoading, setJiraUserLoading] = useState(false);
+  const [jiraUserErr, setJiraUserErr] = useState("");
   const [preferencesDraft, setPreferencesDraft] = useState(() =>
     normalizePreferences(currentUser?.preferences)
   );
@@ -137,6 +194,46 @@ export default function SystemSettingsTab({
     setProfileName(currentUser?.name || "");
     setPreferencesDraft(normalizePreferences(currentUser?.preferences));
   }, [currentUser]);
+
+  const debouncedJiraUserQuery = useDebouncedValue(jiraUserQuery, 250);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!jiraUserOpen) return;
+      const q = String(debouncedJiraUserQuery || "").trim();
+      setJiraUserErr("");
+
+      if (q.length < 2) {
+        setJiraUserOptions([]);
+        setJiraUserLoading(false);
+        return;
+      }
+
+      setJiraUserLoading(true);
+      try {
+        const users = await jiraSearchUsers(q);
+        if (!alive) return;
+        setJiraUserOptions(
+          (Array.isArray(users) ? users : [])
+            .map(mapJiraUser)
+            .filter((user) => user?.accountId)
+        );
+      } catch (err) {
+        if (!alive) return;
+        setJiraUserOptions([]);
+        setJiraUserErr(err?.message || "Nao foi possivel buscar usuarios Jira.");
+      } finally {
+        if (alive) setJiraUserLoading(false);
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [debouncedJiraUserQuery, jiraUserOpen]);
 
   const preview = useMemo(() => {
     const normalized = normalizeCalendarSettings(draft);
@@ -278,6 +375,42 @@ export default function SystemSettingsTab({
         error: err?.message || "Nao foi possivel testar a conexao Jira.",
       });
       toast.error(err?.message || "Nao foi possivel testar a conexao Jira.");
+    } finally {
+      setJiraStatusLoading(false);
+    }
+  }
+
+  async function saveJiraUser(user, successMessage = "Usuario Jira salvo.") {
+    setJiraUserSaving(true);
+    try {
+      const saved = await updateJiraUser(user || {});
+      onUserUpdated?.(saved);
+      toast.success(successMessage);
+    } catch (err) {
+      toast.error(err?.message || "Nao foi possivel salvar o usuario Jira.");
+    } finally {
+      setJiraUserSaving(false);
+    }
+  }
+
+  async function handleUseTokenJiraUser() {
+    setJiraStatusLoading(true);
+    setJiraStatus(null);
+    try {
+      const status = await testJiraStatus();
+      setJiraStatus(status);
+      const tokenUser = mapJiraUser(status?.jiraUser);
+      if (!tokenUser?.accountId) {
+        toast.error("O token foi validado, mas nao retornou accountId.");
+        return;
+      }
+      await saveJiraUser(tokenUser, "Usuario Jira do token salvo.");
+    } catch (err) {
+      setJiraStatus({
+        ok: false,
+        error: err?.message || "Nao foi possivel testar a conexao Jira.",
+      });
+      toast.error(err?.message || "Nao foi possivel usar o usuario do token.");
     } finally {
       setJiraStatusLoading(false);
     }
@@ -616,6 +749,191 @@ export default function SystemSettingsTab({
               </section>
 
               <div className="grid gap-4 xl:grid-cols-2">
+                <section className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4 xl:col-span-2">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                        <User className="h-4 w-4 text-red-600" />
+                        Usuario Jira pessoal
+                      </h3>
+                      <p className="text-xs text-zinc-500">
+                        Este usuario alimenta Minha Carteira e o filtro Meus
+                        projetos por accountId.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl border-zinc-200 bg-white"
+                        onClick={handleUseTokenJiraUser}
+                        disabled={jiraStatusLoading || jiraUserSaving}
+                      >
+                        {jiraStatusLoading ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                        )}
+                        Usar usuario do token atual
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl border-zinc-200 bg-white text-red-700"
+                        onClick={() =>
+                          saveJiraUser({}, "Vinculo Jira removido.")
+                        }
+                        disabled={jiraUserSaving || !currentUser?.jiraAccountId}
+                      >
+                        <UserX className="mr-2 h-4 w-4" />
+                        Limpar vinculo
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 lg:grid-cols-[1fr_420px] lg:items-start">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      {currentUser?.jiraAccountId ? (
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Avatar className="h-11 w-11 border border-zinc-200">
+                            {currentUser?.jiraAvatarUrl ? (
+                              <AvatarImage
+                                src={currentUser.jiraAvatarUrl}
+                                alt="avatar"
+                              />
+                            ) : null}
+                            <AvatarFallback className="bg-white text-zinc-700">
+                              {initials(
+                                currentUser?.jiraDisplayName ||
+                                  currentUser?.name ||
+                                  currentUser?.email
+                              )}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-zinc-900">
+                              {currentUser?.jiraDisplayName ||
+                                currentUser?.name ||
+                                "Usuario Jira"}
+                            </div>
+                            <div className="truncate text-xs text-zinc-500">
+                              {currentUser?.jiraEmailAddress ||
+                                "E-mail Jira nao informado"}
+                            </div>
+                            <div className="mt-1 break-all text-[11px] text-zinc-500">
+                              accountId: {currentUser.jiraAccountId}
+                            </div>
+                          </div>
+                          <Badge className="ml-auto rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                            Ativo
+                          </Badge>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-4 text-sm text-zinc-500">
+                          Nenhum usuario Jira pessoal selecionado.
+                        </div>
+                      )}
+                    </div>
+
+                    <Popover open={jiraUserOpen} onOpenChange={setJiraUserOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={jiraUserOpen}
+                          className="h-11 justify-between rounded-xl border-zinc-200 bg-white text-left"
+                          disabled={jiraUserSaving}
+                        >
+                          <span className="truncate">
+                            Buscar e selecionar usuario Jira
+                          </span>
+                          {jiraUserLoading ? (
+                            <Loader2 className="ml-2 h-4 w-4 animate-spin text-zinc-500" />
+                          ) : (
+                            <ChevronsUpDown className="ml-2 h-4 w-4 text-zinc-500" />
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+
+                      <PopoverContent
+                        align="end"
+                        className="w-[420px] max-w-[calc(100vw-3rem)] rounded-2xl border-zinc-200 p-2"
+                      >
+                        <Command shouldFilter={false}>
+                          <CommandInput
+                            value={jiraUserQuery}
+                            onValueChange={setJiraUserQuery}
+                            placeholder="Buscar usuario no Jira... (min. 2 letras)"
+                          />
+                          <CommandList className="max-h-[280px]">
+                            <CommandEmpty>
+                              {jiraUserLoading
+                                ? "Buscando..."
+                                : String(jiraUserQuery || "").trim().length < 2
+                                  ? "Digite 2 ou mais caracteres para buscar."
+                                  : "Nenhum usuario encontrado."}
+                            </CommandEmpty>
+                            <CommandGroup heading="Usuarios Jira">
+                              {jiraUserOptions.map((user) => {
+                                const selected =
+                                  currentUser?.jiraAccountId === user.accountId;
+                                return (
+                                  <CommandItem
+                                    key={user.accountId}
+                                    value={user.displayName}
+                                    className="rounded-xl"
+                                    onSelect={() => {
+                                      setJiraUserOpen(false);
+                                      setJiraUserQuery("");
+                                      saveJiraUser(user);
+                                    }}
+                                  >
+                                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                                      <Avatar className="h-7 w-7 border border-zinc-200">
+                                        {user.avatarUrl ? (
+                                          <AvatarImage
+                                            src={user.avatarUrl}
+                                            alt="avatar"
+                                          />
+                                        ) : null}
+                                        <AvatarFallback className="bg-zinc-100 text-[10px] text-zinc-700">
+                                          {initials(user.displayName)}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div className="min-w-0">
+                                        <div className="truncate text-sm font-medium text-zinc-900">
+                                          {user.displayName}
+                                        </div>
+                                        {user.emailAddress ? (
+                                          <div className="truncate text-[11px] text-zinc-500">
+                                            {user.emailAddress}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                    {selected ? (
+                                      <Check className="ml-2 h-4 w-4 text-emerald-600" />
+                                    ) : null}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+
+                        {jiraUserErr ? (
+                          <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                            {jiraUserErr}
+                          </div>
+                        ) : null}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </section>
+
                 <form
                   className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4"
                   onSubmit={handleProfileSave}

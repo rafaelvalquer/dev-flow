@@ -7,7 +7,7 @@ import { fetchWithTimeout } from "../utils/http.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HASH_PREFIX = "scrypt";
-const VALID_TABS = new Set(["gmud", "rdm", "am", "tools", "settings"]);
+const VALID_TABS = new Set(["gmud", "rdm", "am", "my", "tools", "settings"]);
 const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
 const SHORT_SESSION_MS = 60 * 60 * 1000;
 const REMEMBER_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -154,6 +154,9 @@ export default function authRoutes({ env }) {
         passwordHash: hashPassword(password),
         jiraApiToken,
         jiraAccountId: jiraUser.accountId || "",
+        jiraDisplayName: jiraUser.displayName || "",
+        jiraEmailAddress: jiraUser.emailAddress || "",
+        jiraUserUpdatedAt: new Date(),
         jiraTokenUpdatedAt: new Date(),
         lastLoginAt: new Date(),
       });
@@ -298,8 +301,12 @@ export default function authRoutes({ env }) {
 
       req.user.jiraApiToken = jiraApiToken;
       req.user.jiraAccountId = jiraUser.accountId || req.user.jiraAccountId;
+      req.user.jiraDisplayName = jiraUser.displayName || req.user.jiraDisplayName;
+      req.user.jiraEmailAddress =
+        jiraUser.emailAddress || req.user.jiraEmailAddress;
       req.user.name = jiraUser.displayName || req.user.name;
       req.user.jiraTokenUpdatedAt = new Date();
+      req.user.jiraUserUpdatedAt = new Date();
       await req.user.save();
 
       res.json({ ok: true, user: publicUser(req.user) });
@@ -307,6 +314,36 @@ export default function authRoutes({ env }) {
       if (err.status) {
         return res.status(err.status).json({ error: err.message });
       }
+      next(err);
+    }
+  });
+
+  router.put("/jira-user", requireAuth, async (req, res, next) => {
+    try {
+      const accountId = String(req.body?.accountId || "").trim();
+      const displayName = String(req.body?.displayName || "").trim().slice(0, 160);
+      const emailAddress = String(req.body?.emailAddress || "").trim().slice(0, 180);
+      const avatarUrl = String(req.body?.avatarUrl || "").trim().slice(0, 500);
+
+      if (!accountId) {
+        req.user.jiraAccountId = "";
+        req.user.jiraDisplayName = "";
+        req.user.jiraEmailAddress = "";
+        req.user.jiraAvatarUrl = "";
+        req.user.jiraUserUpdatedAt = new Date();
+        await req.user.save();
+        return res.json({ ok: true, user: publicUser(req.user) });
+      }
+
+      req.user.jiraAccountId = accountId;
+      req.user.jiraDisplayName = displayName;
+      req.user.jiraEmailAddress = emailAddress;
+      req.user.jiraAvatarUrl = avatarUrl;
+      req.user.jiraUserUpdatedAt = new Date();
+      await req.user.save();
+
+      return res.json({ ok: true, user: publicUser(req.user) });
+    } catch (err) {
       next(err);
     }
   });
