@@ -679,30 +679,30 @@ export function POPresetBar({
   const presets = ["all", "mine", "overdue", "noSchedule", "atRisk", "next7d"];
 
   return (
-    <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
-      <CardContent className="flex flex-col gap-3 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <Card className="rounded-xl border-zinc-200 bg-white/90 shadow-none">
+      <CardContent className="flex flex-col gap-2.5 p-3">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm font-semibold text-zinc-900">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-700">
               Atalhos do módulo
             </div>
-            <div className="text-xs text-zinc-500">
+            <div className="text-[11px] text-zinc-500">
               O mesmo recorte alimenta Ações, Portfólio, Calendário, Gantt e
               Dashboard.
             </div>
           </div>
 
-          <div className="w-full lg:w-[280px]">
+          <div className="w-full lg:w-[260px]">
             <Input
               value={ownerFocus}
               onChange={(event) => setOwnerFocus?.(event.target.value)}
               placeholder="Meu nome para 'Meus projetos'"
-              className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
+              className="h-9 rounded-lg border-zinc-200 bg-white text-sm focus-visible:ring-red-500"
             />
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {presets.map((preset) => {
             const count = presetCounts?.[preset] || 0;
             return (
@@ -711,7 +711,7 @@ export function POPresetBar({
                 type="button"
                 variant="outline"
                 className={cn(
-                  "rounded-xl border-zinc-200 bg-white",
+                  "h-8 rounded-lg border-zinc-200 bg-white px-2.5 text-xs text-zinc-700",
                   activePreset === preset &&
                     "border-red-200 bg-red-50 text-red-700",
                 )}
@@ -719,7 +719,7 @@ export function POPresetBar({
                 disabled={preset === "mine" && !String(ownerFocus || "").trim()}
               >
                 {getPoPresetLabel(preset)}
-                <Badge className="ml-2 rounded-full bg-zinc-900 text-white">
+                <Badge className="ml-1.5 rounded-full bg-zinc-800 px-1.5 py-0 text-[10px] text-white">
                   {count}
                 </Badge>
               </Button>

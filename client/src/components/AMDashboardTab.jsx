@@ -55,6 +55,7 @@ import {
   Line,
   AreaChart,
   Area,
+  ReferenceLine,
   RadialBarChart,
   RadialBar,
   PolarAngleAxis,
@@ -558,19 +559,32 @@ const CHART_COLORS = [
   "#84cc16",
 ];
 
+const SEMANTIC_COLORS = {
+  success: "#16a34a",
+  danger: "#dc2626",
+  warning: "#d97706",
+  muted: "#64748b",
+  info: "#2563eb",
+  cyan: "#0891b2",
+};
+
 const METRIC_ACCENT = {
-  createdPerDay: "#3b82f6", // blue
+  createdPerDay: SEMANTIC_COLORS.info,
   updatedPerDay: "#6366f1", // indigo
-  priority: "#f59e0b", // amber
+  priority: SEMANTIC_COLORS.warning,
   status: "#8b5cf6", // violet
-  owner: "#22c55e", // green
-  sla: "#ef4444", // red
-  size: "#06b6d4", // cyan
-  aging: "#eab308", // yellow
+  owner: SEMANTIC_COLORS.success,
+  sla: SEMANTIC_COLORS.danger,
+  size: SEMANTIC_COLORS.cyan,
+  aging: SEMANTIC_COLORS.warning,
   components: "#0ea5e9", // sky
   directorates: "#a855f7", // purple
-  noAssignee: "#f97316", // orange
-  noSchedule: "#64748b", // slate
+  noAssignee: SEMANTIC_COLORS.warning,
+  noSchedule: SEMANTIC_COLORS.muted,
+  dueBuckets: SEMANTIC_COLORS.warning,
+  donePerDay: SEMANTIC_COLORS.success,
+  slaCompliance: SEMANTIC_COLORS.success,
+  createdVsDonePerDay: SEMANTIC_COLORS.info,
 };
 
 function hexToRgba(hex, alpha = 1) {
@@ -589,15 +603,71 @@ function metricAccent(metricKey) {
 }
 
 const PRIORITY_COLORS = {
-  HIGHEST: "#b91c1c",
-  HIGH: "#d97706",
-  MEDIUM: "#3b82f6",
-  LOW: "#22c55e",
-  LOWEST: "#6b7280",
+  HIGHEST: SEMANTIC_COLORS.danger,
+  HIGH: SEMANTIC_COLORS.warning,
+  MEDIUM: SEMANTIC_COLORS.info,
+  LOW: SEMANTIC_COLORS.success,
+  LOWEST: SEMANTIC_COLORS.muted,
   "Não informado": "#6b7280",
 };
 
-const AGING_COLORS = ["#22c55e", "#eab308", "#f97316", "#ef4444", "#b91c1c"];
+const AGING_COLORS = [
+  SEMANTIC_COLORS.success,
+  SEMANTIC_COLORS.warning,
+  "#f97316",
+  SEMANTIC_COLORS.danger,
+  "#991b1b",
+];
+
+function getSeriesTotal(series) {
+  return (Array.isArray(series) ? series : []).reduce(
+    (sum, item) => sum + (Number(item?.value) || 0),
+    0
+  );
+}
+
+function formatCountPercent(value, percent) {
+  const n = new Intl.NumberFormat("pt-BR").format(Number(value) || 0);
+  const p = Number.isFinite(Number(percent)) ? Number(percent) : 0;
+  return `${n} (${p.toFixed(p % 1 === 0 ? 0 : 1)}%)`;
+}
+
+function withPercent(series) {
+  const list = Array.isArray(series) ? series : [];
+  const total = getSeriesTotal(list);
+  return list.map((item) => {
+    const value = Number(item?.value) || 0;
+    const percent = total > 0 ? Math.round((value / total) * 1000) / 10 : 0;
+    return {
+      ...item,
+      percent,
+      displayValue: formatCountPercent(value, percent),
+    };
+  });
+}
+
+function shouldUseHorizontalBars(series) {
+  const list = Array.isArray(series) ? series : [];
+  return (
+    list.length > 7 ||
+    list.some((item) => String(item?.name || "").trim().length > 14)
+  );
+}
+
+function truncateLabel(value, max = 18) {
+  const s = String(value || "");
+  return s.length > max ? `${s.slice(0, max - 1)}...` : s;
+}
+
+function movingAverage(series, key, windowSize = 7) {
+  const list = Array.isArray(series) ? series : [];
+  return list.map((item, index) => {
+    const start = Math.max(0, index - windowSize + 1);
+    const slice = list.slice(start, index + 1);
+    const total = slice.reduce((sum, row) => sum + (Number(row?.[key]) || 0), 0);
+    return Math.round((total / slice.length) * 10) / 10;
+  });
+}
 
 function metricDef(metricKey) {
   return METRICS.find((m) => m.metric === metricKey) || null;
@@ -879,6 +949,7 @@ export default function AMDashboardTab({
   const [slaTargetPct, setSlaTargetPct] = useState(90);
   const [slaCfgOpen, setSlaCfgOpen] = useState(false);
   const [slaCfgValue, setSlaCfgValue] = useState("90");
+  const [periodDays, setPeriodDays] = useState(30);
 
   const [drillOpen, setDrillOpen] = useState(false);
   const [drillTitle, setDrillTitle] = useState("");
@@ -1171,7 +1242,7 @@ export default function AMDashboardTab({
       }
     }
 
-    return daysList.map((ymd) => ({
+    const rows = daysList.map((ymd) => ({
       ymd,
       day: fmtShortBRFromYmd(ymd),
 
@@ -1183,6 +1254,16 @@ export default function AMDashboardTab({
 
       createdTotal: (createdStory.get(ymd) || 0) + (createdSub.get(ymd) || 0),
       doneTotal: (doneStory.get(ymd) || 0) + (doneSub.get(ymd) || 0),
+    }));
+
+    const avgCreated = movingAverage(rows, "createdTotal", 7);
+    const avgDone = movingAverage(rows, "doneTotal", 7);
+
+    return rows.map((row, index) => ({
+      ...row,
+      netTotal: row.createdTotal - row.doneTotal,
+      movingAvgCreated: avgCreated[index],
+      movingAvgDone: avgDone[index],
     }));
   }
 
@@ -1240,8 +1321,16 @@ export default function AMDashboardTab({
     }));
 
     // ✅ correto: inclui abertos + concluídos
-    const createdSeries = buildLastNDaysSeries(listAll, (x) => x.created, 30);
-    const updatedSeries = buildLastNDaysSeries(listAll, (x) => x.updated, 30);
+    const createdSeries = buildLastNDaysSeries(
+      listAll,
+      (x) => x.created,
+      periodDays
+    );
+    const updatedSeries = buildLastNDaysSeries(
+      listAll,
+      (x) => x.updated,
+      periodDays
+    );
 
     const today0 = startOfTodayLocal();
 
@@ -1283,7 +1372,14 @@ export default function AMDashboardTab({
       })
       .map((item, idx) => ({
         ...item,
-        fill: CHART_COLORS[idx % CHART_COLORS.length],
+        fill:
+          item.name === "Atrasado"
+            ? SEMANTIC_COLORS.danger
+            : item.name === "Hoje" || item.name === "1-2 dias"
+            ? SEMANTIC_COLORS.warning
+            : item.name === "Sem data limite"
+            ? SEMANTIC_COLORS.muted
+            : SEMANTIC_COLORS.success,
       }));
 
     // ✅ SLA (somente abertos)
@@ -1324,14 +1420,18 @@ export default function AMDashboardTab({
 
     // ✅ SLA charts SEM "Concluídos"
     const slaPie = [
-      { name: "Dentro do prazo", value: inside, fill: "#22c55e" },
-      { name: "Data limite estourada", value: overdueBase, fill: "#ef4444" },
+      { name: "Dentro do prazo", value: inside, fill: SEMANTIC_COLORS.success },
+      {
+        name: "Data limite estourada",
+        value: overdueBase,
+        fill: SEMANTIC_COLORS.danger,
+      },
       {
         name: "Data limite alterada estourada",
         value: overdueAlt,
-        fill: "#f59e0b",
+        fill: SEMANTIC_COLORS.warning,
       },
-      { name: "Sem data limite", value: noDue, fill: "#6b7280" },
+      { name: "Sem data limite", value: noDue, fill: SEMANTIC_COLORS.muted },
     ].filter((x) => x.value > 0);
 
     const slaStack = [
@@ -1409,42 +1509,30 @@ export default function AMDashboardTab({
     const donePerDaySeries = buildLastNDaysSeries(
       doneList,
       (x) => x.resolutionDate || x.updated, // ✅ fallback
-      30
+      periodDays
     );
 
     const createdVsDoneSeries = buildCreatedVsDoneByDay({
       allTickets: listAll, // ✅ normalizedAll
       doneTickets: doneList, // ✅ somente Done
-      days: 30,
+      days: periodDays,
     });
 
-    console.log("DONE LIST SIZE:", doneList.length);
-    console.log(
-      "DONE SAMPLE:",
-      doneList.slice(0, 3).map((d) => ({
-        key: d.key,
-        status: d.status,
-        issueType: d.issueType,
-        resolutionDate: d.resolutionDate,
-        updated: d.updated,
-      }))
-    );
-
     return {
-      priorityCounts,
-      sizeCounts,
+      priorityCounts: withPercent(priorityCounts),
+      sizeCounts: withPercent(sizeCounts),
       statusCounts,
       ownerCounts,
       createdSeries,
       updatedSeries,
       donePerDaySeries,
-      slaPie,
+      slaPie: withPercent(slaPie),
       slaStack,
       agingCounts,
       componentsCounts,
       directoratesCounts,
-      dueBucketsCounts,
-      issueTypeCounts,
+      dueBucketsCounts: withPercent(dueBucketsCounts),
+      issueTypeCounts: withPercent(issueTypeCounts),
       reporterCounts,
       kpis: {
         total: listAll.length, // mantém o total geral (abertos + concluídos)
@@ -1454,8 +1542,9 @@ export default function AMDashboardTab({
       },
       slaCompliance,
       createdVsDoneSeries,
+      periodDays,
     };
-  }, [normalizedAll, slaTargetPct, rows, doneRows]);
+  }, [normalizedAll, slaTargetPct, rows, doneRows, periodDays]);
 
   const addWidget = useCallback(() => {
     const used = new Set(widgets.map((w) => w.metric));
@@ -1575,16 +1664,15 @@ export default function AMDashboardTab({
 
   return (
     <TooltipProvider>
-      <div className="grid gap-4 font-sans antialiased">
-        <div className="rounded-3xl bg-gradient-to-br from-zinc-50 via-white to-blue-50 p-0.5">
-          <Card className="relative overflow-hidden rounded-3xl border-zinc-200/70 bg-white/70 shadow-[0_18px_45px_-30px_rgba(15,23,42,0.45)] backdrop-blur">
-            {/* glow sutil */}
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(59,130,246,0.10),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(168,85,247,0.08),transparent_40%)]" />
+      <div className="grid gap-3 font-sans antialiased">
+        <div className="rounded-2xl border border-zinc-200 bg-white">
+          <Card className="relative overflow-hidden rounded-2xl border-0 bg-white shadow-sm">
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-500 via-sky-500 to-amber-500" />
 
             <CardHeader className="pb-3">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex items-start gap-3">
-                  <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/25 ring-1 ring-white/40">
+                  <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700">
                     <LayoutDashboard className="h-5 w-5" />
                   </div>
 
@@ -1592,20 +1680,27 @@ export default function AMDashboardTab({
                     <CardTitle className="text-[15px] font-semibold tracking-tight text-zinc-900">
                       Dashboard de Tickets
                     </CardTitle>
-                    <div className="mt-1 flex flex-wrap gap-2">
-                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-[11px] text-zinc-700">
                         Total: {dashData?.kpis?.total ?? 0}
                       </Badge>
-                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                      <Badge className="rounded-full border border-red-100 bg-red-50 text-[11px] text-red-700">
                         Atrasados: {dashData?.kpis?.overdueCount ?? 0}
                       </Badge>
-                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                      <Badge className="rounded-full border border-amber-100 bg-amber-50 text-[11px] text-amber-700">
                         Sem responsável: {dashData?.kpis?.noAssigneeCount ?? 0}
                       </Badge>
-                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                      <Badge className="rounded-full border border-slate-200 bg-slate-50 text-[11px] text-slate-700">
                         Sem cronograma: {dashData?.kpis?.noScheduleCount ?? 0}
                       </Badge>
-                      <Badge className="rounded-full border border-zinc-200/70 bg-white/70 text-zinc-700 shadow-sm backdrop-blur">
+                      <Badge
+                        className={cn(
+                          "rounded-full border text-[11px]",
+                          dashData?.slaCompliance?.breach
+                            ? "border-red-100 bg-red-50 text-red-700"
+                            : "border-emerald-100 bg-emerald-50 text-emerald-700"
+                        )}
+                      >
                         SLA: {dashData?.slaCompliance?.pct ?? 0}% (meta{" "}
                         {dashData?.slaCompliance?.targetPct ?? 90}%)
                       </Badge>
@@ -1613,12 +1708,31 @@ export default function AMDashboardTab({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <div className="mr-1 inline-flex rounded-xl border border-zinc-200 bg-zinc-50 p-1">
+                    {[7, 30, 60, 90].map((days) => (
+                      <Button
+                        key={days}
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className={cn(
+                          "h-8 rounded-lg px-2.5 text-xs text-zinc-600 hover:bg-white",
+                          periodDays === days &&
+                            "bg-white text-zinc-950 shadow-sm"
+                        )}
+                        onClick={() => setPeriodDays(days)}
+                      >
+                        {days}d
+                      </Button>
+                    ))}
+                  </div>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        size="sm"
                         variant="outline"
-                        className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                        className="h-9 rounded-xl border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                         onClick={() => setEditMode((v) => !v)}
                       >
                         {editMode ? (
@@ -1639,7 +1753,8 @@ export default function AMDashboardTab({
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
-                        className="rounded-xl bg-gradient-to-b from-blue-600 to-blue-700 text-white shadow-md shadow-blue-600/20 hover:shadow-lg hover:shadow-blue-600/25 transition-all"
+                        size="sm"
+                        className="h-9 rounded-xl bg-sky-700 text-white hover:bg-sky-800"
                         disabled={isBusy}
                       >
                         <Plus className="mr-2 h-4 w-4" />
@@ -1674,8 +1789,9 @@ export default function AMDashboardTab({
                   </DropdownMenu>
 
                   <Button
+                    size="sm"
                     variant="outline"
-                    className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                    className="h-9 rounded-xl border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                     onClick={autoOrganize}
                     disabled={isBusy}
                     title="Reorganiza automaticamente os widgets"
@@ -1685,8 +1801,9 @@ export default function AMDashboardTab({
                   </Button>
 
                   <Button
+                    size="sm"
                     variant="outline"
-                    className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                    className="h-9 rounded-xl border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                     onClick={() => setSlaCfgOpen(true)}
                     disabled={isBusy}
                   >
@@ -1695,8 +1812,9 @@ export default function AMDashboardTab({
                   </Button>
 
                   <Button
+                    size="sm"
                     variant="outline"
-                    className="rounded-xl border-zinc-200/70 bg-white/70 shadow-sm backdrop-blur hover:bg-white hover:shadow-md transition-all"
+                    className="h-9 rounded-xl border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                     onClick={resetLayout}
                     disabled={isBusy}
                     title="Limpa localStorage e restaura layout padrão"
@@ -1748,7 +1866,9 @@ export default function AMDashboardTab({
                         <DashboardWidget
                           widget={w}
                           editMode={editMode}
+                          loading={isBusy}
                           dashData={dashData}
+                          periodDays={periodDays}
                           onRemove={() => removeWidget(w.id)}
                           onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
                           onChangeMetric={(metricKey) =>
@@ -1884,7 +2004,9 @@ export default function AMDashboardTab({
 const DashboardWidget = memo(function DashboardWidget({
   widget,
   editMode,
+  loading,
   dashData,
+  periodDays = 30,
   onRemove,
   onChangeViz,
   onChangeMetric,
@@ -1892,7 +2014,10 @@ const DashboardWidget = memo(function DashboardWidget({
 }) {
   const def = metricDef(widget.metric);
   const title = def?.title || "Widget";
-  const subtitle = def?.subtitle || "";
+  const subtitle = (def?.subtitle || "").replace(
+    /Ãšltimos 30 dias|Ãºltimos 30 dias|Últimos 30 dias|últimos 30 dias/g,
+    `Últimos ${periodDays} dias`
+  );
 
   const allowedViz = def?.allowedViz || ["bar"];
   const currentViz = allowedViz.includes(widget.viz)
@@ -1946,6 +2071,9 @@ const DashboardWidget = memo(function DashboardWidget({
         return [];
     }
   }, [dashData, widget.metric, currentViz]);
+
+  const renderViz =
+    currentViz === "bar" && shouldUseHorizontalBars(data) ? "barh" : currentViz;
 
   let accent = metricAccent(widget.metric);
 
@@ -2128,9 +2256,14 @@ const DashboardWidget = memo(function DashboardWidget({
         <div className="h-full min-h-[160px] min-w-0 am-dash-nodrag">
           <WidgetBody
             metric={widget.metric}
-            viz={currentViz}
+            viz={renderViz}
             data={data}
             accent={accent}
+            loading={loading}
+            emptyContext={{
+              total: dashData?.kpis?.total ?? 0,
+              periodDays,
+            }}
             onItemClick={(label) => onDrill?.({ metric: widget.metric, label })}
           />
         </div>
@@ -2174,6 +2307,7 @@ function ShadcnChartTooltip({ active, payload, label }) {
         name,
         color,
         value: p?.value,
+        percent: p?.payload?.percent,
       };
     })
     .filter((x) => x.name && x.value !== undefined && x.value !== null);
@@ -2211,7 +2345,9 @@ function ShadcnChartTooltip({ active, payload, label }) {
               </div>
 
               <div className="tabular-nums font-semibold text-zinc-50">
-                {fmtTooltipValue(it.value)}
+                {Number.isFinite(Number(it.percent))
+                  ? formatCountPercent(it.value, it.percent)
+                  : fmtTooltipValue(it.value)}
               </div>
             </div>
           ))}
@@ -2243,7 +2379,14 @@ function MinimalLegend({ payload }) {
       it?.payload?.color ||
       "#64748b";
 
-    uniq.push({ label, color });
+    const percent = it?.payload?.percent;
+    const value = it?.payload?.value;
+    const display =
+      Number.isFinite(Number(percent)) && value != null
+        ? `${label}: ${formatCountPercent(value, percent)}`
+        : label;
+
+    uniq.push({ label: display, color });
   }
 
   if (!uniq.length) return null;
@@ -2280,7 +2423,46 @@ const RECHARTS_TOOLTIP_BASE = {
   isAnimationActive: false, // ✅ evita flicker/sumiço
 };
 
-function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
+function widgetEmptyText(metric, viz, emptyContext) {
+  if (emptyContext?.total === 0) return "Sem dados no recorte atual.";
+  if (metric === "sla" || metric === "slaCompliance") {
+    return "Nenhum ticket elegível para SLA neste recorte.";
+  }
+  if (["line", "area", "composed", "multiLine"].includes(viz)) {
+    return `Nenhuma série temporal nos últimos ${emptyContext?.periodDays || 30} dias.`;
+  }
+  if (["bar", "barh", "pie", "donut", "treemap"].includes(viz)) {
+    return "Nenhum item para ranking neste recorte.";
+  }
+  return "Sem dados suficientes neste recorte.";
+}
+
+function WidgetLoading() {
+  return (
+    <div className="grid h-full min-h-[160px] gap-3 rounded-2xl border border-zinc-100 bg-zinc-50/50 p-4">
+      <Skeleton className="h-4 w-2/5 rounded-full" />
+      <Skeleton className="h-full min-h-[90px] rounded-xl" />
+      <div className="flex gap-2">
+        <Skeleton className="h-3 w-20 rounded-full" />
+        <Skeleton className="h-3 w-24 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
+function WidgetBody({
+  metric,
+  viz,
+  data,
+  accent = "#3b82f6",
+  loading = false,
+  emptyContext,
+  onItemClick,
+}) {
+  if (loading) return <WidgetLoading />;
+
+  const emptyText = widgetEmptyText(metric, viz, emptyContext);
+
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;
 
@@ -2304,13 +2486,14 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "composed") {
     const series = Array.isArray(data) ? data : [];
-    if (!series.length) return <EmptyChart text="Sem dados suficientes." />;
+    if (!series.length) return <EmptyChart text={emptyText} />;
 
     return (
       <ChartFrame minHeight={160}>
         {({ width, height }) => (
           <ComposedChart width={width} height={height} data={series}>
             <CartesianGrid strokeDasharray="3 3" />
+            <ReferenceLine y={0} stroke="rgba(100,116,139,0.45)" />
             <XAxis dataKey="day" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
 
@@ -2355,8 +2538,34 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               type="monotone"
               dataKey="doneSubtask"
               name="Concluídos Subtarefas"
-              stroke="#84cc16"
+              stroke="#65a30d"
               strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="movingAvgCreated"
+              name="Média criados"
+              stroke={SEMANTIC_COLORS.info}
+              strokeDasharray="4 4"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="movingAvgDone"
+              name="Média concluídos"
+              stroke={SEMANTIC_COLORS.success}
+              strokeDasharray="4 4"
+              strokeWidth={2}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="netTotal"
+              name="Saldo líquido"
+              stroke={SEMANTIC_COLORS.warning}
+              strokeWidth={1.5}
               dot={false}
             />
           </ComposedChart>
@@ -2367,7 +2576,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "multiLine") {
     const series = Array.isArray(data) ? data : [];
-    if (!series.length) return <EmptyChart text="Sem dados suficientes." />;
+    if (!series.length) return <EmptyChart text={emptyText} />;
 
     return (
       <ChartFrame minHeight={160}>
@@ -2427,7 +2636,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
   if (viz === "line" || viz === "area") {
     const series = Array.isArray(data) ? data : [];
     if (!series.length) {
-      return <EmptyChart text="Sem dados suficientes para série temporal." />;
+      return <EmptyChart text={emptyText} />;
     }
 
     if (viz === "line") {
@@ -2505,7 +2714,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "stack") {
     const stack = Array.isArray(data) ? data : [];
-    if (!stack.length) return <EmptyChart text="Sem dados de SLA." />;
+    if (!stack.length) return <EmptyChart text={emptyText} />;
 
     return (
       <ChartFrame minHeight={160}>
@@ -2531,31 +2740,31 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               dataKey="dentro"
               stackId="a"
               name="Dentro do prazo"
-              fill="#22c55e"
+              fill={SEMANTIC_COLORS.success}
             />
             <Bar
               dataKey="estourada"
               stackId="a"
               name="Data limite estourada"
-              fill="#ef4444"
+              fill={SEMANTIC_COLORS.danger}
             />
             <Bar
               dataKey="alterada"
               stackId="a"
               name="Data limite alterada estourada"
-              fill="#f59e0b"
+              fill={SEMANTIC_COLORS.warning}
             />
             <Bar
               dataKey="semData"
               stackId="a"
               name="Sem data limite"
-              fill="#6b7280"
+              fill={SEMANTIC_COLORS.muted}
             />
             <Bar
               dataKey="concluidos"
               stackId="a"
               name="Concluídos"
-              fill="#3b82f6"
+              fill={SEMANTIC_COLORS.info}
             />
           </BarChart>
         )}
@@ -2565,7 +2774,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "treemap") {
     const series = Array.isArray(data) ? data : [];
-    if (!series.length) return <EmptyChart text="Sem dados para treemap." />;
+    if (!series.length) return <EmptyChart text={emptyText} />;
 
     return (
       <ChartFrame minHeight={160}>
@@ -2589,7 +2798,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "pie" || viz === "donut") {
     const series = Array.isArray(data) ? data : [];
-    if (!series.length) return <EmptyChart text="Sem dados para pizza." />;
+    if (!series.length) return <EmptyChart text={emptyText} />;
 
     return (
       <ChartFrame minHeight={160}>
@@ -2637,7 +2846,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "barh") {
     const series = Array.isArray(data) ? data : [];
-    if (!series.length) return <EmptyChart text="Sem dados para barras." />;
+    if (!series.length) return <EmptyChart text={emptyText} />;
 
     return (
       <ChartFrame minHeight={160}>
@@ -2659,6 +2868,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               type="category"
               dataKey="name"
               tick={{ fontSize: 11 }}
+              tickFormatter={(value) => truncateLabel(value, 18)}
               width={110}
             />
 
@@ -2689,9 +2899,7 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
 
   if (viz === "bar") {
     const series = Array.isArray(data) ? data : [];
-    if (!series.length) return <EmptyChart text="Sem dados para barras." />;
-
-    const needsAngle = series.length > 8;
+    if (!series.length) return <EmptyChart text={emptyText} />;
 
     // ✅ Dataset comum: [{ name, value, fill }]
     const isValueSeries = series.some((x) => typeof x?.value === "number");
@@ -2727,31 +2935,31 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
                 dataKey="dentro"
                 stackId="a"
                 name="Dentro do prazo"
-                fill="#22c55e"
+                fill={SEMANTIC_COLORS.success}
               />
               <Bar
                 dataKey="estourada"
                 stackId="a"
                 name="Data limite estourada"
-                fill="#ef4444"
+                fill={SEMANTIC_COLORS.danger}
               />
               <Bar
                 dataKey="alterada"
                 stackId="a"
                 name="Data limite alterada estourada"
-                fill="#f59e0b"
+                fill={SEMANTIC_COLORS.warning}
               />
               <Bar
                 dataKey="semData"
                 stackId="a"
                 name="Sem data limite"
-                fill="#6b7280"
+                fill={SEMANTIC_COLORS.muted}
               />
               <Bar
                 dataKey="concluidos"
                 stackId="a"
                 name="Concluídos"
-                fill="#3b82f6"
+                fill={SEMANTIC_COLORS.info}
               />
             </BarChart>
           )}
@@ -2767,14 +2975,13 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
             width={width}
             height={height}
             data={series}
-            margin={{ top: 5, right: 16, bottom: needsAngle ? 20 : 5, left: 0 }}
+            margin={{ top: 5, right: 16, bottom: 5, left: 0 }}
           >
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="name"
               tick={{ fontSize: 11 }}
-              angle={needsAngle ? -25 : 0}
-              textAnchor={needsAngle ? "end" : "middle"}
+              tickFormatter={(value) => truncateLabel(value, 12)}
             />
             <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
             <RTooltip
@@ -2817,6 +3024,9 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
     const pct = Number(info?.pct ?? 0);
     const targetPct = Number(info?.targetPct ?? 90);
     const breach = Boolean(info?.breach);
+    if (Number(info?.eligibleTotal || 0) === 0) {
+      return <EmptyChart text={emptyText} />;
+    }
 
     const safePct = Math.max(0, Math.min(100, pct));
 
@@ -2870,6 +3080,27 @@ function WidgetBody({ metric, viz, data, accent = "#3b82f6", onItemClick }) {
               {safePct.toFixed(1)}%
             </div>
             <div className="text-xs text-zinc-500">SLA Compliance</div>
+          </div>
+        </div>
+        <div className="mt-4 space-y-1.5">
+          <div className="flex items-center justify-between text-[11px] text-zinc-500">
+            <span>Atual {safePct.toFixed(1)}%</span>
+            <span>Meta {targetPct}%</span>
+          </div>
+          <div className="relative h-2 rounded-full bg-zinc-200">
+            <div
+              className={cn(
+                "h-2 rounded-full",
+                breach ? "bg-red-500" : "bg-emerald-500"
+              )}
+              style={{ width: `${safePct}%` }}
+            />
+            <span
+              className="absolute top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-zinc-900"
+              style={{
+                left: `${Math.max(0, Math.min(100, targetPct))}%`,
+              }}
+            />
           </div>
         </div>
       </div>
