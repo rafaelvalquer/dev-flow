@@ -29,7 +29,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   DndContext,
   DragOverlay,
@@ -1336,6 +1336,10 @@ function PersonalQueueView({
   const actionable = (rows || []).filter(
     (issue) => getQueueStatus(issue) !== PERSONAL_QUEUE_OTHER_STATUS,
   ).length;
+  const dropAnimation = {
+    duration: 260,
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+  };
 
   function getTargetStatus(over) {
     const status = over?.data?.current?.status;
@@ -1431,15 +1435,18 @@ function PersonalQueueView({
           </div>
         </div>
 
-        <DragOverlay>
-          {activeTicket ? (
-            <PersonalQueueCard
-              ticket={activeTicket}
-              moving={false}
-              overlay
-              onOpenDetails={onOpenDetails}
-            />
-          ) : null}
+        <DragOverlay dropAnimation={dropAnimation}>
+          <AnimatePresence mode="popLayout">
+            {activeTicket ? (
+              <PersonalQueueCard
+                key={getIssueKey(activeTicket)}
+                ticket={activeTicket}
+                moving={false}
+                overlay
+                onOpenDetails={onOpenDetails}
+              />
+            ) : null}
+          </AnimatePresence>
         </DragOverlay>
       </DndContext>
     </section>
@@ -1456,55 +1463,102 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
   const ids = tickets.map((ticket) => getIssueKey(ticket)).filter(Boolean);
 
   return (
-    <Card
+    <motion.div
       ref={setNodeRef}
-      className={cn(
-        "flex max-h-[72vh] min-h-[420px] flex-col overflow-hidden rounded-3xl border bg-white shadow-sm transition-all duration-200",
-        isOver && !isOther
-          ? "border-red-300 bg-red-50/50 shadow-lg ring-2 ring-red-100"
-          : "border-zinc-200",
-        isOther && "bg-zinc-50/80",
-      )}
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: isOver && !isOther ? 1.015 : 1,
+      }}
+      whileHover={{ y: -3 }}
+      transition={{ type: "spring", stiffness: 360, damping: 30 }}
     >
-      <CardHeader className="border-b border-zinc-100 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="truncate text-sm text-zinc-900">
-            {status}
-          </CardTitle>
-          <Badge className="shrink-0 rounded-full border border-zinc-200 bg-white text-zinc-700">
-            {tickets.length}
-          </Badge>
-        </div>
-        <CardDescription className="line-clamp-1 text-xs">
-          {isOther ? "Status fora do fluxo mapeado" : "Solte aqui para mover"}
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="min-h-0 flex-1 overflow-y-auto p-2">
-        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <div className="grid gap-2">
-            {tickets.length ? (
-              tickets.map((ticket) => {
-                const key = getIssueKey(ticket);
-                return (
-                  <PersonalQueueCard
-                    key={key}
-                    ticket={ticket}
-                    disabled={isOther}
-                    moving={movingKeys?.has(key)}
-                    onOpenDetails={onOpenDetails}
-                  />
-                );
-              })
-            ) : (
-              <div className="grid min-h-[128px] place-items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 text-center text-xs text-zinc-500">
-                Nenhum ticket aqui.
-              </div>
-            )}
+      <Card
+        className={cn(
+          "flex max-h-[72vh] min-h-[420px] flex-col overflow-hidden rounded-3xl border bg-white shadow-sm transition-all duration-200",
+          isOver && !isOther
+            ? "border-red-300 bg-red-50/50 shadow-lg ring-2 ring-red-100"
+            : "border-zinc-200",
+          isOther && "bg-zinc-50/80",
+        )}
+      >
+        <CardHeader className="border-b border-zinc-100 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="truncate text-sm text-zinc-900">
+              {status}
+            </CardTitle>
+            <Badge className="shrink-0 rounded-full border border-zinc-200 bg-white text-zinc-700">
+              {tickets.length}
+            </Badge>
           </div>
-        </SortableContext>
-      </CardContent>
-    </Card>
+          <CardDescription className="line-clamp-1 text-xs">
+            {isOther ? "Status fora do fluxo mapeado" : "Solte aqui para mover"}
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="min-h-0 flex-1 overflow-y-auto p-2">
+          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+            <div className="grid gap-2">
+              <AnimatePresence mode="popLayout" initial={false}>
+                {tickets.length ? (
+                  tickets.map((ticket) => {
+                    const key = getIssueKey(ticket);
+                    return (
+                      <motion.div
+                        key={key}
+                        layout
+                        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                        transition={{
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 34,
+                        }}
+                      >
+                        <PersonalQueueCard
+                          ticket={ticket}
+                          disabled={isOther}
+                          moving={movingKeys?.has(key)}
+                          onOpenDetails={onOpenDetails}
+                        />
+                      </motion.div>
+                    );
+                  })
+                ) : (
+                  <motion.div
+                    key={`empty-${status}`}
+                    layout
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{
+                      opacity: 1,
+                      scale: isOver && !isOther ? 1.02 : 1,
+                      borderColor:
+                        isOver && !isOther
+                          ? "rgb(248 113 113)"
+                          : "rgb(228 228 231)",
+                      backgroundColor:
+                        isOver && !isOther
+                          ? "rgb(254 242 242)"
+                          : "rgb(250 250 250)",
+                    }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    transition={{ type: "spring", stiffness: 360, damping: 30 }}
+                    className="grid min-h-[128px] place-items-center rounded-2xl border border-dashed px-3 text-center text-xs text-zinc-500"
+                  >
+                    {isOver && !isOther
+                      ? "Solte para mover aqui."
+                      : "Nenhum ticket aqui."}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </SortableContext>
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 }
 
@@ -1538,37 +1592,62 @@ function PersonalQueueCard({
   };
 
   return (
-    <motion.article
+    <article
       ref={setNodeRef}
       style={style}
-      layout
-      initial={overlay ? false : { opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: isDragging ? 0.35 : 1, y: 0, scale: overlay ? 1.04 : 1 }}
-      transition={{ type: "spring", stiffness: 420, damping: 32 }}
       className={cn(
-        "group rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm transition-all",
-        "hover:-translate-y-0.5 hover:border-red-200 hover:shadow-md",
-        isDragging && "opacity-40",
-        overlay && "w-[280px] border-red-200 shadow-2xl ring-4 ring-red-100",
-        moving && "pointer-events-none opacity-70",
+        "touch-none",
+        overlay && "w-[280px]",
       )}
     >
+      <motion.div
+        layout
+        initial={overlay ? false : { opacity: 0, y: 8, scale: 0.98 }}
+        animate={{
+          opacity: isDragging ? 0.35 : 1,
+          y: 0,
+          scale: overlay ? 1.04 : 1,
+        }}
+        exit={{ opacity: 0, y: -8, scale: 0.96 }}
+        whileHover={overlay || moving ? undefined : { y: -3, scale: 1.01 }}
+        whileTap={overlay || moving ? undefined : { scale: 0.985 }}
+        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+        className={cn(
+          "group rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm transition-colors",
+          "hover:border-red-200 hover:shadow-md",
+          isDragging && "opacity-40",
+          overlay && "border-red-200 shadow-2xl ring-4 ring-red-100",
+          moving && "pointer-events-none opacity-70",
+        )}
+      >
       <div className="flex items-start justify-between gap-2">
         <button
           type="button"
           className="min-w-0 text-left"
           onClick={() => onOpenDetails?.(key)}
         >
-          <code className="rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700">
+          <motion.code
+            layout
+            whileHover={{ scale: 1.04 }}
+            transition={{ type: "spring", stiffness: 500, damping: 28 }}
+            className="inline-block rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700"
+          >
             {key}
-          </code>
+          </motion.code>
           <h3 className="mt-2 line-clamp-3 break-words text-sm font-semibold leading-5 text-zinc-950">
             {getQueueSummary(ticket)}
           </h3>
         </button>
 
-        <button
+        <motion.button
           type="button"
+          whileHover={
+            disabled || moving
+              ? undefined
+              : { rotate: -6, scale: 1.08 }
+          }
+          whileTap={disabled || moving ? undefined : { rotate: 0, scale: 0.94 }}
+          transition={{ type: "spring", stiffness: 520, damping: 24 }}
           className={cn(
             "grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500",
             "cursor-grab active:cursor-grabbing",
@@ -1579,7 +1658,7 @@ function PersonalQueueCard({
           {...listeners}
         >
           <ArrowUpDown className="h-4 w-4" />
-        </button>
+        </motion.button>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1601,14 +1680,24 @@ function PersonalQueueCard({
 
       <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
         <span className="truncate">{getQueueUpdatedLabel(ticket)}</span>
-        {moving ? (
-          <span className="inline-flex items-center gap-1 font-semibold text-red-600">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Movendo...
-          </span>
-        ) : null}
+        <AnimatePresence initial={false}>
+          {moving ? (
+            <motion.span
+              key="moving"
+              initial={{ opacity: 0, x: 8, scale: 0.96 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 8, scale: 0.96 }}
+              transition={{ type: "spring", stiffness: 420, damping: 30 }}
+              className="inline-flex items-center gap-1 font-semibold text-red-600"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Movendo...
+            </motion.span>
+          ) : null}
+        </AnimatePresence>
       </div>
-    </motion.article>
+      </motion.div>
+    </article>
   );
 }
 
