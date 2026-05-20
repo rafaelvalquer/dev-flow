@@ -300,6 +300,202 @@ export default function jiraRoutes({ upload, env }) {
       extra
     );
 
+  // Projetos disponiveis para criacao de ticket
+  router.get("/project/search", async (req, res) => {
+    try {
+      const qs = new URLSearchParams();
+      for (const [key, value] of Object.entries(req.query || {})) {
+        if (value == null || value === "") continue;
+        qs.set(key, String(value));
+      }
+      if (!qs.has("maxResults")) qs.set("maxResults", "50");
+
+      const url = `${JIRA_BASE}/rest/api/3/project/search${
+        qs.toString() ? `?${qs.toString()}` : ""
+      }`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar projetos do Jira.",
+      });
+    } catch (err) {
+      console.error("GET project/search error:", err);
+      return res.status(500).json({
+        error: "Proxy error on GET project/search",
+        details: String(err),
+      });
+    }
+  });
+
+  // Status disponiveis por projeto/tipo de issue
+  router.get("/project/:projectIdOrKey/statuses", async (req, res) => {
+    try {
+      const { projectIdOrKey } = req.params;
+      const url = `${JIRA_BASE}/rest/api/3/project/${encodeURIComponent(
+        projectIdOrKey
+      )}/statuses`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar status do projeto no Jira.",
+      });
+    } catch (err) {
+      console.error("GET project statuses error:", err);
+      return res.status(500).json({
+        error: "Proxy error on GET project statuses",
+        details: String(err),
+      });
+    }
+  });
+
+  // Tipos de ticket disponiveis para criacao em um projeto
+  router.get("/issue/createmeta/:projectIdOrKey/issuetypes", async (req, res) => {
+    try {
+      const { projectIdOrKey } = req.params;
+      const qs = new URLSearchParams();
+      for (const [key, value] of Object.entries(req.query || {})) {
+        if (value == null || value === "") continue;
+        qs.set(key, String(value));
+      }
+      if (!qs.has("maxResults")) qs.set("maxResults", "50");
+
+      const url = `${JIRA_BASE}/rest/api/3/issue/createmeta/${encodeURIComponent(
+        projectIdOrKey
+      )}/issuetypes${qs.toString() ? `?${qs.toString()}` : ""}`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar tipos de ticket do Jira.",
+      });
+    } catch (err) {
+      console.error("GET createmeta issuetypes error:", err);
+      return res.status(500).json({
+        error: "Proxy error on GET createmeta issuetypes",
+        details: String(err),
+      });
+    }
+  });
+
+  // Campos de criacao para projeto + tipo
+  router.get(
+    "/issue/createmeta/:projectIdOrKey/issuetypes/:issueTypeId",
+    async (req, res) => {
+      try {
+        const { projectIdOrKey, issueTypeId } = req.params;
+        const qs = new URLSearchParams();
+        for (const [key, value] of Object.entries(req.query || {})) {
+          if (value == null || value === "") continue;
+          qs.set(key, String(value));
+        }
+        if (!qs.has("maxResults")) qs.set("maxResults", "200");
+
+        const url = `${JIRA_BASE}/rest/api/3/issue/createmeta/${encodeURIComponent(
+          projectIdOrKey
+        )}/issuetypes/${encodeURIComponent(issueTypeId)}${
+          qs.toString() ? `?${qs.toString()}` : ""
+        }`;
+        const r = await fetchWithTimeout(url, {
+          headers: jiraHeaders(req),
+          timeoutMs: env.REQUEST_TIMEOUT_MS,
+        });
+        return sendUpstream(res, r, "application/json", {
+          service: "jira",
+          message: "Falha ao carregar campos de criacao do Jira.",
+        });
+      } catch (err) {
+        console.error("GET createmeta fields error:", err);
+        return res.status(500).json({
+          error: "Proxy error on GET createmeta fields",
+          details: String(err),
+        });
+      }
+    }
+  );
+
+  // Issue picker para campos Pai e tickets vinculados
+  router.get("/issue/picker", async (req, res) => {
+    try {
+      const qs = new URLSearchParams();
+      for (const [key, value] of Object.entries(req.query || {})) {
+        if (value == null || value === "") continue;
+        qs.set(key, String(value));
+      }
+      if (!qs.has("showSubTasks")) qs.set("showSubTasks", "true");
+      if (!qs.has("showSubTaskParent")) qs.set("showSubTaskParent", "true");
+
+      const url = `${JIRA_BASE}/rest/api/3/issue/picker${
+        qs.toString() ? `?${qs.toString()}` : ""
+      }`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao buscar tickets no Jira.",
+      });
+    } catch (err) {
+      console.error("GET issue/picker error:", err);
+      return res.status(500).json({
+        error: "Proxy error on GET issue/picker",
+        details: String(err),
+      });
+    }
+  });
+
+  // Tipos de vinculo entre tickets
+  router.get("/issueLinkType", async (req, res) => {
+    try {
+      const url = `${JIRA_BASE}/rest/api/3/issueLinkType`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar tipos de vinculo do Jira.",
+      });
+    } catch (err) {
+      console.error("GET issueLinkType error:", err);
+      return res.status(500).json({
+        error: "Proxy error on GET issueLinkType",
+        details: String(err),
+      });
+    }
+  });
+
+  // Cria vinculo entre tickets
+  router.post("/issueLink", async (req, res) => {
+    try {
+      const url = `${JIRA_BASE}/rest/api/3/issueLink`;
+      const r = await fetchWithTimeout(url, {
+        method: "POST",
+        headers: jiraHeaders(req, { "Content-Type": "application/json" }),
+        body: JSON.stringify(req.body),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao vincular tickets no Jira.",
+      });
+    } catch (err) {
+      console.error("POST issueLink error:", err);
+      return res.status(500).json({
+        error: "Proxy error on POST issueLink",
+        details: String(err),
+      });
+    }
+  });
+
   // GET issue
   router.get("/issue/:key", async (req, res) => {
     try {

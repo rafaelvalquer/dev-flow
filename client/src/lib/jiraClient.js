@@ -211,6 +211,104 @@ export async function jiraEditIssue(key, payload) {
   });
 }
 
+export async function jiraCreateIssue(payload) {
+  return requestJson("/api/jira/issue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function jiraSearchProjects({
+  query = "",
+  startAt = 0,
+  maxResults = 50,
+} = {}) {
+  const qs = new URLSearchParams({
+    startAt: String(startAt),
+    maxResults: String(maxResults),
+  });
+  const q = String(query || "").trim();
+  if (q) qs.set("query", q);
+  return requestJson(`/api/jira/project/search?${qs.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function jiraGetCreateIssueTypes(projectIdOrKey) {
+  const project = String(projectIdOrKey || "").trim();
+  if (!project) throw new Error("Projeto Jira invalido.");
+  return requestJson(
+    `/api/jira/issue/createmeta/${encodeURIComponent(project)}/issuetypes`,
+    { method: "GET" },
+  );
+}
+
+export async function jiraGetCreateIssueFields(projectIdOrKey, issueTypeId) {
+  const project = String(projectIdOrKey || "").trim();
+  const typeId = String(issueTypeId || "").trim();
+  if (!project) throw new Error("Projeto Jira invalido.");
+  if (!typeId) throw new Error("Tipo de ticket invalido.");
+  return requestJson(
+    `/api/jira/issue/createmeta/${encodeURIComponent(
+      project,
+    )}/issuetypes/${encodeURIComponent(typeId)}?maxResults=200`,
+    { method: "GET" },
+  );
+}
+
+export async function jiraGetProjectStatuses(projectIdOrKey) {
+  const project = String(projectIdOrKey || "").trim();
+  if (!project) throw new Error("Projeto Jira invalido.");
+  return requestJson(
+    `/api/jira/project/${encodeURIComponent(project)}/statuses`,
+    { method: "GET" },
+  );
+}
+
+export async function jiraIssuePicker({
+  query = "",
+  currentJQL = "",
+  currentIssueKey = "",
+} = {}) {
+  const qs = new URLSearchParams();
+  const q = String(query || "").trim();
+  const jql = String(currentJQL || "").trim();
+  const key = String(currentIssueKey || "").trim();
+  if (q) qs.set("query", q);
+  if (jql) qs.set("currentJQL", jql);
+  if (key) qs.set("currentIssueKey", key);
+  return requestJson(`/api/jira/issue/picker?${qs.toString()}`, {
+    method: "GET",
+  });
+}
+
+export async function jiraListIssueLinkTypes() {
+  return requestJson("/api/jira/issueLinkType", { method: "GET" });
+}
+
+export async function jiraCreateIssueLink(payload) {
+  return requestJson("/api/jira/issueLink", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function jiraUploadIssueAttachments(issueKey, files) {
+  const key = String(issueKey || "").trim();
+  const list = Array.from(files || []);
+  if (!key || !list.length) return null;
+
+  const form = new FormData();
+  list.forEach((file) => form.append("files", file));
+
+  return requestJson(`/api/jira/issue/${encodeURIComponent(key)}/attachments`, {
+    method: "POST",
+    body: form,
+  });
+}
+
 // ===== Transições de status (Workflow) =====
 
 export async function jiraListPriorities() {

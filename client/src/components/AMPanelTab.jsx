@@ -90,6 +90,7 @@ import {
 
 import AMCalendarTab from "./AMCalendarTab";
 import AMDashboardTab from "./AMDashboardTab";
+import CreateJiraIssueDialog from "./CreateJiraIssueDialog";
 import { POActionsHub, POPortfolioHub, POPresetBar } from "./POManagementViews";
 
 import { DateValuePicker } from "@/components/ui/date-range-picker";
@@ -1278,6 +1279,9 @@ export default function AMPanelTab({
   const [resolutionSaving, setResolutionSaving] = useState(false);
   const [resolutionErr, setResolutionErr] = useState("");
 
+  // modal criacao de ticket Jira (PO)
+  const [createIssueOpen, setCreateIssueOpen] = useState(false);
+
   // 1) modos de cor: ticket | recurso | atividade
   // 2) filtro por texto (ticket/tarefa/recurso)
   const [colorMode, setColorMode] = useState("ticket");
@@ -2456,6 +2460,17 @@ export default function AMPanelTab({
                   </>
                 ) : null}
 
+                {!personalMode && subView === "acoes" ? (
+                  <Button
+                    type="button"
+                    onClick={() => setCreateIssueOpen(true)}
+                    className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Criar ticket no Jira
+                  </Button>
+                ) : null}
+
                 <Button
                   type="button"
                   variant="outline"
@@ -2664,6 +2679,24 @@ export default function AMPanelTab({
           )}
 
           {/* Modais */}
+          <CreateJiraIssueDialog
+            open={createIssueOpen}
+            onOpenChange={setCreateIssueOpen}
+            onCreated={async (issueKey) => {
+              const key = String(issueKey || "")
+                .trim()
+                .toUpperCase();
+              if (!key) return;
+              try {
+                await refreshIssueInPanel(key);
+              } catch {
+                await reload();
+              }
+              setDetailsKey(key);
+              setDetailsOpen(true);
+            }}
+          />
+
           {editorOpen && (
             <CronogramaEditorModal
               issue={editorIssue}
