@@ -110,6 +110,7 @@ import AMDashboardTab from "./AMDashboardTab";
 import CreateJiraIssueDialog from "./CreateJiraIssueDialog";
 import PersonalOperationalTimeline from "./PersonalOperationalTimeline";
 import { POActionsHub, POPortfolioHub, POPresetBar } from "./POManagementViews";
+import usePoJiraData from "../hooks/usePoJiraData";
 
 import { DateValuePicker } from "@/components/ui/date-range-picker";
 import {
@@ -118,14 +119,11 @@ import {
   jiraSearchUsers,
   jiraTransitionToStatus,
   jiraUpdateIssuePriority,
-  jiraSearchJqlAll,
-  jiraSearchDoneLastNDays,
 } from "../lib/jiraClient";
 import {
   ATIVIDADES_PADRAO,
   buildCronogramaADF,
   parseCronogramaADF,
-  toCalendarEvents,
 } from "../utils/cronograma";
 import {
   addBusinessDays,
@@ -143,13 +141,8 @@ import {
 
 import {
   applyEventChangeToAtividades,
-  buildPoView,
-  fetchPoIssueDetail,
-  fetchPoIssuesDetailedProgressive,
   makeDefaultCronogramaDraft,
   saveCronogramaToJira,
-  fetchPoActiveRows,
-  fetchPoDoneLast30Days,
 } from "../lib/jiraPoView";
 
 // NOVO: buscar detalhes do ticket + comentar
@@ -1037,21 +1030,6 @@ function getIssueKey(issue) {
     .toUpperCase();
 }
 
-function mergeIssueByKey(list, issue) {
-  const key = getIssueKey(issue);
-  if (!key) return list || [];
-
-  let found = false;
-  const next = (list || []).map((item) => {
-    if (getIssueKey(item) !== key) return item;
-    found = true;
-    return issue;
-  });
-
-  if (!found) next.push(issue);
-  return next;
-}
-
 function formatReloadProgress(progress) {
   if (!progress?.active) return "";
   if (!progress?.total) return "Buscando tickets...";
@@ -1063,34 +1041,6 @@ function formatReloadProgress(progress) {
     ? ` • ${failed} falha${failed > 1 ? "s" : ""}`
     : "";
   return `${loaded}/${total} carregados${failureText}`;
-}
-
-function summarizeProgressiveLoadWarning(failures = [], doneError = null) {
-  const parts = [];
-
-  if (failures.length) {
-    const keys = failures
-      .slice(0, 6)
-      .map((failure) => failure.key)
-      .filter(Boolean)
-      .join(", ");
-    const more = failures.length > 6 ? ` e mais ${failures.length - 6}` : "";
-    parts.push(
-      `${failures.length} ticket${failures.length > 1 ? "s" : ""} não ${
-        failures.length > 1 ? "carregaram" : "carregou"
-      }${keys ? `: ${keys}${more}` : ""}.`,
-    );
-  }
-
-  if (doneError) {
-    parts.push(
-      `Não foi possível atualizar os concluídos dos últimos 30 dias: ${
-        doneError?.message || String(doneError)
-      }`,
-    );
-  }
-
-  return parts.join(" ");
 }
 
 /* =========================
@@ -1705,6 +1655,7 @@ function PersonalQueueCard({
 export default function AMPanelTab({
   calendarSettings,
   currentUser,
+  poData,
   personalMode = false,
   onConfigureUser,
 }) {
@@ -1714,28 +1665,29 @@ export default function AMPanelTab({
   );
   const [subView, setSubView] = useState(personalMode ? "dashboard" : "acoes"); // acoes | portfolio | calendario | gantt | dashboard
   const [personalSubView, setPersonalSubView] = useState("queue");
-  const [loading, setLoading] = useState(false);
-  const [reloadProgress, setReloadProgress] = useState({
-    active: false,
-    total: 0,
-    completed: 0,
-    loaded: 0,
-    failed: 0,
-  });
-  const reloadRunRef = useRef(0);
-  const [err, setErr] = useState("");
+  const localPoData = usePoJiraData();
+  const effectivePoData = poData || localPoData;
+  const {
+    loading,
+    setLoading,
+    reloadProgress,
+    err,
+    setErr,
+    rawIssues,
+    rows,
+    doneRows,
+    viewData,
+    setViewData,
+    reload,
+    ensureLoaded,
+    refreshIssue,
+    applyCronogramaPatchLocal,
+    applyTicketStatusLocal,
+  } = effectivePoData;
   const [activePreset, setActivePreset] = useState(personalMode ? "mine" : "all");
   const [ownerFocus, setOwnerFocus] = useState(
     currentUser?.jiraDisplayName || currentUser?.name || ""
   );
-
-  const [rawIssues, setRawIssues] = useState([]);
-  const [viewData, setViewData] = useState({
-    alertas: [],
-    criarCronograma: [],
-    calendarioIssues: [],
-    events: [],
-  });
 
   // modal cronograma
   const [editorOpen, setEditorOpen] = useState(false);
@@ -1837,253 +1789,23 @@ export default function AMPanelTab({
     );
   }, []);
 
-  // dashboard tickets
-  const [rows, setRows] = useState([]);
-  const [doneRows, setDoneRows] = useState([]);
-
-  const applyCronogramaPatchLocal = useCallback((issueKey, atividades) => {
-    const ik = String(issueKey || "")
-      .trim()
-      .toUpperCase();
-    if (!ik || !Array.isArray(atividades)) return;
-
-    setRawIssues((prev) =>
-      (prev || []).map((issue) =>
-        String(issue?.key || "")
-          .trim()
-          .toUpperCase() === ik
-          ? { ...issue, atividades }
-          : issue,
-      ),
-    );
-
-    setRows((prev) =>
-      (prev || []).map((issue) =>
-        String(issue?.key || "")
-          .trim()
-          .toUpperCase() === ik
-          ? { ...issue, atividades }
-          : issue,
-      ),
-    );
-
-    setViewData((prev) => {
-      const calendarioIssues = (prev?.calendarioIssues || []).map((issue) =>
-        String(issue?.key || "")
-          .trim()
-          .toUpperCase() === ik
-          ? { ...issue, atividades }
-          : issue,
-      );
-
-      const issueEvents = toCalendarEvents(ik, atividades, new Date());
-      const events = [
-        ...(prev?.events || []).filter((event) => {
-          const eventIssueKey = String(
-            event?.extendedProps?.issueKey || event?.issueKey || "",
-          )
-            .trim()
-            .toUpperCase();
-          return eventIssueKey !== ik;
-        }),
-        ...issueEvents,
-      ];
-
-      return { ...prev, calendarioIssues, events };
-    });
-  }, []);
-
-  async function runProgressiveReload() {
-    const runId = reloadRunRef.current + 1;
-    reloadRunRef.current = runId;
-    const isCurrentRun = () => reloadRunRef.current === runId;
-
-    setLoading(true);
-    setErr("");
-    setReloadProgress({
-      active: true,
-      total: 0,
-      completed: 0,
-      loaded: 0,
-      failed: 0,
-    });
-
-    const donePromise = fetchPoDoneLast30Days().then(
-      (data) => ({ data, error: null }),
-      (error) => ({ data: null, error }),
-    );
-
-    try {
-      const result = await fetchPoIssuesDetailedProgressive({
-        concurrency: 8,
-        onStart: ({ total }) => {
-          if (!isCurrentRun()) return;
-          setReloadProgress({
-            active: true,
-            total,
-            completed: 0,
-            loaded: 0,
-            failed: 0,
-          });
-        },
-        onIssue: (issue) => {
-          if (!isCurrentRun()) return;
-
-          setRawIssues((prev) => {
-            const next = mergeIssueByKey(prev, issue);
-            setViewData(buildPoView(next));
-            return next;
-          });
-          setRows((prev) => mergeIssueByKey(prev, issue));
-        },
-        onProgress: (progress) => {
-          if (!isCurrentRun()) return;
-          setReloadProgress((prev) => ({
-            ...prev,
-            ...progress,
-            active: true,
-          }));
-        },
-      });
-
-      const done = await donePromise;
-      if (!isCurrentRun()) return;
-
-      setRawIssues(result.detailed);
-      setViewData(buildPoView(result.detailed));
-      setRows(result.detailed);
-      if (!done.error) setDoneRows(done.data || []);
-
-      setErr(
-        summarizeProgressiveLoadWarning(result.failures || [], done.error),
-      );
-    } catch (e) {
-      console.error(e);
-      if (isCurrentRun()) {
-        setErr(e?.message || "Falha ao carregar dados do Jira.");
-      }
-    } finally {
-      if (isCurrentRun()) {
-        setLoading(false);
-        setReloadProgress((prev) => ({ ...prev, active: false }));
-      }
-    }
-  }
-
-  const reload = useCallback(async () => {
-    return runProgressiveReload();
-  }, []);
-
   const refreshIssueInPanel = useCallback(async (issueKey) => {
     const key = String(issueKey || "")
       .trim()
       .toUpperCase();
     if (!key) return null;
 
-    const issue = await fetchPoIssueDetail(key);
-
-    setRawIssues((prev) => {
-      const next = mergeIssueByKey(prev, issue);
-      setViewData(buildPoView(next));
-      return next;
-    });
-    setRows((prev) => mergeIssueByKey(prev, issue));
+    const issue = await refreshIssue(key);
     setDocumentationTicket((prev) =>
       getIssueKey(prev) === key ? { ...prev, ...issue } : prev,
     );
 
     return issue;
-  }, []);
-
-  const applyTicketStatusLocal = useCallback((issueKey, statusName) => {
-    const key = String(issueKey || "")
-      .trim()
-      .toUpperCase();
-    const nextStatus = String(statusName || "").trim();
-    if (!key || !nextStatus) return;
-
-    const patchIssue = (issue) => {
-      if (
-        String(issue?.key || "")
-          .trim()
-          .toUpperCase() !== key
-      ) {
-        return issue;
-      }
-
-      return {
-        ...issue,
-        statusName: nextStatus,
-        status:
-          issue?.status && typeof issue.status === "object"
-            ? { ...issue.status, name: nextStatus }
-            : nextStatus,
-        jira: {
-          ...(issue?.jira || {}),
-          status: nextStatus,
-        },
-        fields: {
-          ...(issue?.fields || {}),
-          status: {
-            ...(issue?.fields?.status || {}),
-            name: nextStatus,
-          },
-        },
-      };
-    };
-
-    setRawIssues((prev) => {
-      const next = (prev || []).map(patchIssue);
-      setViewData(buildPoView(next));
-      return next;
-    });
-    setRows((prev) => (prev || []).map(patchIssue));
-  }, []);
-
-  async function loadData(baseJql) {
-    setLoading(true);
-    try {
-      const [openIssues, doneIssues] = await Promise.all([
-        jiraSearchJqlAll({
-          jql: baseJql,
-          maxResults: 100,
-          fields: [
-            "summary",
-            "status",
-            "assignee",
-            "labels",
-            "attachment",
-            "priority",
-            "created",
-            "updated",
-            "duedate",
-            "components",
-            "issuetype",
-            "reporter",
-            "customfield_10988",
-            "customfield_11519",
-            "customfield_11520",
-            "customfield_14017",
-          ],
-        }),
-
-        // ✅ NOVO: Done (últimos 30 dias)
-        jiraSearchDoneLastNDays({
-          baseJql,
-          days: 30,
-        }),
-      ]);
-
-      setRows(openIssues);
-      setDoneRows(doneIssues);
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [refreshIssue]);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    ensureLoaded().catch(() => null);
+  }, [ensureLoaded]);
 
   const filteredAlertas = useMemo(() => viewData.alertas || [], [viewData]);
   const filteredCriarCronograma = useMemo(

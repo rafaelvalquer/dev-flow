@@ -27,6 +27,7 @@ import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
 import ToolsTab from "./components/ToolsTab";
 import SystemSettingsTab from "./components/SystemSettingsTab";
+import usePoJiraData from "./hooks/usePoJiraData";
 import {
   fetchCurrentUser,
   loginUser,
@@ -142,6 +143,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
     DEFAULT_CALENDAR_SETTINGS
   );
   const [calendarSettingsLoading, setCalendarSettingsLoading] = useState(false);
+  const poData = usePoJiraData();
 
   useEffect(() => {
     let active = true;
@@ -432,6 +434,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   <AMPanelTab
                     calendarSettings={calendarSettings}
                     currentUser={currentUser}
+                    poData={poData}
                   />
                 </div>
               ) : null}
@@ -441,6 +444,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   <AMPanelTab
                     calendarSettings={calendarSettings}
                     currentUser={currentUser}
+                    poData={poData}
                     personalMode
                     onConfigureUser={() => selectMainTab("settings")}
                   />
