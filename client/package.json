@@ -66,6 +66,8 @@
     "sortablejs": "^1.15.6",
     "tailwind-merge": "^3.4.0",
     "tailwindcss-animate": "^1.0.7",
+    "vis-data": "^8.0.4",
+    "vis-timeline": "^8.5.1",
     "yarn": "^1.22.22"
   },
   "devDependencies": {
