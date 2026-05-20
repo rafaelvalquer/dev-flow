@@ -13,9 +13,10 @@ import { cn } from "@/lib/utils";
 import { EmptyState, ModuleHeader } from "@/components/layout/ModulePrimitives";
 
 import AutomationTool from "@/components/tools/AutomationTool";
+import AudioComparatorTool from "@/components/tools/AudioComparatorTool";
 import AudioValidatorTool from "@/components/tools/AudioValidatorTool";
 
-import { ChevronDown, FileAudio, Mic, Sparkles, Workflow } from "lucide-react";
+import { ChevronDown, FileAudio, FileSearch, Mic, Sparkles, Workflow } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
@@ -26,6 +27,13 @@ const TOOL_DEFS = [
     title: "Transcrição de Áudio",
     desc: "Transforme áudio em texto para especificação e evolução de URA.",
     icon: Mic,
+    status: "ativo",
+  },
+  {
+    id: "audio-comparator",
+    title: "Comparador de Audio URA",
+    desc: "Compare a transcricao dos audios com o roteiro aprovado do projeto.",
+    icon: FileSearch,
     status: "ativo",
   },
   {
@@ -306,6 +314,10 @@ export default function ToolsTab() {
   function renderActiveTool() {
     if (activeTool === "transcricao") {
       return <AudioTranscriptionTool serviceOnline={sttOnline === true} />;
+    }
+
+    if (activeTool === "audio-comparator") {
+      return <AudioComparatorTool serviceOnline={sttOnline === true} />;
     }
 
     if (activeTool === "tts") {
