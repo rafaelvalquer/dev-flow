@@ -696,6 +696,35 @@ export default function jiraRoutes({ upload, env }) {
     }
   });
 
+  // Changelog (GET)
+  router.get("/issue/:key/changelog", async (req, res) => {
+    try {
+      const { key } = req.params;
+      const qs = new URLSearchParams();
+      const startAt = String(req.query?.startAt || "0").trim();
+      const maxResults = String(req.query?.maxResults || "100").trim();
+      qs.set("startAt", startAt || "0");
+      qs.set("maxResults", maxResults || "100");
+
+      const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
+        key
+      )}/changelog?${qs.toString()}`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao listar changelog do Jira.",
+      });
+    } catch (err) {
+      console.error("GET changelog error:", err);
+      return res
+        .status(500)
+        .json({ error: "Proxy error on GET changelog", details: String(err) });
+    }
+  });
+
   // Comentário (POST)
   router.post("/issue/:key/comment", async (req, res) => {
     try {

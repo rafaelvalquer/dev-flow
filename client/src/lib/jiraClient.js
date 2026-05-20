@@ -202,6 +202,19 @@ export async function jiraGetComments(key) {
   return requestJson(url, { method: "GET" });
 }
 
+export async function jiraGetIssueChangelog(
+  key,
+  { startAt = 0, maxResults = 100 } = {},
+) {
+  const qs = new URLSearchParams();
+  qs.set("startAt", String(startAt || 0));
+  qs.set("maxResults", String(maxResults || 100));
+  const url = `/api/jira/issue/${encodeURIComponent(
+    key,
+  )}/changelog?${qs.toString()}`;
+  return requestJson(url, { method: "GET" });
+}
+
 export async function jiraEditIssue(key, payload) {
   const url = `/api/jira/issue/${encodeURIComponent(key)}`;
   return requestJson(url, {

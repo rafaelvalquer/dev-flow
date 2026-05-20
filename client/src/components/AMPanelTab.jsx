@@ -108,6 +108,7 @@ import {
 import AMCalendarTab from "./AMCalendarTab";
 import AMDashboardTab from "./AMDashboardTab";
 import CreateJiraIssueDialog from "./CreateJiraIssueDialog";
+import PersonalOperationalTimeline from "./PersonalOperationalTimeline";
 import { POActionsHub, POPortfolioHub, POPresetBar } from "./POManagementViews";
 
 import { DateValuePicker } from "@/components/ui/date-range-picker";
@@ -3165,6 +3166,18 @@ export default function AMPanelTab({
                     >
                       Resumo
                     </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition md:flex-none",
+                        personalSubView === "timeline"
+                          ? "bg-white text-zinc-950 shadow-sm"
+                          : "text-zinc-600 hover:text-zinc-950",
+                      )}
+                      onClick={() => setPersonalSubView("timeline")}
+                    >
+                      Timeline Operacional
+                    </button>
                   </div>
                 </CardContent>
               </Card>
@@ -3180,7 +3193,7 @@ export default function AMPanelTab({
                   }}
                   onMoveStatus={movePersonalTicketStatus}
                 />
-              ) : (
+              ) : personalSubView === "summary" ? (
                 <PersonalPortfolioView
                   insights={poInsights}
                   rows={scopedRawIssues}
@@ -3198,6 +3211,15 @@ export default function AMPanelTab({
                     openDocumentationOrganizer(ticket?.raw || ticket)
                   }
                   onResolveProblem={openResolutionProblem}
+                />
+              ) : (
+                <PersonalOperationalTimeline
+                  rows={scopedRawIssues}
+                  loadingTickets={loading}
+                  onOpenDetails={(key) => {
+                    setDetailsKey(key);
+                    setDetailsOpen(true);
+                  }}
                 />
               )}
             </section>
