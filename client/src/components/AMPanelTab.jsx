@@ -30,6 +30,23 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { motion } from "framer-motion";
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Tree } from "react-arborist";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -267,6 +284,8 @@ const STATUS_OPTIONS = [
   "Homolog. Negócio",
   "Para Deploy",
 ];
+const PERSONAL_QUEUE_OTHER_STATUS = "Outros";
+const PERSONAL_QUEUE_COLUMNS = [...STATUS_OPTIONS, PERSONAL_QUEUE_OTHER_STATUS];
 
 const DOCUMENTATION_FOLDER_LABEL = "pasta-criada";
 const DOCUMENTATION_SOURCE_FOLDER_ID = "documentation-source";
@@ -1204,6 +1223,395 @@ function PersonalPortfolioView({
   );
 }
 
+function getQueueStatus(issue) {
+  const raw = getTicketStatusName(issue) || PERSONAL_QUEUE_OTHER_STATUS;
+  const match = STATUS_OPTIONS.find(
+    (status) => normalizePlain(status) === normalizePlain(raw),
+  );
+  return match || PERSONAL_QUEUE_OTHER_STATUS;
+}
+
+function getQueueSummary(issue) {
+  return issue?.summary || issue?.fields?.summary || "Sem resumo";
+}
+
+function getQueuePriority(issue) {
+  return (
+    issue?.priorityName ||
+    issue?.priority ||
+    issue?.fields?.priority?.name ||
+    "Nao informado"
+  );
+}
+
+function getQueueDueYmd(issue) {
+  return (
+    extractYmd(issue?.customfield_11519 || issue?.fields?.customfield_11519) ||
+    getReportDueYmd(issue)
+  );
+}
+
+function getQueueUpdatedLabel(issue) {
+  const raw = issue?.updatedRaw || issue?.updated || issue?.fields?.updated;
+  if (!raw) return "Sem atualizacao";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "Sem atualizacao";
+  const days = diffDays(startOfTodayLocal(), date);
+  if (days <= 0) return "Atualizado hoje";
+  if (days === 1) return "Atualizado ontem";
+  return `${days}d sem atualizacao`;
+}
+
+function getQueueHealth(issue) {
+  if (isReportIssueOverdue(issue)) {
+    return {
+      label: "🔥 Atrasado",
+      className: "border-red-200 bg-red-50 text-red-700",
+    };
+  }
+
+  const due = parseIsoYmdLocal(getQueueDueYmd(issue));
+  if (due) {
+    const days = diffDays(due, startOfTodayLocal());
+    if (days >= 0 && days <= 7) {
+      return {
+        label: days === 0 ? "⏳ Hoje" : `⏳ ${days}d`,
+        className: "border-amber-200 bg-amber-50 text-amber-800",
+      };
+    }
+  }
+
+  return {
+    label: "✅ Em dia",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
+function PersonalQueueView({
+  rows,
+  loading,
+  movingKeys,
+  onOpenDetails,
+  onMoveStatus,
+}) {
+  const [activeId, setActiveId] = useState(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const ticketsByKey = useMemo(() => {
+    const map = new Map();
+    (rows || []).forEach((issue) => {
+      const key = getIssueKey(issue);
+      if (key) map.set(key, issue);
+    });
+    return map;
+  }, [rows]);
+
+  const grouped = useMemo(() => {
+    const base = Object.fromEntries(
+      PERSONAL_QUEUE_COLUMNS.map((status) => [status, []]),
+    );
+
+    (rows || []).forEach((issue) => {
+      const status = getQueueStatus(issue);
+      base[status] = [...(base[status] || []), issue];
+    });
+
+    Object.keys(base).forEach((status) => {
+      base[status] = [...base[status]].sort((a, b) => {
+        const aDue = getQueueDueYmd(a) || "9999-12-31";
+        const bDue = getQueueDueYmd(b) || "9999-12-31";
+        if (aDue !== bDue) return aDue.localeCompare(bDue);
+        return getQueueSummary(a).localeCompare(getQueueSummary(b));
+      });
+    });
+
+    return base;
+  }, [rows]);
+
+  const activeTicket = activeId ? ticketsByKey.get(activeId) : null;
+  const total = rows?.length || 0;
+  const actionable = (rows || []).filter(
+    (issue) => getQueueStatus(issue) !== PERSONAL_QUEUE_OTHER_STATUS,
+  ).length;
+
+  function getTargetStatus(over) {
+    const status = over?.data?.current?.status;
+    if (status) return status;
+    const id = String(over?.id || "");
+    if (id.startsWith("column:")) return id.slice("column:".length);
+    const overTicket = ticketsByKey.get(id);
+    return overTicket ? getQueueStatus(overTicket) : "";
+  }
+
+  async function handleDragEnd(event) {
+    const key = String(event?.active?.id || "")
+      .trim()
+      .toUpperCase();
+    const targetStatus = getTargetStatus(event?.over);
+    const issue = key ? ticketsByKey.get(key) : null;
+    const sourceStatus = issue ? getQueueStatus(issue) : "";
+
+    setActiveId(null);
+
+    if (
+      !key ||
+      !issue ||
+      !targetStatus ||
+      targetStatus === PERSONAL_QUEUE_OTHER_STATUS ||
+      sourceStatus === targetStatus
+    ) {
+      return;
+    }
+
+    await onMoveStatus?.(key, targetStatus, sourceStatus);
+  }
+
+  if (loading && !total) {
+    return (
+      <section className="grid gap-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {[1, 2, 3].map((item) => (
+            <Skeleton key={item} className="h-24 rounded-2xl" />
+          ))}
+        </div>
+        <Skeleton className="h-[520px] rounded-3xl" />
+      </section>
+    );
+  }
+
+  return (
+    <section className="grid gap-4">
+      <Card className="overflow-hidden rounded-3xl border-zinc-200 bg-white shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle className="text-base text-zinc-900">
+                Minha Fila
+              </CardTitle>
+              <CardDescription>
+                Kanban pessoal por status. Arraste um ticket para mover no Jira.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                {total} tickets
+              </Badge>
+              <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                {actionable} moviveis
+              </Badge>
+              <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
+                {(rows || []).filter((issue) => isReportIssueOverdue(issue)).length} atrasados
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={(event) => setActiveId(event.active?.id || null)}
+        onDragCancel={() => setActiveId(null)}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="overflow-x-auto pb-4">
+          <div className="grid min-w-[1260px] grid-flow-col auto-cols-[minmax(270px,1fr)] gap-3 lg:min-w-0 lg:auto-cols-[minmax(260px,1fr)]">
+            {PERSONAL_QUEUE_COLUMNS.map((status) => (
+              <PersonalQueueColumn
+                key={status}
+                status={status}
+                tickets={grouped[status] || []}
+                movingKeys={movingKeys}
+                onOpenDetails={onOpenDetails}
+              />
+            ))}
+          </div>
+        </div>
+
+        <DragOverlay>
+          {activeTicket ? (
+            <PersonalQueueCard
+              ticket={activeTicket}
+              moving={false}
+              overlay
+              onOpenDetails={onOpenDetails}
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </section>
+  );
+}
+
+function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
+  const isOther = status === PERSONAL_QUEUE_OTHER_STATUS;
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column:${status}`,
+    data: { type: "column", status },
+    disabled: isOther,
+  });
+  const ids = tickets.map((ticket) => getIssueKey(ticket)).filter(Boolean);
+
+  return (
+    <Card
+      ref={setNodeRef}
+      className={cn(
+        "flex max-h-[72vh] min-h-[420px] flex-col overflow-hidden rounded-3xl border bg-white shadow-sm transition-all duration-200",
+        isOver && !isOther
+          ? "border-red-300 bg-red-50/50 shadow-lg ring-2 ring-red-100"
+          : "border-zinc-200",
+        isOther && "bg-zinc-50/80",
+      )}
+    >
+      <CardHeader className="border-b border-zinc-100 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="truncate text-sm text-zinc-900">
+            {status}
+          </CardTitle>
+          <Badge className="shrink-0 rounded-full border border-zinc-200 bg-white text-zinc-700">
+            {tickets.length}
+          </Badge>
+        </div>
+        <CardDescription className="line-clamp-1 text-xs">
+          {isOther ? "Status fora do fluxo mapeado" : "Solte aqui para mover"}
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent className="min-h-0 flex-1 overflow-y-auto p-2">
+        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+          <div className="grid gap-2">
+            {tickets.length ? (
+              tickets.map((ticket) => {
+                const key = getIssueKey(ticket);
+                return (
+                  <PersonalQueueCard
+                    key={key}
+                    ticket={ticket}
+                    disabled={isOther}
+                    moving={movingKeys?.has(key)}
+                    onOpenDetails={onOpenDetails}
+                  />
+                );
+              })
+            ) : (
+              <div className="grid min-h-[128px] place-items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-3 text-center text-xs text-zinc-500">
+                Nenhum ticket aqui.
+              </div>
+            )}
+          </div>
+        </SortableContext>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PersonalQueueCard({
+  ticket,
+  moving = false,
+  disabled = false,
+  overlay = false,
+  onOpenDetails,
+}) {
+  const key = getIssueKey(ticket);
+  const status = getQueueStatus(ticket);
+  const priority = getQueuePriority(ticket);
+  const dueYmd = getQueueDueYmd(ticket);
+  const health = getQueueHealth(ticket);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: key,
+    data: { type: "ticket", status },
+    disabled: disabled || moving || overlay,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <motion.article
+      ref={setNodeRef}
+      style={style}
+      layout
+      initial={overlay ? false : { opacity: 0, y: 8, scale: 0.98 }}
+      animate={{ opacity: isDragging ? 0.35 : 1, y: 0, scale: overlay ? 1.04 : 1 }}
+      transition={{ type: "spring", stiffness: 420, damping: 32 }}
+      className={cn(
+        "group rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm transition-all",
+        "hover:-translate-y-0.5 hover:border-red-200 hover:shadow-md",
+        isDragging && "opacity-40",
+        overlay && "w-[280px] border-red-200 shadow-2xl ring-4 ring-red-100",
+        moving && "pointer-events-none opacity-70",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          className="min-w-0 text-left"
+          onClick={() => onOpenDetails?.(key)}
+        >
+          <code className="rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700">
+            {key}
+          </code>
+          <h3 className="mt-2 line-clamp-3 break-words text-sm font-semibold leading-5 text-zinc-950">
+            {getQueueSummary(ticket)}
+          </h3>
+        </button>
+
+        <button
+          type="button"
+          className={cn(
+            "grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500",
+            "cursor-grab active:cursor-grabbing",
+            (disabled || moving) && "cursor-not-allowed opacity-50",
+          )}
+          title={disabled ? "Status fora do fluxo mapeado" : "Arrastar ticket"}
+          {...attributes}
+          {...listeners}
+        >
+          <ArrowUpDown className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <Badge className={cn("rounded-full border", health.className)}>
+          {health.label}
+        </Badge>
+        <Badge
+          className="rounded-full border bg-white text-zinc-700"
+          style={{ borderColor: priorityColor(priority), color: priorityColor(priority) }}
+        >
+          {priority}
+        </Badge>
+        {dueYmd ? (
+          <Badge className="rounded-full border border-blue-200 bg-blue-50 text-blue-700">
+            {fmtDateBr(dueYmd)}
+          </Badge>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
+        <span className="truncate">{getQueueUpdatedLabel(ticket)}</span>
+        {moving ? (
+          <span className="inline-flex items-center gap-1 font-semibold text-red-600">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Movendo...
+          </span>
+        ) : null}
+      </div>
+    </motion.article>
+  );
+}
+
 export default function AMPanelTab({
   calendarSettings,
   currentUser,
@@ -1215,6 +1623,7 @@ export default function AMPanelTab({
     [calendarSettings],
   );
   const [subView, setSubView] = useState(personalMode ? "dashboard" : "acoes"); // acoes | portfolio | calendario | gantt | dashboard
+  const [personalSubView, setPersonalSubView] = useState("queue");
   const [loading, setLoading] = useState(false);
   const [reloadProgress, setReloadProgress] = useState({
     active: false,
@@ -1290,6 +1699,7 @@ export default function AMPanelTab({
   // trava durante persistência de mudança de datas (drag/resize)
   const [persisting, setPersisting] = useState(false);
   const [changeHistory, setChangeHistory] = useState([]);
+  const [movingPersonalKeys, setMovingPersonalKeys] = useState(() => new Set());
   const busy = Boolean(loading || persisting);
   const ownerAccountId = String(currentUser?.jiraAccountId || "").trim();
   const effectiveOwnerFocus =
@@ -1493,6 +1903,51 @@ export default function AMPanelTab({
     );
 
     return issue;
+  }, []);
+
+  const applyTicketStatusLocal = useCallback((issueKey, statusName) => {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    const nextStatus = String(statusName || "").trim();
+    if (!key || !nextStatus) return;
+
+    const patchIssue = (issue) => {
+      if (
+        String(issue?.key || "")
+          .trim()
+          .toUpperCase() !== key
+      ) {
+        return issue;
+      }
+
+      return {
+        ...issue,
+        statusName: nextStatus,
+        status:
+          issue?.status && typeof issue.status === "object"
+            ? { ...issue.status, name: nextStatus }
+            : nextStatus,
+        jira: {
+          ...(issue?.jira || {}),
+          status: nextStatus,
+        },
+        fields: {
+          ...(issue?.fields || {}),
+          status: {
+            ...(issue?.fields?.status || {}),
+            name: nextStatus,
+          },
+        },
+      };
+    };
+
+    setRawIssues((prev) => {
+      const next = (prev || []).map(patchIssue);
+      setViewData(buildPoView(next));
+      return next;
+    });
+    setRows((prev) => (prev || []).map(patchIssue));
   }, []);
 
   async function loadData(baseJql) {
@@ -1807,6 +2262,43 @@ export default function AMPanelTab({
     if (!key || !statusName) return;
     await jiraTransitionToStatus(key, statusName);
     return refreshIssueInPanel(key);
+  }
+
+  async function movePersonalTicketStatus(issueKey, statusName, previousStatus) {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    const nextStatus = String(statusName || "").trim();
+    const prevStatus = String(previousStatus || "").trim();
+    if (!key || !nextStatus || nextStatus === prevStatus) return;
+
+    setMovingPersonalKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    setErr("");
+    applyTicketStatusLocal(key, nextStatus);
+
+    try {
+      await jiraTransitionToStatus(key, nextStatus);
+      await refreshIssueInPanel(key).catch(() => null);
+      toast.success(`${key} movido para ${nextStatus}.`);
+    } catch (e) {
+      console.error(e);
+      applyTicketStatusLocal(key, prevStatus);
+      const message =
+        e?.message ||
+        `Nao foi possivel mover ${key} para ${nextStatus}.`;
+      setErr(message);
+      toast.error(message);
+    } finally {
+      setMovingPersonalKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
   }
 
   async function saveEditor(nextDraft = draft) {
@@ -2547,22 +3039,79 @@ export default function AMPanelTab({
           ) : null}
 
           {personalMode && ownerAccountId ? (
-            <PersonalPortfolioView
-              insights={poInsights}
-              rows={scopedRawIssues}
-              doneRows={scopedDoneRows}
-              loading={loading}
-              jiraUserName={currentUser?.jiraDisplayName || effectiveOwnerFocus}
-              onOpenDetails={(key) => {
-                setDetailsKey(key);
-                setDetailsOpen(true);
-              }}
-              onOpenSchedule={(ticket) => openEditor(ticket?.raw || ticket)}
-              onOpenDocumentation={(ticket) =>
-                openDocumentationOrganizer(ticket?.raw || ticket)
-              }
-              onResolveProblem={openResolutionProblem}
-            />
+            <section className="grid gap-4">
+              <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+                <CardContent className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0 px-1">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      Minha Carteira
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      {currentUser?.jiraDisplayName || effectiveOwnerFocus}
+                    </div>
+                  </div>
+
+                  <div className="inline-flex w-full rounded-2xl bg-zinc-100 p-1 md:w-auto">
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition md:flex-none",
+                        personalSubView === "queue"
+                          ? "bg-white text-zinc-950 shadow-sm"
+                          : "text-zinc-600 hover:text-zinc-950",
+                      )}
+                      onClick={() => setPersonalSubView("queue")}
+                    >
+                      Minha Fila
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition md:flex-none",
+                        personalSubView === "summary"
+                          ? "bg-white text-zinc-950 shadow-sm"
+                          : "text-zinc-600 hover:text-zinc-950",
+                      )}
+                      onClick={() => setPersonalSubView("summary")}
+                    >
+                      Resumo
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {personalSubView === "queue" ? (
+                <PersonalQueueView
+                  rows={scopedRawIssues}
+                  loading={loading}
+                  movingKeys={movingPersonalKeys}
+                  onOpenDetails={(key) => {
+                    setDetailsKey(key);
+                    setDetailsOpen(true);
+                  }}
+                  onMoveStatus={movePersonalTicketStatus}
+                />
+              ) : (
+                <PersonalPortfolioView
+                  insights={poInsights}
+                  rows={scopedRawIssues}
+                  doneRows={scopedDoneRows}
+                  loading={loading}
+                  jiraUserName={
+                    currentUser?.jiraDisplayName || effectiveOwnerFocus
+                  }
+                  onOpenDetails={(key) => {
+                    setDetailsKey(key);
+                    setDetailsOpen(true);
+                  }}
+                  onOpenSchedule={(ticket) => openEditor(ticket?.raw || ticket)}
+                  onOpenDocumentation={(ticket) =>
+                    openDocumentationOrganizer(ticket?.raw || ticket)
+                  }
+                  onResolveProblem={openResolutionProblem}
+                />
+              )}
+            </section>
           ) : null}
 
           {/* =========================
