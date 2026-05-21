@@ -3056,6 +3056,10 @@ export default function AMPanelTab({
                 rows={scopedRawIssues}
                 doneRows={scopedDoneRows}
                 loading={loading}
+                onOpenDetails={(key) => {
+                  setDetailsKey(key);
+                  setDetailsOpen(true);
+                }}
               />
             </section>
           )}

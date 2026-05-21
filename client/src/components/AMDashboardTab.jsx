@@ -39,6 +39,12 @@ import {
   Gauge,
   AlertTriangle,
   ExternalLink,
+  ArrowDownRight,
+  ArrowUpRight,
+  CheckCircle2,
+  TimerReset,
+  TrendingUp,
+  UsersRound,
 } from "lucide-react";
 
 import {
@@ -382,6 +388,242 @@ function buildLastNDaysSeries(list, getYmd, nDays = 30) {
     date: fmtShortBRFromYmd(ymd),
     value: m.get(ymd) || 0,
   }));
+}
+
+function getAgeDays(ticket, today0 = startOfTodayLocal()) {
+  const created = parseIsoYmdLocal(extractYmd(ticket?.created));
+  if (!created) return 0;
+  return Math.max(0, diffDays(today0, created));
+}
+
+function getDaysSinceUpdate(ticket, today0 = startOfTodayLocal()) {
+  const updated = parseDateLoose(ticket?.updated) || parseIsoYmdLocal(extractYmd(ticket?.updated));
+  if (!updated) return 999;
+  const updatedDay = new Date(
+    updated.getFullYear(),
+    updated.getMonth(),
+    updated.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+  return Math.max(0, diffDays(today0, updatedDay));
+}
+
+function isOverdueTicket(ticket, today0 = startOfTodayLocal()) {
+  return Boolean(
+    ticket?.effectiveDueDate &&
+      ticket.effectiveDueDate.getTime() < today0.getTime()
+  );
+}
+
+function isMissingOwner(ticket) {
+  const owner = String(ticket?.owner || "").toLowerCase();
+  return !owner || /sem respons|unassigned/.test(owner);
+}
+
+function periodWindow(days, offset = 0) {
+  const today0 = startOfTodayLocal();
+  const end = new Date(today0);
+  end.setDate(end.getDate() - offset);
+  const start = new Date(end);
+  start.setDate(start.getDate() - days + 1);
+  return { start, end };
+}
+
+function dateInWindow(value, window) {
+  const date =
+    parseDateLoose(value) ||
+    parseIsoYmdLocal(extractYmd(value));
+  if (!date || !window?.start || !window?.end) return false;
+  const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return day >= window.start && day <= window.end;
+}
+
+function pctChange(current, previous) {
+  if (!previous && !current) return 0;
+  if (!previous) return 100;
+  return Math.round(((current - previous) / previous) * 1000) / 10;
+}
+
+function formatPctChange(value) {
+  if (!value) return "0%";
+  return `${value > 0 ? "+" : ""}${value}%`;
+}
+
+function buildOperationalBenchmarkData({
+  normalizedAll = [],
+  normalizedOpen = [],
+  normalizedDone = [],
+  periodDays = 30,
+  slaCompliance,
+}) {
+  const today0 = startOfTodayLocal();
+  const currentWindow = periodWindow(periodDays, 0);
+  const previousWindow = periodWindow(periodDays, periodDays);
+
+  const currentCreated = normalizedAll.filter((ticket) =>
+    dateInWindow(ticket.created, currentWindow)
+  );
+  const previousCreated = normalizedAll.filter((ticket) =>
+    dateInWindow(ticket.created, previousWindow)
+  );
+  const currentDone = normalizedDone.filter((ticket) =>
+    dateInWindow(ticket.resolutionDate || ticket.updated, currentWindow)
+  );
+  const previousDone = normalizedDone.filter((ticket) =>
+    dateInWindow(ticket.resolutionDate || ticket.updated, previousWindow)
+  );
+  const currentUpdated = normalizedAll.filter((ticket) =>
+    dateInWindow(ticket.updated, currentWindow)
+  );
+  const previousUpdated = normalizedAll.filter((ticket) =>
+    dateInWindow(ticket.updated, previousWindow)
+  );
+
+  const overdueTickets = normalizedOpen.filter((ticket) =>
+    isOverdueTicket(ticket, today0)
+  );
+  const missingSchedule = normalizedOpen.filter((ticket) => !ticket.hasSchedule);
+  const missingOwner = normalizedOpen.filter(isMissingOwner);
+  const stalledTickets = normalizedOpen.filter(
+    (ticket) => getDaysSinceUpdate(ticket, today0) >= 7
+  );
+
+  const totalOpen = Math.max(1, normalizedOpen.length);
+  const healthyPct = Math.max(
+    0,
+    Math.round(
+      100 -
+        (overdueTickets.length / totalOpen) * 30 -
+        (missingSchedule.length / totalOpen) * 25 -
+        (missingOwner.length / totalOpen) * 20 -
+        (stalledTickets.length / totalOpen) * 25
+    )
+  );
+
+  const statusAging = countBy(normalizedOpen, (ticket) => ticket.status)
+    .map((entry) => {
+      const tickets = normalizedOpen.filter((ticket) => ticket.status === entry.name);
+      const avgAge =
+        tickets.length > 0
+          ? Math.round(
+              tickets.reduce((sum, ticket) => sum + getAgeDays(ticket, today0), 0) /
+                tickets.length
+            )
+          : 0;
+      const stalled = tickets.filter(
+        (ticket) => getDaysSinceUpdate(ticket, today0) >= 7
+      ).length;
+      return { ...entry, avgAge, stalled };
+    })
+    .sort((a, b) => b.avgAge - a.avgAge || b.value - a.value)
+    .slice(0, 8);
+
+  const ownerBenchmark = countBy(normalizedOpen, (ticket) => ticket.owner)
+    .map((entry) => {
+      const tickets = normalizedOpen.filter((ticket) => ticket.owner === entry.name);
+      const overdue = tickets.filter((ticket) => isOverdueTicket(ticket, today0)).length;
+      const noSchedule = tickets.filter((ticket) => !ticket.hasSchedule).length;
+      const stalled = tickets.filter(
+        (ticket) => getDaysSinceUpdate(ticket, today0) >= 7
+      ).length;
+      const done = normalizedDone.filter((ticket) => ticket.owner === entry.name).length;
+      return {
+        ...entry,
+        overdue,
+        noSchedule,
+        stalled,
+        done,
+        health: Math.max(
+          0,
+          Math.round(
+            100 -
+              (overdue / Math.max(1, tickets.length)) * 35 -
+              (noSchedule / Math.max(1, tickets.length)) * 25 -
+              (stalled / Math.max(1, tickets.length)) * 25
+          )
+        ),
+      };
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+
+  const riskTickets = normalizedOpen
+    .map((ticket) => {
+      const overdueDays = ticket.effectiveDueDate
+        ? Math.max(0, diffDays(today0, ticket.effectiveDueDate))
+        : 0;
+      const idleDays = getDaysSinceUpdate(ticket, today0);
+      const ageDays = getAgeDays(ticket, today0);
+      const score =
+        overdueDays * 4 +
+        Math.max(0, idleDays - 3) * 2 +
+        (!ticket.hasSchedule ? 18 : 0) +
+        (isMissingOwner(ticket) ? 16 : 0) +
+        Math.min(20, Math.floor(ageDays / 3));
+      return { ...ticket, overdueDays, idleDays, ageDays, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  const comparison = [
+    {
+      label: "Criados",
+      current: currentCreated.length,
+      previous: previousCreated.length,
+      change: pctChange(currentCreated.length, previousCreated.length),
+      tone: currentCreated.length > previousCreated.length ? "warning" : "neutral",
+    },
+    {
+      label: "Concluidos",
+      current: currentDone.length,
+      previous: previousDone.length,
+      change: pctChange(currentDone.length, previousDone.length),
+      tone: currentDone.length >= previousDone.length ? "success" : "danger",
+    },
+    {
+      label: "Movimentados",
+      current: currentUpdated.length,
+      previous: previousUpdated.length,
+      change: pctChange(currentUpdated.length, previousUpdated.length),
+      tone: currentUpdated.length >= previousUpdated.length ? "success" : "neutral",
+    },
+    {
+      label: "Atrasados atuais",
+      current: overdueTickets.length,
+      previous: 0,
+      change: 0,
+      tone: overdueTickets.length ? "danger" : "success",
+    },
+  ];
+
+  const flowChart = statusAging.map((item) => ({
+    name: item.name,
+    tickets: item.value,
+    aging: item.avgAge,
+    parados: item.stalled,
+  }));
+
+  return {
+    cards: {
+      healthPct: healthyPct,
+      openTickets: normalizedOpen.length,
+      doneInPeriod: currentDone.length,
+      updatedInPeriod: currentUpdated.length,
+      overdueCount: overdueTickets.length,
+      stalledCount: stalledTickets.length,
+      noScheduleCount: missingSchedule.length,
+      noOwnerCount: missingOwner.length,
+      slaPct: slaCompliance?.pct ?? 0,
+    },
+    comparison,
+    statusAging,
+    ownerBenchmark,
+    riskTickets,
+    flowChart,
+  };
 }
 
 /* =========================
@@ -936,8 +1178,10 @@ export default function AMDashboardTab({
   rows = [],
   doneRows = [],
   loading = false,
+  onOpenDetails,
 }) {
   const [editMode, setEditMode] = useState(false);
+  const [dashboardView, setDashboardView] = useState("summary");
 
   const defaultConfig = useMemo(() => buildDefaultConfig(), []);
   const [widgets, setWidgets] = useState(defaultConfig.widgets);
@@ -1546,6 +1790,24 @@ export default function AMDashboardTab({
     };
   }, [normalizedAll, slaTargetPct, rows, doneRows, periodDays]);
 
+  const benchmarkData = useMemo(
+    () =>
+      buildOperationalBenchmarkData({
+        normalizedAll,
+        normalizedOpen,
+        normalizedDone: normalizedDoneFull,
+        periodDays,
+        slaCompliance: dashData?.slaCompliance,
+      }),
+    [
+      dashData?.slaCompliance,
+      normalizedAll,
+      normalizedDoneFull,
+      normalizedOpen,
+      periodDays,
+    ]
+  );
+
   const addWidget = useCallback(() => {
     const used = new Set(widgets.map((w) => w.metric));
     const candidate = METRICS.find((m) => !used.has(m.metric)) || METRICS[0];
@@ -1829,58 +2091,96 @@ export default function AMDashboardTab({
             <CardContent className="pt-0">
               <Separator className="mb-4" />
 
-              <div ref={gridRef} className="w-full">
-                {gridWidth <= 0 ? (
-                  <DashboardSkeleton />
-                ) : (
-                  <ResponsiveGridLayout
-                    width={gridWidth}
-                    className="layout"
-                    layouts={gridLayouts}
-                    onLayoutChange={editMode ? onLayoutChange : undefined}
-                    breakpoints={{
-                      lg: 1200,
-                      md: 996,
-                      sm: 768,
-                      xs: 480,
-                      xxs: 0,
-                    }}
-                    cols={colsMap}
-                    rowHeight={90}
-                    margin={[12, 12]}
-                    containerPadding={[0, 0]}
-                    isDraggable={editMode}
-                    isResizable={editMode}
-                    draggableHandle={
-                      editMode ? ".am-dash-drag" : ".__no_handle__"
-                    }
-                    draggableCancel=".am-dash-nodrag"
-                    resizeHandles={editMode ? ["se", "s", "e"] : []}
-                    compactType="vertical"
-                    preventCollision={false}
-                    useCSSTransforms={true}
-                    autoSize={true}
+              <div className="mb-4 flex flex-wrap gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-1">
+                {[
+                  { id: "summary", label: "Resumo" },
+                  { id: "benchmark", label: "Benchmark" },
+                  { id: "trends", label: "Tendencias" },
+                ].map((view) => (
+                  <Button
+                    key={view.id}
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      "h-9 rounded-xl px-4 text-sm font-semibold text-zinc-600 hover:bg-white",
+                      dashboardView === view.id &&
+                        "bg-white text-zinc-950 shadow-sm"
+                    )}
+                    onClick={() => setDashboardView(view.id)}
                   >
-                    {widgets.map((w) => (
-                      <div key={w.id} className="h-full">
-                        <DashboardWidget
-                          widget={w}
-                          editMode={editMode}
-                          loading={isBusy}
-                          dashData={dashData}
-                          periodDays={periodDays}
-                          onRemove={() => removeWidget(w.id)}
-                          onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
-                          onChangeMetric={(metricKey) =>
-                            changeWidgetMetric(w.id, metricKey)
-                          }
-                          onDrill={openDrill}
-                        />
-                      </div>
-                    ))}
-                  </ResponsiveGridLayout>
-                )}
+                    {view.label}
+                  </Button>
+                ))}
               </div>
+
+              {dashboardView === "summary" ? (
+                <div ref={gridRef} className="w-full">
+                  {gridWidth <= 0 ? (
+                    <DashboardSkeleton />
+                  ) : (
+                    <ResponsiveGridLayout
+                      width={gridWidth}
+                      className="layout"
+                      layouts={gridLayouts}
+                      onLayoutChange={editMode ? onLayoutChange : undefined}
+                      breakpoints={{
+                        lg: 1200,
+                        md: 996,
+                        sm: 768,
+                        xs: 480,
+                        xxs: 0,
+                      }}
+                      cols={colsMap}
+                      rowHeight={90}
+                      margin={[12, 12]}
+                      containerPadding={[0, 0]}
+                      isDraggable={editMode}
+                      isResizable={editMode}
+                      draggableHandle={
+                        editMode ? ".am-dash-drag" : ".__no_handle__"
+                      }
+                      draggableCancel=".am-dash-nodrag"
+                      resizeHandles={editMode ? ["se", "s", "e"] : []}
+                      compactType="vertical"
+                      preventCollision={false}
+                      useCSSTransforms={true}
+                      autoSize={true}
+                    >
+                      {widgets.map((w) => (
+                        <div key={w.id} className="h-full">
+                          <DashboardWidget
+                            widget={w}
+                            editMode={editMode}
+                            loading={isBusy}
+                            dashData={dashData}
+                            periodDays={periodDays}
+                            onRemove={() => removeWidget(w.id)}
+                            onChangeViz={(viz) => changeWidgetViz(w.id, viz)}
+                            onChangeMetric={(metricKey) =>
+                              changeWidgetMetric(w.id, metricKey)
+                            }
+                            onDrill={openDrill}
+                          />
+                        </div>
+                      ))}
+                    </ResponsiveGridLayout>
+                  )}
+                </div>
+              ) : dashboardView === "benchmark" ? (
+                <OperationalBenchmarkView
+                  data={benchmarkData}
+                  loading={isBusy}
+                  periodDays={periodDays}
+                  onOpenDetails={onOpenDetails}
+                />
+              ) : (
+                <OperationalTrendsView
+                  data={benchmarkData}
+                  loading={isBusy}
+                  periodDays={periodDays}
+                />
+              )}
             </CardContent>
           </Card>
         </div>
@@ -1995,6 +2295,331 @@ export default function AMDashboardTab({
         </DialogContent>
       </Dialog>
     </TooltipProvider>
+  );
+}
+
+function BenchmarkMetricCard({ icon: Icon, label, value, helper, tone = "zinc" }) {
+  const toneClasses = {
+    zinc: "border-zinc-200 bg-white text-zinc-900",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
+    red: "border-red-200 bg-red-50 text-red-800",
+    sky: "border-sky-200 bg-sky-50 text-sky-900",
+  };
+
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border p-4 shadow-sm",
+        toneClasses[tone] || toneClasses.zinc
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
+            {label}
+          </div>
+          <div className="mt-1 text-2xl font-bold">{value}</div>
+        </div>
+        {Icon ? (
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/70">
+            <Icon className="h-4 w-4" />
+          </div>
+        ) : null}
+      </div>
+      {helper ? <div className="mt-2 text-xs opacity-75">{helper}</div> : null}
+    </div>
+  );
+}
+
+function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) {
+  if (loading && !data?.cards?.openTickets) {
+    return (
+      <div className="grid gap-4">
+        <div className="grid gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-28 rounded-2xl" />
+          ))}
+        </div>
+        <Skeleton className="h-[360px] rounded-2xl" />
+      </div>
+    );
+  }
+
+  const cards = data?.cards || {};
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <BenchmarkMetricCard
+          icon={Gauge}
+          label="Score operacional"
+          value={`${cards.healthPct ?? 0}%`}
+          helper="Prazo, cronograma, responsavel e movimento recente."
+          tone={(cards.healthPct ?? 0) >= 80 ? "emerald" : (cards.healthPct ?? 0) >= 60 ? "amber" : "red"}
+        />
+        <BenchmarkMetricCard
+          icon={CheckCircle2}
+          label={`Concluidos em ${periodDays}d`}
+          value={cards.doneInPeriod ?? 0}
+          helper="Comparativo de entrega no periodo selecionado."
+          tone="emerald"
+        />
+        <BenchmarkMetricCard
+          icon={TrendingUp}
+          label="Movimentados"
+          value={cards.updatedInPeriod ?? 0}
+          helper="Tickets com updated dentro do periodo."
+          tone="sky"
+        />
+        <BenchmarkMetricCard
+          icon={AlertTriangle}
+          label="Riscos ativos"
+          value={(cards.overdueCount || 0) + (cards.stalledCount || 0)}
+          helper={`${cards.overdueCount || 0} atrasados, ${cards.stalledCount || 0} sem avanco 7d+.`}
+          tone={(cards.overdueCount || 0) ? "red" : "amber"}
+        />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Gargalos por status</CardTitle>
+            <div className="text-sm text-zinc-500">
+              Aging medio e volume de tickets abertos por status.
+            </div>
+          </CardHeader>
+          <CardContent className="h-[320px]">
+            {(data?.flowChart || []).length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data.flowChart} margin={{ top: 12, right: 18, left: 0, bottom: 40 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
+                  <XAxis dataKey="name" angle={-20} textAnchor="end" interval={0} height={62} tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                  <RTooltip />
+                  <Legend />
+                  <Bar yAxisId="left" dataKey="tickets" name="Tickets" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="aging" name="Aging medio" stroke="#ef4444" strokeWidth={3} dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="grid h-full place-items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-500">
+                Sem dados suficientes para comparar status.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Benchmark por responsavel</CardTitle>
+            <div className="text-sm text-zinc-500">
+              Carga, atrasos e saude operacional por carteira.
+            </div>
+          </CardHeader>
+          <CardContent className="grid max-h-[320px] gap-2 overflow-auto">
+            {(data?.ownerBenchmark || []).length ? (
+              data.ownerBenchmark.map((owner) => (
+                <div
+                  key={owner.name}
+                  className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">
+                        {owner.name}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {owner.value} ativos • {owner.done} concluidos • {owner.stalled} sem avanco
+                      </div>
+                    </div>
+                    <Badge
+                      className={cn(
+                        "rounded-full border",
+                        owner.health >= 80
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : owner.health >= 60
+                          ? "border-amber-200 bg-amber-50 text-amber-800"
+                          : "border-red-200 bg-red-50 text-red-700"
+                      )}
+                    >
+                      {owner.health}%
+                    </Badge>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
+                Nenhum responsavel com dados no recorte.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Top tickets que puxam risco</CardTitle>
+          <div className="text-sm text-zinc-500">
+            Priorizacao por atraso, idade, falta de cronograma, responsavel e tempo sem avanco.
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          {(data?.riskTickets || []).length ? (
+            data.riskTickets.map((ticket) => (
+              <button
+                key={ticket.key}
+                type="button"
+                className="grid gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-left transition hover:border-red-200 hover:bg-red-50/40 md:grid-cols-[120px_1fr_auto]"
+                onClick={() => onOpenDetails?.(ticket.key)}
+              >
+                <div>
+                  <code className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-bold text-zinc-800">
+                    {ticket.key}
+                  </code>
+                </div>
+                <div className="min-w-0">
+                  <div className="line-clamp-1 text-sm font-semibold text-zinc-900">
+                    {ticket.summary}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
+                    <span>{ticket.status}</span>
+                    <span>{ticket.owner}</span>
+                    <span>{ticket.ageDays}d de idade</span>
+                    <span>{ticket.idleDays}d sem avanco</span>
+                  </div>
+                </div>
+                <Badge className="h-fit rounded-full border border-red-200 bg-red-50 text-red-700">
+                  score {ticket.score}
+                </Badge>
+              </button>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
+              Nenhum ticket de risco encontrado.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function OperationalTrendsView({ data, loading, periodDays }) {
+  if (loading && !data?.comparison?.length) {
+    return <Skeleton className="h-[360px] rounded-2xl" />;
+  }
+
+  return (
+    <div className="grid gap-4">
+      <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Periodo atual vs anterior</CardTitle>
+          <div className="text-sm text-zinc-500">
+            Compara os ultimos {periodDays} dias com os {periodDays} dias anteriores.
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {(data?.comparison || []).map((item) => {
+            const positive = item.change > 0;
+            const Icon = positive ? ArrowUpRight : item.change < 0 ? ArrowDownRight : TimerReset;
+            return (
+              <div
+                key={item.label}
+                className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-zinc-700">
+                    {item.label}
+                  </div>
+                  <Icon
+                    className={cn(
+                      "h-4 w-4",
+                      item.tone === "success"
+                        ? "text-emerald-600"
+                        : item.tone === "danger"
+                        ? "text-red-600"
+                        : item.tone === "warning"
+                        ? "text-amber-600"
+                        : "text-zinc-500"
+                    )}
+                  />
+                </div>
+                <div className="mt-3 text-3xl font-bold text-zinc-950">
+                  {item.current}
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  anterior: {item.previous} • {formatPctChange(item.change)}
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UsersRound className="h-4 w-4 text-sky-700" />
+              Operacao por carteira
+            </CardTitle>
+            <div className="text-sm text-zinc-500">
+              Leitura comparativa por responsavel para apoiar balanceamento.
+            </div>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            {(data?.ownerBenchmark || []).length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.ownerBenchmark} layout="vertical" margin={{ top: 8, right: 20, left: 20, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} />
+                  <RTooltip />
+                  <Legend />
+                  <Bar dataKey="value" name="Ativos" fill="#3b82f6" radius={[0, 8, 8, 0]} />
+                  <Bar dataKey="overdue" name="Atrasados" fill="#ef4444" radius={[0, 8, 8, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="grid h-full place-items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-500">
+                Sem dados por responsavel.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Saude operacional</CardTitle>
+            <div className="text-sm text-zinc-500">
+              Componentes do score atual do recorte.
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {[
+              { label: "SLA atual", value: `${data?.cards?.slaPct ?? 0}%` },
+              { label: "Sem cronograma", value: data?.cards?.noScheduleCount ?? 0 },
+              { label: "Sem responsavel", value: data?.cards?.noOwnerCount ?? 0 },
+              { label: "Sem avanco 7d+", value: data?.cards?.stalledCount ?? 0 },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3"
+              >
+                <span className="text-sm font-semibold text-zinc-700">
+                  {item.label}
+                </span>
+                <span className="text-lg font-bold text-zinc-950">
+                  {item.value}
+                </span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }
 
