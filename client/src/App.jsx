@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Download,
   FileText,
+  GitBranch,
   KeyRound,
   LayoutDashboard,
   LogIn,
@@ -27,6 +28,7 @@ import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
 import ToolsTab from "./components/ToolsTab";
 import SystemSettingsTab from "./components/SystemSettingsTab";
+import URAVersioningTab from "./components/URAVersioningTab";
 import usePoJiraData from "./hooks/usePoJiraData";
 import {
   fetchCurrentUser,
@@ -100,6 +102,16 @@ const MAIN_TABS = [
     badge: "Meu Jira",
     icon: Briefcase,
     nextStep: "Configure seu usuário Jira e acompanhe sua fila pessoal.",
+  },
+  {
+    id: "versioning",
+    title: "Versionamentos",
+    eyebrow: "Historico de URAs",
+    subtitle:
+      "Controle versões implantadas, mudanças realizadas, responsáveis e tickets relacionados.",
+    badge: "URA",
+    icon: GitBranch,
+    nextStep: "Selecione uma URA ou registre um novo versionamento.",
   },
   {
     id: "tools",
@@ -215,6 +227,10 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       my: {
         status: currentUser?.jiraAccountId ? "Perfil Jira ativo" : "Configurar Jira",
         helper: currentUser?.jiraDisplayName || "Selecione seu usuário Jira.",
+      },
+      versioning: {
+        status: "Historico de URAs",
+        helper: "Consulte e registre versões implantadas.",
       },
       tools: {
         status: "Utilitários disponíveis",
@@ -448,6 +464,12 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                     personalMode
                     onConfigureUser={() => selectMainTab("settings")}
                   />
+                </div>
+              ) : null}
+
+              {visitedTabs.has("versioning") ? (
+                <div hidden={mainTab !== "versioning"}>
+                  <URAVersioningTab />
                 </div>
               ) : null}
 

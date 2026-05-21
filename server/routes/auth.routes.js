@@ -7,7 +7,15 @@ import { fetchWithTimeout } from "../utils/http.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HASH_PREFIX = "scrypt";
-const VALID_TABS = new Set(["gmud", "rdm", "am", "my", "tools", "settings"]);
+const VALID_TABS = new Set([
+  "gmud",
+  "rdm",
+  "am",
+  "my",
+  "versioning",
+  "tools",
+  "settings",
+]);
 const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
 const SHORT_SESSION_MS = 60 * 60 * 1000;
 const REMEMBER_SESSION_MS = 30 * 24 * 60 * 60 * 1000;

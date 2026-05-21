@@ -114,6 +114,7 @@ const TAB_OPTIONS = [
   { value: "rdm", label: "RDM" },
   { value: "am", label: "Painel PO" },
   { value: "my", label: "Minha Carteira" },
+  { value: "versioning", label: "Versionamentos" },
   { value: "tools", label: "Ferramentas" },
   { value: "settings", label: "Configuracoes" },
 ];

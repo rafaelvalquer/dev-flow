@@ -18,6 +18,7 @@ import ticketsRouter from "./routes/tickets.js";
 import automationRouter from "./routes/automation.js";
 import healthRoutes from "./routes/health.routes.js";
 import settingsRouter from "./routes/settings.routes.js";
+import uraVersioningRouter from "./routes/ura-versioning.routes.js";
 
 import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
 import { startAutomationJob } from "./jobs/automationJob.js";
@@ -75,6 +76,7 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   app.use("/api/tickets", ticketsRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/automation", automationRouter);
+  app.use("/api/ura-versioning", uraVersioningRouter);
 
   if (startJobs) startAutomationJobOnce();
 
