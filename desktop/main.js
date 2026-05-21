@@ -28,6 +28,7 @@ let httpServer = null;
 let backendBaseUrl = "";
 let sttProcess = null;
 let sttBaseUrl = "";
+let sttLogFile = "";
 
 app.commandLine.appendSwitch("proxy-auto-detect");
 app.commandLine.appendSwitch("proxy-bypass-list", "<local>;localhost;127.0.0.1");
@@ -54,6 +55,24 @@ function getServicesDir() {
 
 function getSttServiceDir() {
   return path.join(getServicesDir(), "stt-python");
+}
+
+function getSttLogFile() {
+  if (sttLogFile) return sttLogFile;
+
+  const logsDir = path.join(app.getPath("userData"), "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  sttLogFile = path.join(logsDir, "stt-python.log");
+  return sttLogFile;
+}
+
+function appendSttLog(level, message) {
+  const line = `[${new Date().toISOString()}] [${level}] ${message}\n`;
+  try {
+    fs.appendFileSync(getSttLogFile(), line, "utf8");
+  } catch (error) {
+    console.warn(`[stt] nao foi possivel gravar log: ${error?.message || error}`);
+  }
 }
 
 function toImportUrl(filePath) {
@@ -86,11 +105,29 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function checkHttpOk(url, timeoutMs = 2500) {
+function httpGetJson(url, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const req = http.get(url, { timeout: timeoutMs }, (res) => {
-      res.resume();
-      resolve(res.statusCode >= 200 && res.statusCode < 300);
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        body += chunk;
+      });
+      res.on("end", () => {
+        let json = null;
+        try {
+          json = body ? JSON.parse(body) : null;
+        } catch {
+          // Keep raw body for diagnostics.
+        }
+
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          statusCode: res.statusCode,
+          body,
+          json,
+        });
+      });
     });
 
     req.on("timeout", () => {
@@ -100,20 +137,44 @@ function checkHttpOk(url, timeoutMs = 2500) {
   });
 }
 
-async function waitForHttpOk(url, timeoutMs = 120000) {
+function summarizeSttHealth(health) {
+  const checks = health?.checks || {};
+  const failed = Object.entries(checks)
+    .filter(([, value]) => !value?.ok)
+    .map(([key, value]) => {
+      const detail = value?.error || value?.path || "sem detalhe";
+      return `${key}: ${detail}`;
+    });
+
+  return failed.length ? failed.join("\n") : JSON.stringify(health || {}, null, 2);
+}
+
+async function waitForSttHealth(url, timeoutMs = 120000) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
+  let lastHealth = null;
 
   while (Date.now() < deadline) {
     try {
-      if (await checkHttpOk(url)) return true;
+      const response = await httpGetJson(url, 30000);
+      lastHealth = response.json || response.body;
+      if (response.ok && response.json?.ok === true) return response.json;
+
+      lastError = new Error(
+        `Health STT ainda indisponivel (${response.statusCode}): ${summarizeSttHealth(response.json)}`
+      );
     } catch (error) {
       lastError = error;
     }
+
     await delay(1000);
   }
 
-  throw lastError || new Error(`ServiÃ§o nÃ£o respondeu em ${url}`);
+  const detail =
+    lastHealth && typeof lastHealth === "object"
+      ? summarizeSttHealth(lastHealth)
+      : lastError?.message || String(lastError || "");
+  throw new Error(`Servico Python de audio nao iniciou corretamente.\n${detail}`);
 }
 
 function getSttPythonExecutable(serviceDir) {
@@ -135,8 +196,7 @@ async function startSttService() {
   const appFile = path.join(serviceDir, "app.py");
 
   if (!fs.existsSync(appFile)) {
-    console.warn(`[stt] serviÃ§o Python nÃ£o encontrado em ${serviceDir}`);
-    return "";
+    throw new Error(`Servico Python de audio nao encontrado em ${serviceDir}`);
   }
 
   const port = await getFreePort();
@@ -145,8 +205,10 @@ async function startSttService() {
   const uploadDir = path.join(app.getPath("userData"), "stt-uploads");
   const bundledFfmpeg = path.join(serviceDir, "bin", "ffmpeg.exe");
   const bundledFfprobe = path.join(serviceDir, "bin", "ffprobe.exe");
+  const bundledWhisperModel = path.join(serviceDir, "models", "faster-whisper-small");
 
   fs.mkdirSync(uploadDir, { recursive: true });
+  getSttLogFile();
 
   sttBaseUrl = baseUrl;
   process.env.STT_PY_BASE = baseUrl;
@@ -160,10 +222,9 @@ async function startSttService() {
         ...process.env,
         PYTHONUNBUFFERED: "1",
         STT_UPLOAD_DIR: uploadDir,
+        WHISPER_MODEL_PATH: bundledWhisperModel,
         ...(fs.existsSync(bundledFfmpeg) ? { FFMPEG_PATH: bundledFfmpeg } : {}),
-        ...(fs.existsSync(bundledFfprobe)
-          ? { FFPROBE_PATH: bundledFfprobe }
-          : {}),
+        ...(fs.existsSync(bundledFfprobe) ? { FFPROBE_PATH: bundledFfprobe } : {}),
       },
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
@@ -171,30 +232,42 @@ async function startSttService() {
   );
 
   sttProcess = child;
+  appendSttLog(
+    "info",
+    `iniciando python=${pythonExecutable} baseUrl=${baseUrl} serviceDir=${serviceDir} model=${bundledWhisperModel}`
+  );
 
   child.stdout?.on("data", (chunk) => {
-    console.log(`[stt] ${String(chunk).trimEnd()}`);
+    const text = String(chunk).trimEnd();
+    console.log(`[stt] ${text}`);
+    appendSttLog("stdout", text);
   });
   child.stderr?.on("data", (chunk) => {
-    console.warn(`[stt] ${String(chunk).trimEnd()}`);
+    const text = String(chunk).trimEnd();
+    console.warn(`[stt] ${text}`);
+    appendSttLog("stderr", text);
   });
   child.on("error", (error) => {
-    console.error("[stt] falha ao iniciar serviÃ§o Python:", error);
+    console.error("[stt] falha ao iniciar servico Python:", error);
+    appendSttLog("error", error?.stack || error?.message || String(error));
   });
   child.on("exit", (code, signal) => {
-    console.warn(`[stt] serviÃ§o encerrado code=${code} signal=${signal || ""}`);
+    console.warn(`[stt] servico encerrado code=${code} signal=${signal || ""}`);
+    appendSttLog("exit", `code=${code} signal=${signal || ""}`);
     if (sttProcess === child) sttProcess = null;
   });
 
-  waitForHttpOk(`${baseUrl}/health`)
-    .then(() => console.log(`[stt] online em ${baseUrl}`))
-    .catch((error) => {
-      console.warn(
-        `[stt] serviÃ§o iniciado, mas health-check ainda nÃ£o respondeu: ${
-          error?.message || String(error)
-        }`
-      );
-    });
+  try {
+    const health = await waitForSttHealth(`${baseUrl}/health`);
+    console.log(`[stt] online em ${baseUrl}`);
+    appendSttLog("health", JSON.stringify(health));
+  } catch (error) {
+    appendSttLog("error", error?.stack || error?.message || String(error));
+    await shutdownSttService();
+    throw new Error(
+      `Falha ao iniciar o servico Python de audio.\n\n${error?.message || String(error)}\n\nLog: ${getSttLogFile()}`
+    );
+  }
 
   return baseUrl;
 }
@@ -205,13 +278,13 @@ async function startBackend() {
 
   if (!fs.existsSync(path.join(clientDist, "index.html"))) {
     throw new Error(
-      `Build do front não encontrado em ${clientDist}. Rode npm run package:win novamente.`
+      `Build do front nao encontrado em ${clientDist}. Rode npm run package:win novamente.`
     );
   }
 
   if (!fs.existsSync(path.join(serverDir, "app.js"))) {
     throw new Error(
-      `Backend empacotado não encontrado em ${serverDir}. Rode npm run package:win novamente.`
+      `Backend empacotado nao encontrado em ${serverDir}. Rode npm run package:win novamente.`
     );
   }
 
@@ -222,8 +295,7 @@ async function startBackend() {
   process.env.PORT = String(port);
   process.env.DEV_FLOW_ENV_FILE = envFile;
   process.env.REQUEST_TIMEOUT_MS = process.env.REQUEST_TIMEOUT_MS || "60000";
-  process.env.HEALTHCHECK_TIMEOUT_MS =
-    process.env.HEALTHCHECK_TIMEOUT_MS || "8000";
+  process.env.HEALTHCHECK_TIMEOUT_MS = process.env.HEALTHCHECK_TIMEOUT_MS || "8000";
   if (sttBaseUrl) process.env.STT_PY_BASE = sttBaseUrl;
   ensureSessionSecret();
 
@@ -244,7 +316,7 @@ async function startBackend() {
     const formatted = validation.errors
       .map((issue) => `${issue.key}: ${issue.message}`)
       .join("\n");
-    throw new Error(`Falha na validação de ambiente:\n${formatted}`);
+    throw new Error(`Falha na validacao de ambiente:\n${formatted}`);
   }
 
   await connectMongo(env);
@@ -273,7 +345,7 @@ function installAppMenu() {
       label: "Dev Flow",
       submenu: [
         {
-          label: "Diagnóstico Jira",
+          label: "Diagnostico Jira",
           click: () => {
             if (!backendBaseUrl) return;
             shell.openExternal(`${backendBaseUrl}/health/jira`);
@@ -353,7 +425,7 @@ async function shutdownSttService() {
       try {
         child.kill("SIGKILL");
       } catch {
-        // Processo jÃ¡ encerrou.
+        // Process already closed.
       }
       finish();
     }, 3000);

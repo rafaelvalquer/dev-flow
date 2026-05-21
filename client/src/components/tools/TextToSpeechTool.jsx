@@ -18,6 +18,17 @@ import {
   Copy,
 } from "lucide-react";
 
+const TTS_VOICE_OPTIONS = [
+  {
+    value: "pt-BR-FranciscaNeural",
+    label: "Francisca - feminina (pt-BR)",
+  },
+  {
+    value: "pt-BR-AntonioNeural",
+    label: "Antonio - masculina (pt-BR)",
+  },
+];
+
 function safeRevokeObjectUrl(u) {
   try {
     if (u) URL.revokeObjectURL(u);
@@ -104,8 +115,8 @@ export default function TextToSpeechTool() {
   const [mode, setMode] = useState("single");
 
   const [text, setText] = useState("");
-  const [voice, setVoice] = useState(""); // opcional
-  const [rate, setRate] = useState("1.0"); // opcional
+  const [voice, setVoice] = useState(TTS_VOICE_OPTIONS[0].value);
+  const [rate, setRate] = useState("0");
   const [volume, setVolume] = useState("1.0"); // opcional
 
   const [mp3Url, setMp3Url] = useState(null);
@@ -480,26 +491,46 @@ export default function TextToSpeechTool() {
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <div>
             <label className="text-xs font-semibold text-zinc-700">
-              Voz (opcional)
+              Voz do audio
             </label>
-            <input
+            <select
               value={voice}
               onChange={(e) => setVoice(e.target.value)}
-              placeholder="ex: pt-BR-female-1"
               className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
-            />
+            >
+              {TTS_VOICE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-zinc-700">
-              Rate (opcional)
-            </label>
+            <div className="flex items-center justify-between gap-3">
+              <label className="text-xs font-semibold text-zinc-700">
+                Rate
+              </label>
+              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-xs font-semibold text-zinc-700">
+                {Number(rate) > 0 ? "+" : ""}
+                {rate}%
+              </span>
+            </div>
             <input
+              type="range"
+              min="-50"
+              max="50"
+              step="1"
               value={rate}
               onChange={(e) => setRate(e.target.value)}
-              placeholder="1.0"
-              className="mt-1 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+              aria-label="Velocidade da voz"
+              className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-gradient-to-r from-blue-500 via-zinc-200 to-red-500 accent-red-600 outline-none"
             />
+            <div className="mt-2 flex items-center justify-between text-[11px] font-medium text-zinc-500">
+              <span>-50%</span>
+              <span>0%</span>
+              <span>+50%</span>
+            </div>
           </div>
 
           <div>

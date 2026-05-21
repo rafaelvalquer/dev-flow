@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +15,19 @@ const sttServiceSource = path.join(repoRoot, "services", "stt-python");
 const clientDistTarget = path.join(outputDir, "client", "dist");
 const serverTarget = path.join(outputDir, "server");
 const sttServiceTarget = path.join(outputDir, "services", "stt-python");
+const whisperModelTarget = path.join(
+  sttServiceTarget,
+  "models",
+  "faster-whisper-small",
+);
+const whisperCacheSnapshotsDir = path.join(
+  os.homedir(),
+  ".cache",
+  "huggingface",
+  "hub",
+  "models--Systran--faster-whisper-small",
+  "snapshots",
+);
 
 async function exists(filePath) {
   try {
@@ -136,6 +150,50 @@ async function copySttFfmpegBinaries() {
   await copyFileIfChanged(ffprobeSource, path.join(binTarget, "ffprobe.exe"));
 }
 
+async function newestDirectory(source) {
+  if (!(await exists(source))) return "";
+
+  const entries = await fs.readdir(source, { withFileTypes: true });
+  const dirs = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = path.join(source, entry.name);
+    const stat = await fs.stat(fullPath);
+    dirs.push({ fullPath, mtimeMs: stat.mtimeMs });
+  }
+
+  dirs.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return dirs[0]?.fullPath || "";
+}
+
+async function resolveWhisperModelSource() {
+  const explicit = String(process.env.DEV_FLOW_WHISPER_MODEL_DIR || "").trim();
+  if (explicit) {
+    if (await exists(explicit)) return explicit;
+    throw new Error(
+      `DEV_FLOW_WHISPER_MODEL_DIR definido, mas o caminho nao existe: ${explicit}`,
+    );
+  }
+
+  const cachedSnapshot = await newestDirectory(whisperCacheSnapshotsDir);
+  if (cachedSnapshot) return cachedSnapshot;
+
+  throw new Error(
+    [
+      "Modelo Systran/faster-whisper-small nao encontrado para empacotar.",
+      `Defina DEV_FLOW_WHISPER_MODEL_DIR apontando para um snapshot local ou baixe o modelo no cache: ${whisperCacheSnapshotsDir}`,
+    ].join("\n"),
+  );
+}
+
+async function copyWhisperModel() {
+  const modelSource = await resolveWhisperModelSource();
+  await removeDirIfPossible(whisperModelTarget);
+  await copyDir(modelSource, whisperModelTarget);
+  console.log(`[desktop] modelo Whisper copiado de ${modelSource}`);
+}
+
 async function removeDirIfPossible(target) {
   try {
     await fs.rm(target, { recursive: true, force: true });
@@ -190,6 +248,7 @@ async function main() {
     filter: shouldCopySttServiceEntry,
   });
   await copySttFfmpegBinaries();
+  await copyWhisperModel();
 
   console.log(`[desktop] assets preparados em ${outputDir}`);
 }
