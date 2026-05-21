@@ -390,6 +390,11 @@ function getCanvasGroupLabel(event, groupBy) {
   return event.issueKey || "Sem ticket";
 }
 
+function getCanvasGroupContent(label) {
+  const safeLabel = escapeHtml(label || "");
+  return `<span class="timeline-group-label" title="${safeLabel}">${safeLabel}</span>`;
+}
+
 function getCanvasItemLabel(event) {
   if (event.type === "comment") return "Comentario";
   if (event.type === "status_changed") return "Status";
@@ -604,15 +609,17 @@ function OperationalTimelineCanvas({
     (events || []).forEach((event) => {
       const id = getCanvasGroupId(event, groupBy);
       if (!byId.has(id)) {
+        const label = getCanvasGroupLabel(event, groupBy);
         byId.set(id, {
           id,
-          content: escapeHtml(getCanvasGroupLabel(event, groupBy)),
-          title: escapeHtml(getCanvasGroupLabel(event, groupBy)),
+          content: getCanvasGroupContent(label),
+          sortLabel: label,
+          title: escapeHtml(label),
         });
       }
     });
     return Array.from(byId.values()).sort((a, b) =>
-      String(a.content).localeCompare(String(b.content), "pt-BR"),
+      String(a.sortLabel).localeCompare(String(b.sortLabel), "pt-BR"),
     );
   }, [events, groupBy]);
 
@@ -641,17 +648,17 @@ function OperationalTimelineCanvas({
       align: "center",
       clickToUse: false,
       editable: false,
-      groupHeightMode: "fixed",
-      height: "420px",
+      groupHeightMode: "auto",
+      height: "460px",
       horizontalScroll: true,
-      margin: { axis: 12, item: { horizontal: 8, vertical: 8 } },
-      maxHeight: "520px",
+      margin: { axis: 16, item: { horizontal: 10, vertical: 10 } },
+      maxHeight: "560px",
       minHeight: "360px",
       multiselect: false,
       orientation: "top",
       selectable: true,
       showCurrentTime: true,
-      stack: false,
+      stack: true,
       tooltip: { followMouse: true, overflowMethod: "cap" },
       verticalScroll: true,
       zoomKey: "ctrlKey",
@@ -701,7 +708,7 @@ function OperationalTimelineCanvas({
     <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
       <div
         ref={containerRef}
-        className="personal-operational-vis min-h-[360px] overflow-hidden rounded-xl border border-zinc-100 bg-zinc-50"
+        className="personal-operational-vis min-h-[360px] overflow-hidden rounded-xl border border-zinc-100 bg-white"
       />
     </div>
   );
@@ -1433,6 +1440,17 @@ export default function PersonalOperationalTimeline({
         .personal-operational-vis .vis-labelset .vis-label {
           border-color: #e4e4e7;
         }
+        .personal-operational-vis .vis-panel.vis-center,
+        .personal-operational-vis .vis-panel.vis-left,
+        .personal-operational-vis .vis-panel.vis-right {
+          background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+        }
+        .personal-operational-vis .vis-grid.vis-vertical {
+          border-color: #eef2f7;
+        }
+        .personal-operational-vis .vis-grid.vis-horizontal {
+          border-color: #f4f4f5;
+        }
         .personal-operational-vis .vis-time-axis .vis-text {
           color: #71717a;
           font-size: 12px;
@@ -1441,23 +1459,47 @@ export default function PersonalOperationalTimeline({
           color: #3f3f46;
           font-size: 12px;
           font-weight: 700;
+          max-width: min(190px, 34vw);
           padding: 8px 10px;
+        }
+        .personal-operational-vis .timeline-group-label {
+          display: block;
+          max-width: min(170px, 30vw);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .personal-operational-vis .vis-current-time {
           background-color: #dc2626;
           width: 2px;
         }
+        .personal-operational-vis .vis-item.timeline-event.vis-line,
+        .personal-operational-vis .vis-item.timeline-event.vis-dot {
+          display: none;
+        }
         .personal-operational-vis .vis-item.timeline-event {
           border-width: 1px;
           border-radius: 999px;
-          box-shadow: 0 8px 18px rgba(24, 24, 27, 0.08);
+          box-shadow: 0 4px 10px rgba(24, 24, 27, 0.07);
           color: #18181b;
           font-size: 11px;
           font-weight: 800;
-          padding: 3px 9px;
+          line-height: 1;
+          min-height: 28px;
+          padding: 6px 11px;
+          transition: box-shadow 160ms ease, transform 160ms ease, border-color 160ms ease;
+        }
+        .personal-operational-vis .vis-item.timeline-event:hover {
+          box-shadow: 0 8px 18px rgba(24, 24, 27, 0.12);
+          transform: translateY(-1px);
+        }
+        .personal-operational-vis .vis-item.timeline-event .vis-item-content {
+          padding: 0;
         }
         .personal-operational-vis .vis-item.timeline-event.vis-selected {
-          box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.16), 0 12px 24px rgba(24, 24, 27, 0.14);
+          border-color: #18181b;
+          box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.12), 0 10px 22px rgba(24, 24, 27, 0.16);
+          transform: translateY(-1px);
         }
         .personal-operational-vis .timeline-event-comentarios {
           background: #dbeafe;
