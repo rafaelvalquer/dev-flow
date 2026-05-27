@@ -598,10 +598,7 @@ export function buildPoInsights({
       : Array.isArray(fields?.attachment)
         ? fields.attachment.length
         : 0;
-    const canOrganizeDocumentation =
-      normalizeStr(statusName) === "backlog" &&
-      hasStarted &&
-      !hasDocumentationFolder;
+    const canOrganizeDocumentation = !hasDocumentationFolder;
     const nextMilestone = getNextMilestone(activities, today0);
     const activitiesAtRisk = activities.filter(
       (activity) => Boolean(activity?.risk) || normalizeStr(activity?.risco) === "risco"

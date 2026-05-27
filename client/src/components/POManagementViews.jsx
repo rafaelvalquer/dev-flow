@@ -64,8 +64,9 @@ function AccordionCard({
   count,
   children,
   className,
+  initialOpen = true,
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(initialOpen);
   return (
     <Card className={cn("rounded-2xl border-zinc-200 bg-white shadow-sm", className)}>
       <CardHeader className="pb-3">
@@ -568,6 +569,7 @@ function DailyBriefingPanel({
 }) {
   const briefing = insights?.dailyBriefing || {};
   const [activeBriefing, setActiveBriefing] = useState("changed");
+  const [briefingOpen, setBriefingOpen] = useState(false);
   const sections = [
     {
       key: "changed",
@@ -614,21 +616,35 @@ function DailyBriefingPanel({
     <Card className="min-w-0 overflow-hidden rounded-2xl border-zinc-200 bg-white shadow-sm">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Clock3 className="h-4 w-4 text-zinc-600" />
-              <CardTitle className="text-base text-zinc-900">
-                Resumo diario operacional
-              </CardTitle>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left"
+            onClick={() => setBriefingOpen((value) => !value)}
+            aria-expanded={briefingOpen}
+          >
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <Clock3 className="h-4 w-4 shrink-0 text-zinc-600" />
+                <CardTitle className="truncate text-base text-zinc-900">
+                  Resumo diario operacional
+                </CardTitle>
+              </div>
+              <CardDescription className="mt-2">
+                Leitura rápida para orientar acompanhamento, cobrança e próximos passos.
+              </CardDescription>
             </div>
-            <CardDescription className="mt-2">
-              Leitura rápida para orientar acompanhamento, cobrança e próximos passos.
-            </CardDescription>
-          </div>
+            <ChevronDown
+              className={cn(
+                "mt-1 h-4 w-4 shrink-0 text-zinc-500 transition-transform",
+                briefingOpen && "rotate-180",
+              )}
+            />
+          </button>
           <AlarmHelpTooltip />
         </div>
       </CardHeader>
-      <CardContent className="grid min-w-0 gap-3">
+      {briefingOpen ? (
+        <CardContent className="grid min-w-0 gap-3">
         <div className="flex flex-wrap gap-2 rounded-2xl bg-zinc-100 p-1">
           {sections.map((section) => {
             const SectionIcon = section.icon;
@@ -664,7 +680,8 @@ function DailyBriefingPanel({
           onOpenSchedule={onOpenSchedule}
           onResolveProblem={onResolveProblem}
         />
-      </CardContent>
+        </CardContent>
+      ) : null}
     </Card>
   );
 }
@@ -851,6 +868,7 @@ export function POActionsHub({
         description="Ordenação automática por prioridade operacional para responder rápido ao que precisa de ação agora."
         icon={FolderKanban}
         count={insights?.actionQueue?.length || 0}
+        initialOpen={false}
       >
         <CardContent className="grid gap-3 lg:grid-cols-2">
           {(insights?.actionQueue || []).slice(0, 8).map((item) => (
@@ -877,6 +895,7 @@ export function POActionsHub({
           title="Recortes do rito semanal"
           description="Indicadores rápidos para conduzir o rito semanal do P.O."
           icon={CalendarClock}
+          initialOpen={false}
         >
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-zinc-900">
@@ -908,6 +927,7 @@ export function POActionsHub({
           description="Fechamentos mais recentes para o fechamento semanal e status report."
           icon={Clock3}
           count={insights?.doneRecent?.length || 0}
+          initialOpen={false}
         >
           <CardHeader className="pb-3">
             <CardTitle className="text-sm text-zinc-900">

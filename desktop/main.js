@@ -101,6 +101,26 @@ function getFreePort() {
   });
 }
 
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.once("error", () => resolve(false));
+    probe.listen(port, "127.0.0.1", () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+
+async function getPreferredSttPort() {
+  const requested = Number(process.env.DEV_FLOW_STT_PORT || 8000);
+  if (requested > 0 && requested < 65536 && (await isPortFree(requested))) {
+    return requested;
+  }
+
+  return getFreePort();
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -149,6 +169,16 @@ function summarizeSttHealth(health) {
   return failed.length ? failed.join("\n") : JSON.stringify(health || {}, null, 2);
 }
 
+function readTail(filePath, maxChars = 4000) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return "";
+    const text = fs.readFileSync(filePath, "utf8");
+    return text.slice(Math.max(0, text.length - maxChars));
+  } catch {
+    return "";
+  }
+}
+
 async function waitForSttHealth(url, timeoutMs = 120000) {
   const deadline = Date.now() + timeoutMs;
   let lastError = null;
@@ -177,6 +207,56 @@ async function waitForSttHealth(url, timeoutMs = 120000) {
   throw new Error(`Servico Python de audio nao iniciou corretamente.\n${detail}`);
 }
 
+function runPythonPreflight(pythonExecutable, serviceDir, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      pythonExecutable,
+      [
+        "-c",
+        "import sys, uvicorn, app; print('preflight-ok ' + sys.executable)",
+      ],
+      {
+        cwd: serviceDir,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      }
+    );
+
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error("Preflight Python excedeu 30s."));
+    }, 30000);
+
+    child.stdout?.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("exit", (code, signal) => {
+      clearTimeout(timer);
+      appendSttLog("preflight", `code=${code} signal=${signal || ""} stdout=${stdout.trim()} stderr=${stderr.trim()}`);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          `Preflight Python falhou code=${code} signal=${signal || ""}\n${stderr || stdout}`
+        )
+      );
+    });
+  });
+}
+
 function getSttPythonExecutable(serviceDir) {
   const bundledPython = path.join(serviceDir, ".venv", "Scripts", "python.exe");
   if (fs.existsSync(bundledPython)) return bundledPython;
@@ -199,7 +279,7 @@ async function startSttService() {
     throw new Error(`Servico Python de audio nao encontrado em ${serviceDir}`);
   }
 
-  const port = await getFreePort();
+  const port = await getPreferredSttPort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const pythonExecutable = getSttPythonExecutable(serviceDir);
   const uploadDir = path.join(app.getPath("userData"), "stt-uploads");
@@ -213,19 +293,28 @@ async function startSttService() {
   sttBaseUrl = baseUrl;
   process.env.STT_PY_BASE = baseUrl;
 
+  const sttEnv = {
+    ...process.env,
+    PYTHONUNBUFFERED: "1",
+    STT_UPLOAD_DIR: uploadDir,
+    WHISPER_MODEL_PATH: bundledWhisperModel,
+    ...(fs.existsSync(bundledFfmpeg) ? { FFMPEG_PATH: bundledFfmpeg } : {}),
+    ...(fs.existsSync(bundledFfprobe) ? { FFPROBE_PATH: bundledFfprobe } : {}),
+  };
+
+  appendSttLog(
+    "info",
+    `preflight python=${pythonExecutable} serviceDir=${serviceDir} model=${bundledWhisperModel} ffmpeg=${bundledFfmpeg} ffprobe=${bundledFfprobe}`
+  );
+  await runPythonPreflight(pythonExecutable, serviceDir, sttEnv);
+
+  let childExited = null;
   const child = spawn(
     pythonExecutable,
     ["-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", String(port)],
     {
       cwd: serviceDir,
-      env: {
-        ...process.env,
-        PYTHONUNBUFFERED: "1",
-        STT_UPLOAD_DIR: uploadDir,
-        WHISPER_MODEL_PATH: bundledWhisperModel,
-        ...(fs.existsSync(bundledFfmpeg) ? { FFMPEG_PATH: bundledFfmpeg } : {}),
-        ...(fs.existsSync(bundledFfprobe) ? { FFPROBE_PATH: bundledFfprobe } : {}),
-      },
+      env: sttEnv,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
     }
@@ -254,18 +343,31 @@ async function startSttService() {
   child.on("exit", (code, signal) => {
     console.warn(`[stt] servico encerrado code=${code} signal=${signal || ""}`);
     appendSttLog("exit", `code=${code} signal=${signal || ""}`);
+    childExited = { code, signal };
     if (sttProcess === child) sttProcess = null;
   });
 
   try {
-    const health = await waitForSttHealth(`${baseUrl}/health`);
+    const health = await Promise.race([
+      waitForSttHealth(`${baseUrl}/health`),
+      new Promise((_, reject) => {
+        child.once("exit", (code, signal) => {
+          reject(
+            new Error(
+              `Servico Python encerrou antes do health. code=${code} signal=${signal || ""}`
+            )
+          );
+        });
+      }),
+    ]);
     console.log(`[stt] online em ${baseUrl}`);
     appendSttLog("health", JSON.stringify(health));
   } catch (error) {
-    appendSttLog("error", error?.stack || error?.message || String(error));
+    const tail = readTail(getSttLogFile());
+    appendSttLog("error", `${error?.stack || error?.message || String(error)}\nchildExited=${JSON.stringify(childExited)}\nlogTail=${tail}`);
     await shutdownSttService();
     throw new Error(
-      `Falha ao iniciar o servico Python de audio.\n\n${error?.message || String(error)}\n\nLog: ${getSttLogFile()}`
+      `Falha ao iniciar o servico Python de audio.\n\n${error?.message || String(error)}\n\nUltimas linhas do log:\n${tail || "(log vazio)"}\n\nLog: ${getSttLogFile()}`
     );
   }
 

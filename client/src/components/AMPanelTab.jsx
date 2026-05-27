@@ -49,6 +49,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Tree } from "react-arborist";
 import JSZip from "jszip";
+import { renderAsync } from "docx-preview";
 import { saveAs } from "file-saver";
 import { toast } from "sonner";
 
@@ -84,10 +85,13 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   ChevronsUpDown,
   Clock,
   Download,
+  Eye,
   ExternalLink,
   FileText,
   Filter,
@@ -148,12 +152,17 @@ import {
 // NOVO: buscar detalhes do ticket + comentar
 import {
   createComment,
+  buildDownloadLinks,
   getComments,
   getIssue,
   listAttachments,
 } from "../lib/jira";
 import { adfSafeToText } from "../utils/gmudUtils";
 import GanttTab from "./GanttTab";
+
+if (typeof window !== "undefined" && !window.JSZip) {
+  window.JSZip = JSZip;
+}
 
 /* =========================
    // #region HELPERS
@@ -404,10 +413,6 @@ function isLevantamentoStatus(status) {
   return LEVANTAMENTO_STATUSES.has(String(status || "").trim());
 }
 
-function isBacklogStatus(status) {
-  return normalizePlain(status) === "backlog";
-}
-
 function priorityColor(priorityName) {
   const key = String(priorityName || "")
     .trim()
@@ -434,6 +439,45 @@ function sanitizeFileName(value, fallback = "arquivo") {
     .replace(/\s+/g, " ")
     .slice(0, 120);
   return safe || fallback;
+}
+
+function getAttachmentExtension(attachment) {
+  const name = String(attachment?.filename || attachment?.name || "")
+    .trim()
+    .toLowerCase();
+  const match = name.match(/\.([a-z0-9]+)$/i);
+  return match?.[1] || "";
+}
+
+function isPreviewableAttachment(attachment) {
+  return Boolean(getAttachmentPreviewKind(attachment));
+}
+
+function getAttachmentPreviewKind(attachment) {
+  const ext = getAttachmentExtension(attachment);
+  const mime = String(attachment?.mimeType || attachment?.contentType || "")
+    .trim()
+    .toLowerCase();
+
+  if (ext === "pdf" || mime.includes("pdf")) return "pdf";
+  if (
+    ext === "docx" ||
+    mime.includes("wordprocessingml.document")
+  ) {
+    return "docx";
+  }
+  if (
+    ext === "doc" ||
+    ext === "ppt" ||
+    ext === "pptx" ||
+    mime.includes("msword") ||
+    mime.includes("powerpoint") ||
+    mime.includes("presentation")
+  ) {
+    return "unsupported";
+  }
+
+  return "";
 }
 
 function ticketHasIniciadoTag(ticket) {
@@ -2188,11 +2232,11 @@ export default function AMPanelTab({
       }
 
       await jiraTransitionToStatus(startIssueKey, selectedStatus);
+      applyTicketStatusLocal(startIssueKey, selectedStatus);
 
       const issue = await getIssue(startIssueKey, START_FIELDS);
       setStartIssue(issue);
-
-      await reload();
+      await refreshIssueInPanel(startIssueKey).catch(() => null);
     } catch (e) {
       console.error(e);
       setStartErr(e?.message || "Falha ao alterar status do ticket.");
@@ -2224,10 +2268,14 @@ export default function AMPanelTab({
 
       // 3) transiciona status
       await jiraTransitionToStatus(startIssueKey, selectedStatus);
+      applyTicketStatusLocal(startIssueKey, selectedStatus);
 
-      // 4) recarrega e fecha
-      await reload();
+      // 4) atualiza apenas o ticket aberto e segue para os detalhes
+      const startedKey = startIssueKey;
+      await refreshIssueInPanel(startedKey).catch(() => null);
       closeStartModal();
+      setDetailsKey(startedKey);
+      setDetailsOpen(true);
     } catch (e) {
       console.error(e);
       setStartErr(e?.message || "Falha ao iniciar o ticket.");
@@ -3160,6 +3208,7 @@ export default function AMPanelTab({
             onChangePriority={updateTicketPriority}
             onDocumentationFlagChange={setDocumentationFolderFlag}
             onOpenDocumentation={(ticket) => openDocumentationOrganizer(ticket)}
+            onOpenSchedule={(ticket) => openEditor(ticket)}
             onMarkedStarted={async () => {
               // cria comentário [INICIADO] sem mudar status
               if (!detailsKey) return;
@@ -3843,8 +3892,11 @@ function TicketSection({
   onOpenDocumentation,
   emptyText,
 }) {
+  const PAGE_SIZE_OPTIONS = [12, 24, 48, 96];
   const safeRows = rows || [];
   const showSkeleton = loading && safeRows.length === 0;
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
   const overdueCount = useMemo(() => {
     const today0 = startOfTodayLocal();
 
@@ -3872,15 +3924,47 @@ function TicketSection({
       );
     }).length;
   }, [safeRows]);
+
+  const pageCount = Math.max(1, Math.ceil(safeRows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageStart = safeRows.length ? (currentPage - 1) * pageSize : 0;
+  const pageEnd = Math.min(pageStart + pageSize, safeRows.length);
+  const visibleRows = safeRows.slice(pageStart, pageEnd);
+
+  useEffect(() => {
+    setPage(1);
+  }, [safeRows, pageSize, title]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
   return (
     <div className="grid gap-3">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-base font-semibold text-zinc-900">{title}</h2>
           <p className="text-sm text-zinc-600">{subtitle}</p>
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-600">
+            <span className="font-medium text-zinc-900">Por página</span>
+            <select
+              value={pageSize}
+              onChange={(event) => setPageSize(Number(event.target.value))}
+              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-900 outline-none focus:ring-2 focus:ring-red-500"
+              aria-label="Tickets por página"
+            >
+              {PAGE_SIZE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <span className="text-zinc-500">recomendado: 12</span>
+          </div>
+
           {/* Badge: sem cronograma */}
           {onOpenSchedule && missingScheduleSet?.size ? (
             <Tooltip>
@@ -3905,13 +3989,46 @@ function TicketSection({
         </div>
       </div>
 
+      {!showSkeleton && safeRows.length ? (
+        <div className="flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs font-medium text-zinc-600">
+            Mostrando {pageStart + 1}-{pageEnd} de {safeRows.length} ticket(s)
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 rounded-xl border-zinc-200 bg-white px-3 text-xs"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage <= 1}
+            >
+              <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+              Anterior
+            </Button>
+            <span className="min-w-16 text-center text-xs font-semibold text-zinc-700">
+              {currentPage}/{pageCount}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 rounded-xl border-zinc-200 bg-white px-3 text-xs"
+              onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+              disabled={currentPage >= pageCount}
+            >
+              Próxima
+              <ChevronRight className="ml-1 h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {/* Grid de cards */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {showSkeleton
           ? Array.from({ length: 8 }).map((_, i) => (
               <TicketCardSkeleton key={i} />
             ))
-          : safeRows.map((t) => (
+          : visibleRows.map((t) => (
               <TicketCard
                 key={t.key}
                 ticket={t}
@@ -4700,6 +4817,7 @@ function TicketDetailsDialog({
   onChangePriority,
   onDocumentationFlagChange,
   onOpenDocumentation,
+  onOpenSchedule,
   onMarkedStarted,
 }) {
   const [loading, setLoading] = useState(false);
@@ -4711,6 +4829,7 @@ function TicketDetailsDialog({
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingPriority, setSavingPriority] = useState(false);
   const [savingFolderFlag, setSavingFolderFlag] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState(null);
 
   useEffect(() => {
     if (!open || !issueKey) return;
@@ -4720,6 +4839,7 @@ function TicketDetailsDialog({
     setErr("");
     setIssue(null);
     setComments([]);
+    setPreviewAttachment(null);
 
     Promise.allSettled([
       getIssue(
@@ -4792,11 +4912,11 @@ function TicketDetailsDialog({
       .toUpperCase(),
   );
   const folderCreated = hasDocumentationFolderLabel(issue);
-  const isBacklog = isBacklogStatus(f?.status?.name);
-  const canOrganizeDocumentation =
-    isBacklog && ticketHasIniciadoTag(meta || issue) && !folderCreated;
-  const attachmentsCount = Array.isArray(f?.attachment)
-    ? f.attachment.length
+  const canOrganizeDocumentation = !folderCreated;
+  const hasAttachmentField = Array.isArray(f?.attachment);
+  const attachments = hasAttachmentField ? f.attachment : [];
+  const attachmentsCount = hasAttachmentField
+    ? attachments.length
     : Number(meta?.attachmentCount || 0);
   const cronogramaActivities = useMemo(
     () => parseCronogramaADF(f?.customfield_14017),
@@ -4906,7 +5026,7 @@ function TicketDetailsDialog({
   }
 
   async function toggleDocumentationFolderFlag() {
-    if (!issueKey || !isBacklog) return;
+    if (!issueKey) return;
     const next = !folderCreated;
     setSavingFolderFlag(true);
     setErr("");
@@ -4941,6 +5061,7 @@ function TicketDetailsDialog({
     : "Sem comentário de início";
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -5077,8 +5198,8 @@ function TicketDetailsDialog({
             </div>
           </div>
 
-          <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 md:grid-cols-3">
-            <div className="grid gap-2">
+          <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
               <div className="text-sm font-semibold text-zinc-900">
                 Status do ticket
               </div>
@@ -5086,7 +5207,7 @@ function TicketDetailsDialog({
                 value={statusDraft || f?.status?.name || ""}
                 onChange={(event) => setStatusDraft(event.target.value)}
                 disabled={loading || savingStatus || !issue}
-                className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
               >
                 {statusOptions.map((status) => (
                   <option key={status} value={status}>
@@ -5097,7 +5218,7 @@ function TicketDetailsDialog({
               <Button
                 type="button"
                 variant="outline"
-                className="h-9 rounded-xl border-zinc-200 bg-white"
+                className="h-9 w-full rounded-xl border-zinc-200 bg-white"
                 onClick={applyDetailsStatus}
                 disabled={
                   loading ||
@@ -5111,7 +5232,7 @@ function TicketDetailsDialog({
               </Button>
             </div>
 
-            <div className="grid gap-2">
+            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
               <div className="text-sm font-semibold text-zinc-900">
                 Prioridade
               </div>
@@ -5119,7 +5240,7 @@ function TicketDetailsDialog({
                 value={priorityDraft || f?.priority?.name || ""}
                 onChange={(event) => setPriorityDraft(event.target.value)}
                 disabled={loading || savingPriority || !issue}
-                className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
                 style={{
                   borderColor: priorityColor(
                     priorityDraft || f?.priority?.name,
@@ -5136,7 +5257,7 @@ function TicketDetailsDialog({
               <Button
                 type="button"
                 variant="outline"
-                className="h-9 rounded-xl border-zinc-200 bg-white"
+                className="h-9 w-full rounded-xl border-zinc-200 bg-white"
                 onClick={applyDetailsPriority}
                 disabled={
                   loading ||
@@ -5151,51 +5272,45 @@ function TicketDetailsDialog({
               </Button>
             </div>
 
-            <div className="grid gap-2">
+            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
               <div className="text-sm font-semibold text-zinc-900">
                 Documentação
               </div>
-              {isBacklog ? (
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={folderCreated}
-                  onClick={toggleDocumentationFolderFlag}
-                  disabled={loading || savingFolderFlag || !issue}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={folderCreated}
+                onClick={toggleDocumentationFolderFlag}
+                disabled={loading || savingFolderFlag || !issue}
+                className={cn(
+                  "flex h-10 w-full items-center justify-between rounded-xl border px-3 text-sm font-semibold transition",
+                  folderCreated
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-zinc-200 bg-zinc-50 text-zinc-700",
+                  (loading || savingFolderFlag || !issue) && "opacity-60",
+                )}
+              >
+                <span>Pasta criada</span>
+                <span
                   className={cn(
-                    "flex h-10 items-center justify-between rounded-xl border px-3 text-sm font-semibold transition",
-                    folderCreated
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-zinc-200 bg-zinc-50 text-zinc-700",
-                    (loading || savingFolderFlag || !issue) && "opacity-60",
+                    "relative h-5 w-9 rounded-full transition",
+                    folderCreated ? "bg-emerald-600" : "bg-zinc-300",
                   )}
                 >
-                  <span>Pasta criada</span>
                   <span
                     className={cn(
-                      "relative h-5 w-9 rounded-full transition",
-                      folderCreated ? "bg-emerald-600" : "bg-zinc-300",
+                      "absolute top-0.5 h-4 w-4 rounded-full bg-white transition",
+                      folderCreated ? "left-4" : "left-0.5",
                     )}
-                  >
-                    <span
-                      className={cn(
-                        "absolute top-0.5 h-4 w-4 rounded-full bg-white transition",
-                        folderCreated ? "left-4" : "left-0.5",
-                      )}
-                    />
-                  </span>
-                </button>
-              ) : (
-                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-                  Disponivel quando o ticket estiver em Backlog.
-                </div>
-              )}
+                  />
+                </span>
+              </button>
 
               {canOrganizeDocumentation ? (
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9 rounded-xl border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                  className="h-9 w-full rounded-xl border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
                   onClick={() => onOpenDocumentation?.(issue)}
                   disabled={loading || !issue}
                 >
@@ -5207,6 +5322,27 @@ function TicketDetailsDialog({
                   {attachmentsCount} anexo(s) no Jira.
                 </div>
               )}
+            </div>
+
+            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+              <div className="text-sm font-semibold text-zinc-900">
+                Cronograma
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 w-full rounded-xl border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                onClick={() => onOpenSchedule?.(issue)}
+                disabled={loading || !issue}
+              >
+                <CalendarDays className="mr-2 h-4 w-4" />
+                Criar cronograma
+              </Button>
+              <div className="text-xs text-zinc-500">
+                {cronogramaActivities.length
+                  ? `${cronogramaActivities.length} atividade(s) cadastrada(s).`
+                  : "Abrir editor de cronograma."}
+              </div>
             </div>
           </div>
 
@@ -5269,6 +5405,84 @@ function TicketDetailsDialog({
             ) : (
               <div className="whitespace-pre-wrap break-words text-sm text-zinc-800 max-h-56 overflow-auto">
                 {descText || "—"}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-zinc-200 bg-white p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-zinc-900">
+                Anexos
+              </div>
+              <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                {attachmentsCount} arquivo(s)
+              </Badge>
+            </div>
+
+            {loading ? (
+              <div className="grid gap-2">
+                <Skeleton className="h-12 w-full rounded-xl" />
+                <Skeleton className="h-12 w-full rounded-xl" />
+              </div>
+            ) : attachments.length ? (
+              <div className="grid gap-2">
+                {attachments.map((attachment) => {
+                  const links = buildDownloadLinks(attachment);
+                  const previewable = isPreviewableAttachment(attachment);
+                  const filename = attachment?.filename || "arquivo";
+                  const sizeKb = Number(attachment?.size || 0) / 1024;
+                  return (
+                    <div
+                      key={attachment?.id || filename}
+                      className="flex min-w-0 items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                    >
+                      <FileText className="h-4 w-4 shrink-0 text-zinc-500" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-zinc-900">
+                          {filename}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {sizeKb ? `${sizeKb.toFixed(1)} KB` : "Tamanho nao informado"}
+                        </div>
+                      </div>
+
+                      {previewable ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewAttachment(attachment)}
+                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                              aria-label={`Preview de ${filename}`}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Visualizar arquivo</TooltipContent>
+                        </Tooltip>
+                      ) : null}
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={links.download}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"
+                            aria-label={`Baixar ${filename}`}
+                          >
+                            <Download className="h-4 w-4" />
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>Baixar arquivo</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-center text-sm text-zinc-500">
+                Nenhum anexo encontrado.
               </div>
             )}
           </div>
@@ -5439,6 +5653,163 @@ function TicketDetailsDialog({
             </Button>
           )}
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <AttachmentPreviewModal
+      attachment={previewAttachment}
+      onClose={() => setPreviewAttachment(null)}
+    />
+    </>
+  );
+}
+
+function AttachmentPreviewModal({ attachment, onClose }) {
+  const bodyRef = useRef(null);
+  const styleRef = useRef(null);
+  const [status, setStatus] = useState("");
+  const [err, setErr] = useState("");
+
+  const open = Boolean(attachment);
+  const filename = attachment?.filename || "arquivo";
+  const links = attachment ? buildDownloadLinks(attachment) : null;
+  const previewKind = attachment ? getAttachmentPreviewKind(attachment) : "";
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    setErr("");
+    setStatus("");
+
+    if (bodyRef.current) bodyRef.current.innerHTML = "";
+    if (styleRef.current) styleRef.current.innerHTML = "";
+
+    if (previewKind !== "docx" || !links?.inline) return;
+
+    async function renderDocxPreview() {
+      setStatus("Carregando preview...");
+      try {
+        const response = await fetch(links.inline);
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar arquivo (${response.status}).`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        if (cancelled) return;
+
+        setStatus("Renderizando DOCX...");
+        await renderAsync(arrayBuffer, bodyRef.current, styleRef.current, {
+          className: "docx",
+          inWrapper: true,
+          breakPages: true,
+          renderHeaders: true,
+          renderFooters: true,
+        });
+
+        if (!cancelled) setStatus("");
+      } catch (e) {
+        if (cancelled) return;
+        setStatus("");
+        setErr(e?.message || "Nao foi possivel renderizar o preview.");
+      }
+    }
+
+    renderDocxPreview();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [links?.inline, open, previewKind]);
+
+  if (!open) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose?.()}>
+      <DialogContent className="flex h-[min(86vh,900px)] w-[calc(100vw-2rem)] max-w-6xl flex-col overflow-hidden rounded-2xl p-0 sm:w-full">
+        <DialogHeader className="border-b border-zinc-200 bg-zinc-50 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-base text-zinc-900">
+                Preview do anexo
+              </DialogTitle>
+              <DialogDescription className="truncate text-sm text-zinc-600">
+                {filename}
+              </DialogDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {links?.download ? (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="rounded-xl border-zinc-200 bg-white"
+                >
+                  <a
+                    href={links.download}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Baixar
+                  </a>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl border-zinc-200 bg-white"
+                onClick={onClose}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-auto bg-zinc-100">
+          {previewKind === "pdf" && links?.inline ? (
+            <iframe
+              title={`Preview de ${filename}`}
+              src={links.inline}
+              className="h-full min-h-[68vh] w-full border-0 bg-white"
+            />
+          ) : previewKind === "docx" ? (
+            <div className="min-h-full">
+              {(status || err) && (
+                <div
+                  className={cn(
+                    "border-b px-4 py-3 text-sm",
+                    err
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-zinc-200 bg-white text-zinc-700",
+                  )}
+                >
+                  {err || status}
+                </div>
+              )}
+              <div ref={styleRef} />
+              <div ref={bodyRef} className="p-4" />
+            </div>
+          ) : (
+            <div className="flex min-h-[58vh] items-center justify-center p-6">
+              <div className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm">
+                <FileText className="mx-auto h-8 w-8 text-zinc-500" />
+                <div className="mt-3 text-sm font-semibold text-zinc-900">
+                  Preview local ainda nao disponivel para este formato.
+                </div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  Arquivos PPT, PPTX e DOC antigo exigem conversao antes da
+                  visualizacao local. Use o botao Baixar se precisar abrir no
+                  aplicativo nativo.
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <style>{`
+          .docx-wrapper { background: #f1f5f9; padding: 16px; }
+          .docx { background: transparent; }
+        `}</style>
       </DialogContent>
     </Dialog>
   );
@@ -5984,6 +6355,8 @@ function CronogramaEditorModal({
 }) {
   const [saveAttempted, setSaveAttempted] = useState(false);
   const [daysDraftById, setDaysDraftById] = useState({});
+  const [confirmMissingDueDateOpen, setConfirmMissingDueDateOpen] =
+    useState(false);
 
   if (!issue) return null;
 
@@ -6243,6 +6616,17 @@ function CronogramaEditorModal({
     setModeById((prev) => ({ ...prev, [row.id]: "range" }));
   }
 
+  function submitCronograma({ allowMissingDueDate = false } = {}) {
+    setSaveAttempted(true);
+    if (invalidCustomActivity) return;
+    if (missingDueDate && !allowMissingDueDate) {
+      setConfirmMissingDueDateOpen(true);
+      return;
+    }
+    setConfirmMissingDueDateOpen(false);
+    onSave?.(preparedDraft);
+  }
+
   function inferMode(v) {
     const s = String(v || "");
     if (/\s+a\s+/i.test(s)) return "range";
@@ -6281,6 +6665,7 @@ function CronogramaEditorModal({
   }, [calendarSettings, draft, dueDateObj, issue?.key]);
 
   return (
+    <>
     <Dialog
       open={true}
       onOpenChange={(o) => {
@@ -6332,15 +6717,8 @@ function CronogramaEditorModal({
                 disabled={loading}
                 className={cn(
                   "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
-                  saveAttempted && missingDueDate && "border-red-300",
                 )}
               />
-
-              {saveAttempted && missingDueDate && (
-                <div className="mt-1 rounded-xl border border-red-200 bg-red-50 p-2 text-xs font-semibold text-red-700">
-                  A data limite não foi preenchida.
-                </div>
-              )}
 
               {!missingDueDate && dueBeforeImplant && (
                 <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
@@ -6596,12 +6974,7 @@ function CronogramaEditorModal({
           <Button
             type="button"
             className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-            onClick={() => {
-              setSaveAttempted(true);
-              if (!String(dueDateDraft || "").trim()) return;
-              if (invalidCustomActivity) return;
-              onSave?.(preparedDraft);
-            }}
+            onClick={() => submitCronograma()}
             disabled={loading}
           >
             {loading ? "Salvando..." : "Salvar no Jira"}
@@ -6609,5 +6982,39 @@ function CronogramaEditorModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <Dialog
+      open={confirmMissingDueDateOpen}
+      onOpenChange={setConfirmMissingDueDateOpen}
+    >
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-2xl sm:w-full">
+        <DialogHeader>
+          <DialogTitle>Data limite não preenchida</DialogTitle>
+          <DialogDescription>
+            O cronograma será salvo sem data limite no Jira. Você deseja
+            continuar?
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-xl border-zinc-200 bg-white"
+            onClick={() => setConfirmMissingDueDateOpen(false)}
+            disabled={loading}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+            onClick={() => submitCronograma({ allowMissingDueDate: true })}
+            disabled={loading}
+          >
+            OK
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
