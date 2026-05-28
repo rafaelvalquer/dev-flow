@@ -4,6 +4,7 @@ import User from "../models/User.js";
 import { publicUser, requireAuth } from "../middlewares/auth.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
 import { fetchWithTimeout } from "../utils/http.js";
+import { removePortalIccSessionByUserAndSession } from "../services/portalIcc/sessionStore.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const HASH_PREFIX = "scrypt";
@@ -89,6 +90,7 @@ async function validateJiraToken({ env, email, token }) {
 
 function startSession(req, user, { rememberMe = false } = {}) {
   req.session.userId = String(user._id);
+  req.session.user = publicUser(user);
   req.session.cookie.maxAge = rememberMe
     ? REMEMBER_SESSION_MS
     : SHORT_SESSION_MS;
@@ -357,6 +359,8 @@ export default function authRoutes({ env }) {
   });
 
   router.post("/logout", (req, res, next) => {
+    removePortalIccSessionByUserAndSession(req.session?.userId, req.sessionID);
+
     req.session.destroy((err) => {
       if (err) return next(err);
       res.clearCookie("devflow.sid");

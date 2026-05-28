@@ -37,15 +37,39 @@ export function publicUser(user) {
   };
 }
 
+function fallbackUserFromSession(session = {}) {
+  const userId = String(session.userId || session.user?.id || "").trim();
+  if (!userId) return null;
+
+  return {
+    ...(session.user || {}),
+    _id: userId,
+    id: userId,
+    role: session.user?.role || "user",
+    preferences: session.user?.preferences || DEFAULT_PREFERENCES,
+  };
+}
+
 export async function attachUser(req, _res, next) {
   try {
     const userId = req.session?.userId;
     if (!userId) return next();
 
     const user = await User.findById(userId);
-    if (user) req.user = user;
+    req.user = user || fallbackUserFromSession(req.session);
     return next();
   } catch (err) {
+    const fallbackUser = fallbackUserFromSession(req.session);
+    if (fallbackUser) {
+      req.user = fallbackUser;
+      req.authUserLookupError = err;
+      req.log?.("warn", "auth.user_lookup_fallback", {
+        error: err?.message || String(err),
+        code: err?.code,
+      });
+      return next();
+    }
+
     return next(err);
   }
 }

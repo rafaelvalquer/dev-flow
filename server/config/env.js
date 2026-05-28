@@ -37,6 +37,20 @@ export const env = {
     rawEnv.AUTOMATION_JOB_INTERVAL_MS,
     60000
   ),
+  PORTAL_ICC_BASE_URL:
+    rawEnv.PORTAL_ICC_BASE_URL ||
+    rawEnv.PORTAL_BASE_URL ||
+    "https://portalicc.claro.com.br",
+  PORTAL_ICC_TLS_REJECT_UNAUTHORIZED: normalizeBoolean(
+    rawEnv.PORTAL_ICC_TLS_REJECT_UNAUTHORIZED,
+    true
+  ),
+  PORTAL_ICC_TIMEOUT_MS: normalizeNumber(rawEnv.PORTAL_ICC_TIMEOUT_MS, 45000),
+  PORTAL_ICC_SESSION_TTL_MS: normalizeNumber(
+    rawEnv.PORTAL_ICC_SESSION_TTL_MS,
+    30 * 60 * 1000
+  ),
+  PORTAL_ICC_PROXY: rawEnv.PORTAL_ICC_PROXY || "",
 };
 
 export function validateEnv(runtimeEnv = env) {

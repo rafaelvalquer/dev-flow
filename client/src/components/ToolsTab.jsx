@@ -16,10 +16,11 @@ import AutomationTool from "@/components/tools/AutomationTool";
 import AudioComparatorTool from "@/components/tools/AudioComparatorTool";
 import AudioValidatorTool from "@/components/tools/AudioValidatorTool";
 
-import { ChevronDown, FileAudio, FileSearch, Mic, Sparkles, Workflow } from "lucide-react";
+import { ChevronDown, Database, FileAudio, FileSearch, Mic, Sparkles, Workflow } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
+import CdrSearchTool from "@/components/tools/CdrSearchTool";
 
 const TOOL_DEFS = [
   {
@@ -55,6 +56,13 @@ const TOOL_DEFS = [
     title: "Automação",
     desc: "Crie fluxos de automação por ticket com gatilhos, decisões e ações.",
     icon: Workflow,
+    status: "ativo",
+  },
+  {
+    id: "cdr",
+    title: "Consulta CDR",
+    desc: "Autentique no Portal ICC e consulte CDR com filtros operacionais.",
+    icon: Database,
     status: "ativo",
   },
 ];
@@ -217,6 +225,7 @@ export default function ToolsTab() {
     [activeTool],
   );
   const ActiveIcon = active.icon;
+  const usesSttHealth = !["automacao", "cdr"].includes(activeTool);
 
   const healthSummary = useMemo(() => {
     if (sttOnline === true) {
@@ -243,6 +252,10 @@ export default function ToolsTab() {
   }, [sttError, sttLatencyMs, sttOnline]);
 
   useEffect(() => {
+    if (!usesSttHealth) {
+      return undefined;
+    }
+
     let mounted = true;
     let intervalId = null;
 
@@ -292,7 +305,7 @@ export default function ToolsTab() {
       mounted = false;
       if (intervalId) window.clearInterval(intervalId);
     };
-  }, []);
+  }, [usesSttHealth]);
 
   const healthBadge = (
     <Badge
@@ -308,6 +321,13 @@ export default function ToolsTab() {
         : sttOnline === false
           ? "Serviços offline"
           : "Verificando..."}
+    </Badge>
+  );
+  const toolStatusBadge = usesSttHealth ? (
+    healthBadge
+  ) : (
+    <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+      {activeTool === "cdr" ? "Portal ICC" : "Local"}
     </Badge>
   );
 
@@ -330,6 +350,10 @@ export default function ToolsTab() {
 
     if (activeTool === "automacao") {
       return <AutomationTool />;
+    }
+
+    if (activeTool === "cdr") {
+      return <CdrSearchTool />;
     }
 
     return (
@@ -362,7 +386,7 @@ export default function ToolsTab() {
                 <ActiveIcon className="h-4 w-4 shrink-0 text-red-600" />
                 <span className="truncate font-semibold text-zinc-900">{active.title}</span>
               </div>
-              {healthBadge}
+              {toolStatusBadge}
             </div>
           }
         />
@@ -373,7 +397,7 @@ export default function ToolsTab() {
           onSelect={setActiveTool}
         />
 
-        {sttOnline === false ? (
+        {usesSttHealth && sttOnline === false ? (
           <EmptyState
             title={healthSummary.title}
             description={healthSummary.description}
@@ -394,12 +418,14 @@ export default function ToolsTab() {
           <div className="mb-4 flex flex-wrap gap-2 text-xs text-zinc-500">
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
               <span className="font-medium text-zinc-900">Status:</span>{" "}
-              {healthSummary.title}
+              {usesSttHealth ? healthSummary.title : "Pronto para uso"}
             </div>
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-              <span className="font-medium text-zinc-900">Última verificação:</span>{" "}
-              {sttLastCheck ? sttLastCheck.toLocaleTimeString("pt-BR") : "Aguardando"}
-            </div>
+            {usesSttHealth ? (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                <span className="font-medium text-zinc-900">Última verificação:</span>{" "}
+                {sttLastCheck ? sttLastCheck.toLocaleTimeString("pt-BR") : "Aguardando"}
+              </div>
+            ) : null}
           </div>
 
           {renderActiveTool()}
