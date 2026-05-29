@@ -421,7 +421,7 @@ export class PortalIccClient {
       }
     }
 
-    const parsed = parseCdrResponse(html);
+    const parsed = parseCdrResponse(html, { page });
     return {
       ...parsed,
       filters: params,

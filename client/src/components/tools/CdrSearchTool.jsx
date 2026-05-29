@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Database,
   Download,
   Loader2,
@@ -102,6 +106,136 @@ function FieldLabel({ children }) {
   return <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{children}</span>;
 }
 
+function normalizePageNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.trunc(number) : 0;
+}
+
+function paginationPages(pagination) {
+  const currentPage = normalizePageNumber(pagination?.currentPage) || 1;
+  const totalPages = normalizePageNumber(pagination?.totalPages) || currentPage;
+  const apiPages = Array.isArray(pagination?.pages)
+    ? pagination.pages.map(normalizePageNumber).filter(Boolean)
+    : [];
+  const pages = apiPages.length
+    ? apiPages
+    : [1, currentPage - 1, currentPage, currentPage + 1, totalPages];
+
+  if (totalPages > 1) {
+    pages.push(1, totalPages);
+  }
+  pages.push(currentPage);
+
+  return [...new Set(pages.filter((page) => page >= 1 && page <= totalPages))].sort(
+    (a, b) => a - b,
+  );
+}
+
+function CdrPageButton({ page, label, active = false, disabled = false, onPageChange, children }) {
+  return (
+    <Button
+      type="button"
+      variant={active ? "default" : "outline"}
+      size="sm"
+      className={cn(
+        "h-8 min-w-8 rounded-md px-2 text-xs",
+        active ? "pointer-events-none" : "",
+      )}
+      disabled={disabled}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      onClick={() => onPageChange(page)}
+    >
+      {children}
+    </Button>
+  );
+}
+
+function CdrPagination({ pagination, loading = false, onPageChange }) {
+  if (!pagination) return null;
+
+  const currentPage = normalizePageNumber(pagination.currentPage) || 1;
+  const totalPages = normalizePageNumber(pagination.totalPages) || currentPage;
+  const totalItems = normalizePageNumber(pagination.totalItems);
+  const from = normalizePageNumber(pagination.from);
+  const to = normalizePageNumber(pagination.to);
+  const firstPage = normalizePageNumber(pagination.firstPage);
+  const previousPage = normalizePageNumber(pagination.previousPage);
+  const nextPage = normalizePageNumber(pagination.nextPage);
+  const lastPage = normalizePageNumber(pagination.lastPage);
+  const pages = paginationPages(pagination);
+  const summary =
+    totalItems && from && to
+      ? `Exibindo ${from} a ${to} do total de ${totalItems} - Página ${currentPage} de ${totalPages}`
+      : `Página ${currentPage} de ${totalPages}`;
+
+  return (
+    <div className="grid gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-3">
+      <p className="text-center text-xs font-medium text-zinc-600">{summary}</p>
+      {totalPages > 1 ? (
+        <nav className="flex flex-wrap items-center justify-center gap-1" aria-label="Paginação da Consulta CDR">
+          <CdrPageButton
+            page={firstPage}
+            label="Primeira página"
+            disabled={loading || !firstPage}
+            onPageChange={onPageChange}
+          >
+            <ChevronsLeft className="h-4 w-4" />
+          </CdrPageButton>
+          <CdrPageButton
+            page={previousPage}
+            label="Página anterior"
+            disabled={loading || !previousPage}
+            onPageChange={onPageChange}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </CdrPageButton>
+
+          {pages.map((page, index) => {
+            const previous = pages[index - 1];
+            const showGap = previous && page - previous > 1;
+            return (
+              <React.Fragment key={page}>
+                {showGap ? (
+                  <span className="grid h-8 min-w-8 place-items-center px-1 text-xs text-zinc-400">
+                    ...
+                  </span>
+                ) : null}
+                <CdrPageButton
+                  page={page}
+                  label={`Página ${page}`}
+                  active={page === currentPage}
+                  disabled={loading || page === currentPage}
+                  onPageChange={onPageChange}
+                >
+                  {page}
+                </CdrPageButton>
+              </React.Fragment>
+            );
+          })}
+
+          <CdrPageButton
+            page={nextPage}
+            label="Próxima página"
+            disabled={loading || !nextPage}
+            onPageChange={onPageChange}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </CdrPageButton>
+          <CdrPageButton
+            page={lastPage}
+            label="Última página"
+            disabled={loading || !lastPage}
+            onPageChange={onPageChange}
+          >
+            <ChevronsRight className="h-4 w-4" />
+          </CdrPageButton>
+        </nav>
+      ) : null}
+    </div>
+  );
+}
+
 function FilterPair({ index, filters, fields, disabled, onChange }) {
   const fieldKey = `campo${index}`;
   const valueKey = `valor${index}`;
@@ -147,9 +281,10 @@ function FilterPair({ index, filters, fields, disabled, onChange }) {
   );
 }
 
-function CdrResults({ result }) {
+function CdrResults({ result, loading = false, onPageChange }) {
   const columns = result?.columns || [];
   const rows = result?.rows || [];
+  const pagination = result?.pagination || null;
 
   if (!result) {
     return (
@@ -162,10 +297,13 @@ function CdrResults({ result }) {
 
   if (!rows.length) {
     return (
-      <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-600">
-        <Search className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
-        <strong className="block text-zinc-900">Nenhum registro localizado</strong>
-        <span>{result.message || "A consulta retornou zero linhas."}</span>
+      <div className="grid gap-3">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-600">
+          <Search className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
+          <strong className="block text-zinc-900">Nenhum registro localizado</strong>
+          <span>{result.message || "A consulta retornou zero linhas."}</span>
+        </div>
+        <CdrPagination pagination={pagination} loading={loading} onPageChange={onPageChange} />
       </div>
     );
   }
@@ -176,7 +314,7 @@ function CdrResults({ result }) {
         <div>
           <h3 className="text-sm font-semibold text-zinc-900">Resultado da consulta</h3>
           <p className="text-xs text-zinc-500">
-            {rows.length} registro(s), origem {result.source || "portal"}, HTML {result.rawHtmlLength || 0} bytes.
+            {rows.length} registro(s) nesta página, origem {result.source || "portal"}, HTML {result.rawHtmlLength || 0} bytes.
           </p>
         </div>
         <Button
@@ -214,6 +352,8 @@ function CdrResults({ result }) {
           </tbody>
         </table>
       </div>
+
+      <CdrPagination pagination={pagination} loading={loading} onPageChange={onPageChange} />
     </div>
   );
 }
@@ -270,13 +410,33 @@ export default function CdrSearchTool() {
 
   function updateFilter(key, value) {
     setFilters((current) => {
-      const next = { ...current, [key]: value };
+      const next = { ...current, [key]: value, page: key === "page" ? value : "1" };
       if (key.startsWith("campo") && value === "0") {
         next[key.replace("campo", "valor")] = "";
       }
       saveFilters(next);
       return next;
     });
+  }
+
+  async function executeCdrSearch(nextFilters) {
+    setError("");
+    setSearching(true);
+
+    try {
+      const data = await searchCdr(nextFilters);
+      setResult(data);
+      setFilters(nextFilters);
+      saveFilters(nextFilters);
+    } catch (err) {
+      setError(err?.message || "Erro ao consultar CDR.");
+      if (err?.status === 401 || err?.code === "PORTAL_SESSION_EXPIRED") {
+        setSession(null);
+        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
+      }
+    } finally {
+      setSearching(false);
+    }
   }
 
   async function handleLogin(event) {
@@ -310,21 +470,14 @@ export default function CdrSearchTool() {
 
   async function handleSearch(event) {
     event.preventDefault();
-    setError("");
-    setSearching(true);
+    await executeCdrSearch({ ...filters, page: "1" });
+  }
 
-    try {
-      const data = await searchCdr(filters);
-      setResult(data);
-    } catch (err) {
-      setError(err?.message || "Erro ao consultar CDR.");
-      if (err?.status === 401 || err?.code === "PORTAL_SESSION_EXPIRED") {
-        setSession(null);
-        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
-      }
-    } finally {
-      setSearching(false);
-    }
+  async function handlePageChange(page) {
+    const nextPage = normalizePageNumber(page);
+    const currentPage = normalizePageNumber(result?.pagination?.currentPage || filters.page) || 1;
+    if (!nextPage || nextPage === currentPage || searching) return;
+    await executeCdrSearch({ ...filters, page: String(nextPage) });
   }
 
   if (booting) {
@@ -450,11 +603,7 @@ export default function CdrSearchTool() {
               </Button>
             </div>
 
-            <div className="grid gap-2 md:grid-cols-5">
-              <label className="grid gap-1">
-                <FieldLabel>Pagina</FieldLabel>
-                <Input className="h-10 rounded-lg px-3" value={filters.page} onChange={(event) => updateFilter("page", event.target.value)} />
-              </label>
+            <div className="grid gap-2 md:grid-cols-4">
               <label className="grid gap-1">
                 <FieldLabel>Data inicial</FieldLabel>
                 <Input className="h-10 rounded-lg px-3" type="date" value={filters.dataInicial} onChange={(event) => updateFilter("dataInicial", event.target.value)} />
@@ -502,7 +651,7 @@ export default function CdrSearchTool() {
             ) : null}
           </div>
 
-          <CdrResults result={result} />
+          <CdrResults result={result} loading={searching} onPageChange={handlePageChange} />
         </form>
       )}
     </div>
