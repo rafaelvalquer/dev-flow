@@ -15,6 +15,7 @@ const sttServiceSource = path.join(repoRoot, "services", "stt-python");
 const clientDistTarget = path.join(outputDir, "client", "dist");
 const serverTarget = path.join(outputDir, "server");
 const sttServiceTarget = path.join(outputDir, "services", "stt-python");
+const pythonRuntimeTarget = path.join(sttServiceTarget, "runtime", "python");
 const whisperModelTarget = path.join(
   sttServiceTarget,
   "models",
@@ -65,6 +66,24 @@ function shouldCopySttServiceEntry(sourcePath) {
   if (relative === "uploads" || relative.startsWith("uploads/")) return false;
   if (parts.includes("__pycache__")) return false;
   if (relative === ".pytest_cache" || relative.startsWith(".pytest_cache/")) {
+    return false;
+  }
+  if (relative.endsWith(".pyc")) return false;
+  if (relative.endsWith(".pyo")) return false;
+  if (relative.endsWith(".log")) return false;
+
+  return true;
+}
+
+function shouldCopyPythonRuntimeEntry(sourcePath, sourceRoot) {
+  const relative = path.relative(sourceRoot, sourcePath).replace(/\\/g, "/");
+
+  if (!relative) return true;
+  const parts = relative.split("/");
+  if (parts.includes("__pycache__")) return false;
+  if (relative === "Doc" || relative.startsWith("Doc/")) return false;
+  if (relative === "Scripts" || relative.startsWith("Scripts/")) return false;
+  if (relative === "Lib/site-packages" || relative.startsWith("Lib/site-packages/")) {
     return false;
   }
   if (relative.endsWith(".pyc")) return false;
@@ -126,6 +145,55 @@ async function readEnvValue(filePath, key) {
   } catch {
     return "";
   }
+}
+
+async function readPyvenvConfigValue(key) {
+  const configPath = path.join(sttServiceSource, ".venv", "pyvenv.cfg");
+  try {
+    const text = await fs.readFile(configPath, "utf8");
+    const line = text
+      .split(/\r?\n/)
+      .find((entry) => entry.trim().startsWith(`${key} `));
+    if (!line || !line.includes("=")) return "";
+    return line
+      .slice(line.indexOf("=") + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+  } catch {
+    return "";
+  }
+}
+
+async function resolvePythonRuntimeSource() {
+  const explicit = String(process.env.DEV_FLOW_PYTHON_RUNTIME_DIR || "").trim();
+  if (explicit) {
+    if (await exists(path.join(explicit, "python.exe"))) return explicit;
+    throw new Error(
+      `DEV_FLOW_PYTHON_RUNTIME_DIR definido, mas python.exe nao existe em: ${explicit}`,
+    );
+  }
+
+  const venvHome = await readPyvenvConfigValue("home");
+  if (venvHome && (await exists(path.join(venvHome, "python.exe")))) {
+    return venvHome;
+  }
+
+  throw new Error(
+    [
+      "Runtime Python nao encontrado para empacotar.",
+      "Instale o Python usado pela venv ou defina DEV_FLOW_PYTHON_RUNTIME_DIR apontando para uma pasta com python.exe.",
+      `pyvenv.cfg home atual: ${venvHome || "(vazio)"}`,
+    ].join("\n"),
+  );
+}
+
+async function copyPythonRuntime() {
+  const runtimeSource = await resolvePythonRuntimeSource();
+  await removeDirIfPossible(pythonRuntimeTarget);
+  await copyDir(runtimeSource, pythonRuntimeTarget, {
+    filter: (sourcePath) => shouldCopyPythonRuntimeEntry(sourcePath, runtimeSource),
+  });
+  console.log(`[desktop] runtime Python copiado de ${runtimeSource}`);
 }
 
 async function copySttFfmpegBinaries() {
@@ -247,6 +315,7 @@ async function main() {
   await copyDir(sttServiceSource, sttServiceTarget, {
     filter: shouldCopySttServiceEntry,
   });
+  await copyPythonRuntime();
   await copySttFfmpegBinaries();
   await copyWhisperModel();
 

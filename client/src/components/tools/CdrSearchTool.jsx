@@ -99,7 +99,7 @@ function downloadCsv(columns, rows) {
 }
 
 function FieldLabel({ children }) {
-  return <span className="text-xs font-semibold text-zinc-600">{children}</span>;
+  return <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{children}</span>;
 }
 
 function FilterPair({ index, filters, fields, disabled, onChange }) {
@@ -107,15 +107,20 @@ function FilterPair({ index, filters, fields, disabled, onChange }) {
   const valueKey = `valor${index}`;
 
   return (
-    <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)]">
-      <label className="grid gap-1">
-        <FieldLabel>{`Campo ${index}`}</FieldLabel>
+    <div className="grid min-w-0 gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm shadow-zinc-950/[0.03]">
+      <label className="grid min-w-0 gap-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <FieldLabel>{`Campo ${index}`}</FieldLabel>
+          {filters[fieldKey] !== "0" ? (
+            <span className="h-1.5 w-1.5 rounded-full bg-sky-500" aria-hidden="true" />
+          ) : null}
+        </div>
         <Select
           value={filters[fieldKey]}
           onValueChange={(value) => onChange(fieldKey, value)}
           disabled={disabled}
         >
-          <SelectTrigger className="rounded-xl">
+          <SelectTrigger className="h-9 rounded-lg px-3 text-sm">
             <SelectValue placeholder="Campo" />
           </SelectTrigger>
           <SelectContent>
@@ -128,14 +133,14 @@ function FilterPair({ index, filters, fields, disabled, onChange }) {
         </Select>
       </label>
 
-      <label className="grid gap-1">
-        <FieldLabel>{`Valor ${index}`}</FieldLabel>
+      <label className="grid min-w-0 gap-1.5">
+        <span className="sr-only">{`Valor ${index}`}</span>
         <Input
           value={filters[valueKey]}
           onChange={(event) => onChange(valueKey, event.target.value)}
           disabled={disabled || filters[fieldKey] === "0"}
           placeholder={filters[fieldKey] === "0" ? "Selecione um campo" : "Valor do filtro"}
-          className="rounded-xl"
+          className="h-9 rounded-lg px-3 text-sm"
         />
       </label>
     </div>
@@ -431,7 +436,7 @@ export default function CdrSearchTool() {
         </form>
       ) : (
         <form onSubmit={handleSearch} className="grid gap-4">
-          <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-4">
+          <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 sm:p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-900">Filtros da consulta</h3>
@@ -439,33 +444,33 @@ export default function CdrSearchTool() {
                   {activeFilters} filtro(s) ativo(s) para `/portalicc/cdr-list/page/:page`.
                 </p>
               </div>
-              <Button type="submit" disabled={searching}>
+              <Button type="submit" size="sm" disabled={searching}>
                 {searching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 Pesquisar
               </Button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-5">
+            <div className="grid gap-2 md:grid-cols-5">
               <label className="grid gap-1">
                 <FieldLabel>Pagina</FieldLabel>
-                <Input value={filters.page} onChange={(event) => updateFilter("page", event.target.value)} />
+                <Input className="h-10 rounded-lg px-3" value={filters.page} onChange={(event) => updateFilter("page", event.target.value)} />
               </label>
               <label className="grid gap-1">
                 <FieldLabel>Data inicial</FieldLabel>
-                <Input type="date" value={filters.dataInicial} onChange={(event) => updateFilter("dataInicial", event.target.value)} />
+                <Input className="h-10 rounded-lg px-3" type="date" value={filters.dataInicial} onChange={(event) => updateFilter("dataInicial", event.target.value)} />
               </label>
               <label className="grid gap-1">
                 <FieldLabel>Data final</FieldLabel>
-                <Input type="date" value={filters.dataFinal} onChange={(event) => updateFilter("dataFinal", event.target.value)} />
+                <Input className="h-10 rounded-lg px-3" type="date" value={filters.dataFinal} onChange={(event) => updateFilter("dataFinal", event.target.value)} />
               </label>
               <label className="grid gap-1">
                 <FieldLabel>Sort field</FieldLabel>
-                <Input value={filters.sortField} onChange={(event) => updateFilter("sortField", event.target.value)} />
+                <Input className="h-10 rounded-lg px-3" value={filters.sortField} onChange={(event) => updateFilter("sortField", event.target.value)} />
               </label>
               <label className="grid gap-1">
                 <FieldLabel>Ordem</FieldLabel>
                 <Select value={filters.sortOrder} onValueChange={(value) => updateFilter("sortOrder", value)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10 rounded-lg px-3">
                     <SelectValue placeholder="Ordem" />
                   </SelectTrigger>
                   <SelectContent>
@@ -476,7 +481,7 @@ export default function CdrSearchTool() {
               </label>
             </div>
 
-            <div className="grid gap-2">
+            <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-5">
               {[1, 2, 3, 4, 5].map((index) => (
                 <FilterPair
                   key={index}

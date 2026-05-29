@@ -1579,6 +1579,11 @@ textarea {
   background-color: rgba(255, 255, 255, 0.92) !important;
 }
 
+.am-panel-page button[role="combobox"].bg-white,
+.tools-module button[role="combobox"].bg-white {
+  background-color: #ffffff !important;
+}
+
 .am-panel-page .text-zinc-900,
 .tools-module .text-zinc-900 {
   color: var(--ink-900) !important;

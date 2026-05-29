@@ -258,11 +258,42 @@ function runPythonPreflight(pythonExecutable, serviceDir, env) {
 }
 
 function getSttPythonExecutable(serviceDir) {
+  const envPython = String(process.env.DEV_FLOW_PYTHON || "").trim();
+  if (envPython) return envPython;
+
+  const bundledRuntimePython = path.join(
+    serviceDir,
+    "runtime",
+    "python",
+    "python.exe"
+  );
+  if (fs.existsSync(bundledRuntimePython)) return bundledRuntimePython;
+
   const bundledPython = path.join(serviceDir, ".venv", "Scripts", "python.exe");
   if (fs.existsSync(bundledPython)) return bundledPython;
 
-  const envPython = String(process.env.DEV_FLOW_PYTHON || "").trim();
-  return envPython || "python";
+  return "python";
+}
+
+function getSttPythonPathEntries(serviceDir) {
+  const entries = [];
+  const runtimePythonDir = path.join(serviceDir, "runtime", "python");
+  const runtimeDllsDir = path.join(runtimePythonDir, "DLLs");
+  const venvScriptsDir = path.join(serviceDir, ".venv", "Scripts");
+
+  if (fs.existsSync(runtimePythonDir)) entries.push(runtimePythonDir);
+  if (fs.existsSync(runtimeDllsDir)) entries.push(runtimeDllsDir);
+  if (fs.existsSync(venvScriptsDir)) entries.push(venvScriptsDir);
+
+  return entries;
+}
+
+function getSttPythonPathEnv(serviceDir) {
+  const venvSitePackages = path.join(serviceDir, ".venv", "Lib", "site-packages");
+  const entries = fs.existsSync(venvSitePackages) ? [venvSitePackages] : [];
+  const current = String(process.env.PYTHONPATH || "").trim();
+  if (current) entries.push(current);
+  return entries.join(path.delimiter);
 }
 
 async function startSttService() {
@@ -286,6 +317,8 @@ async function startSttService() {
   const bundledFfmpeg = path.join(serviceDir, "bin", "ffmpeg.exe");
   const bundledFfprobe = path.join(serviceDir, "bin", "ffprobe.exe");
   const bundledWhisperModel = path.join(serviceDir, "models", "faster-whisper-small");
+  const pythonPath = getSttPythonPathEnv(serviceDir);
+  const pathEntries = getSttPythonPathEntries(serviceDir);
 
   fs.mkdirSync(uploadDir, { recursive: true });
   getSttLogFile();
@@ -298,6 +331,10 @@ async function startSttService() {
     PYTHONUNBUFFERED: "1",
     STT_UPLOAD_DIR: uploadDir,
     WHISPER_MODEL_PATH: bundledWhisperModel,
+    ...(pythonPath ? { PYTHONPATH: pythonPath } : {}),
+    ...(pathEntries.length
+      ? { PATH: [...pathEntries, process.env.PATH || ""].join(path.delimiter) }
+      : {}),
     ...(fs.existsSync(bundledFfmpeg) ? { FFMPEG_PATH: bundledFfmpeg } : {}),
     ...(fs.existsSync(bundledFfprobe) ? { FFPROBE_PATH: bundledFfprobe } : {}),
   };
