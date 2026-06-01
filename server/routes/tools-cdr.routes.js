@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middlewares/auth.js";
 import { AppError } from "../utils/http.js";
 import { FIELD_OPTIONS } from "../services/portalIcc/cdrColumns.js";
+import { analyzeCdrCsv } from "../services/portalIcc/cdrAnalytics.js";
 import {
   createPortalIccClient,
   getPortalIccClient,
@@ -123,6 +124,43 @@ export default function toolsCdrRoutes({ env }) {
     try {
       const result = await req.portalIccClient.searchCdr(req.query || {});
       return res.json({ ok: true, ...result });
+    } catch (err) {
+      if (err?.code === "PORTAL_SESSION_EXPIRED") {
+        removePortalIccSession(req);
+      }
+      next(toPublicError(err));
+    }
+  });
+
+  router.get("/analytics", requirePortal, async (req, res, next) => {
+    try {
+      const dataInicial = String(req.query?.dataInicial || "").slice(0, 10);
+      const dataFinal = String(req.query?.dataFinal || "").slice(0, 10);
+      const segmento = String(req.query?.segmento || "").trim();
+
+      const exported = await req.portalIccClient.exportCdrCsv({
+        dataInicial,
+        dataFinal,
+        segmento,
+      });
+      const analytics = analyzeCdrCsv(exported.csvText, {
+        dataInicial,
+        dataFinal,
+        segmento,
+      });
+
+      return res.json({
+        ok: true,
+        source: "portal-export",
+        downloadedAt: new Date().toISOString(),
+        export: {
+          bytes: exported.bytes,
+          contentType: exported.contentType,
+          filename: exported.filename,
+          filters: exported.filters,
+        },
+        ...analytics,
+      });
     } catch (err) {
       if (err?.code === "PORTAL_SESSION_EXPIRED") {
         removePortalIccSession(req);

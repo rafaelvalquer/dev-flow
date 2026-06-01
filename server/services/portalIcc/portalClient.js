@@ -491,4 +491,99 @@ export class PortalIccClient {
       rawHtmlLength: html.length,
     };
   }
+
+  async exportCdrCsv(filters = {}) {
+    const params = {
+      dataInicial: filters.dataInicial || "",
+      dataFinal: filters.dataFinal || "",
+      campo1: "segmento",
+      valor1: filters.segmento || filters.valor1 || "",
+    };
+
+    if (!params.dataInicial || !params.dataFinal) {
+      const error = new Error("dataInicial e dataFinal sao obrigatorias.");
+      error.status = 400;
+      throw error;
+    }
+
+    if (!params.valor1) {
+      const error = new Error("segmento e obrigatorio.");
+      error.status = 400;
+      throw error;
+    }
+
+    const path = "/portalicc/cdr-list/export";
+    const startedAt = Date.now();
+    const cookies = await this.getCookies();
+
+    console.log("[portal-cdr] GET export request", {
+      url: this.portalUrl(path),
+      params,
+      cookieNames: cookies.map((cookie) => cookie.key),
+      hasJSessionId: cookies.some((cookie) => cookie.key === "JSESSIONID"),
+    });
+
+    let response;
+    try {
+      response = await this.client.get(path, {
+        params,
+        responseType: "arraybuffer",
+        headers: {
+          ...BASE_HEADERS,
+          Accept: "text/csv,application/csv,text/plain,*/*",
+          Referer: this.portalUrl("/portalicc/index"),
+          "Upgrade-Insecure-Requests": "1",
+        },
+      });
+    } catch (error) {
+      logPortalError("portal-cdr", "GET export", error);
+      if (Number(error?.response?.status) === 417) {
+        const sessionError = new Error(
+          "Sessao Portal ICC expirada. Faca login novamente.",
+        );
+        sessionError.code = "PORTAL_SESSION_EXPIRED";
+        sessionError.status = 401;
+        sessionError.details = {
+          upstreamStatus: 417,
+          location: error?.response?.headers?.location || "",
+        };
+        throw sessionError;
+      }
+      throw error;
+    }
+
+    const location = normalizePortalLocation(
+      this.baseUrl,
+      response.headers.location || "",
+    );
+
+    if (response.status >= 300 && response.status < 400) {
+      if (String(location || "").includes("/portalicc/login")) {
+        const error = new Error("Sessao Portal ICC expirada.");
+        error.code = "PORTAL_SESSION_EXPIRED";
+        error.status = 401;
+        throw error;
+      }
+    }
+
+    const buffer = Buffer.from(response.data || "");
+    const text = buffer.toString("utf8");
+
+    console.log("[portal-cdr] export response", {
+      status: response.status,
+      location,
+      elapsedMs: Date.now() - startedAt,
+      bytes: buffer.length,
+      contentType: response.headers["content-type"] || "",
+    });
+
+    ensureAuthenticatedHtml(text);
+    return {
+      csvText: text,
+      bytes: buffer.length,
+      contentType: response.headers["content-type"] || "",
+      filename: response.headers["content-disposition"] || "",
+      filters: params,
+    };
+  }
 }
