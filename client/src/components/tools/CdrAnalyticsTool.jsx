@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -7,6 +7,7 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  Paperclip,
   PhoneCall,
   Route,
   ShieldCheck,
@@ -29,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { testJiraStatus } from "@/lib/auth";
 import {
   analyzeCdr,
   getCdrAuthStatus,
@@ -36,9 +38,59 @@ import {
   logoutCdrPortal,
 } from "@/lib/cdr";
 import { cn } from "@/lib/utils";
+import BrazilCdrHeatmap from "./BrazilCdrHeatmap";
+import CdrDashboardEvidenceDialog from "./CdrDashboardEvidenceDialog";
+import CdrCallFlowChart from "./CdrCallFlowChart";
 
 const SEGMENT_PRESETS = ["POS", "PRE", "CTL", "TP_POS", "TP_POS_G", "CTL_COB"];
 const PIE_COLORS = ["#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed"];
+const EVIDENCE_MODULES = [
+  {
+    id: "flow",
+    label: "Fluxo de chamadas por hora",
+    description: "Grafico de pico por inicio e fim de ligacao.",
+  },
+  {
+    id: "map",
+    label: "Mapa de calor por estado",
+    description: "Mapa do Brasil agregado por UF a partir do DDD.",
+  },
+  {
+    id: "ddd",
+    label: "Chamadas por DDD",
+    description: "Ranking dos DDDs mais recorrentes.",
+  },
+  {
+    id: "phone-type",
+    label: "Movel x fixo",
+    description: "Distribuicao por tipo de telefone.",
+  },
+  {
+    id: "transfers",
+    label: "Transferencias por skill",
+    description: "Ranking por NOME_SKILL e TRANSFERCODE.",
+  },
+  {
+    id: "disconnections",
+    label: "Tipos de encerramento",
+    description: "Distribuicao por DISCONNECTION_TYPE_DESC.",
+  },
+  {
+    id: "dna",
+    label: "Maiores trilhas navegadas (DNA)",
+    description: "Top trilhas com descricao dominante.",
+  },
+  {
+    id: "skills",
+    label: "Top skills",
+    description: "Skills mais acionadas no periodo.",
+  },
+  {
+    id: "segments",
+    label: "Segmentos retornados",
+    description: "Segmentos encontrados no CSV analisado.",
+  },
+];
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -58,6 +110,10 @@ function pct(value) {
 
 function numberBr(value) {
   return new Intl.NumberFormat("pt-BR").format(Number(value || 0));
+}
+
+function jiraConnectionMessage() {
+  return "Sem conexao com o Jira. Desconecte da VPN ou verifique sua conexao com a internet.";
 }
 
 function KpiCard({ title, value, detail, icon: Icon }) {
@@ -99,7 +155,7 @@ function RankingTable({ title, rows, columns, emptyText = "Sem dados." }) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <h3 className="text-sm font-semibold text-zinc-900">{title}</h3>
-      <div className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-zinc-100">
+      <div className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-zinc-100" data-pdf-expand>
         <table className="min-w-full border-collapse text-left text-xs">
           <thead className="sticky top-0 z-10 bg-zinc-100 text-zinc-700">
             <tr>
@@ -250,6 +306,7 @@ function PortalLoginPanel({
 }
 
 export default function CdrAnalyticsTool() {
+  const moduleRefs = useRef({});
   const [booting, setBooting] = useState(true);
   const [session, setSession] = useState(null);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
@@ -263,6 +320,8 @@ export default function CdrAnalyticsTool() {
   const [loggingIn, setLoggingIn] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [checkingJira, setCheckingJira] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -287,6 +346,13 @@ export default function CdrAnalyticsTool() {
   const phoneTypeData = charts.phoneTypes || [];
   const callsByDdd = charts.callsByDdd || [];
   const transferData = charts.transfersBySkill || [];
+
+  function setModuleRef(id) {
+    return (node) => {
+      if (node) moduleRefs.current[id] = node;
+      else delete moduleRefs.current[id];
+    };
+  }
 
   const topDnaColumns = useMemo(
     () => [
@@ -363,6 +429,18 @@ export default function CdrAnalyticsTool() {
     }
   }
 
+  async function handleOpenEvidence() {
+    setCheckingJira(true);
+    try {
+      await testJiraStatus();
+      setEvidenceOpen(true);
+    } catch {
+      toast.error(jiraConnectionMessage());
+    } finally {
+      setCheckingJira(false);
+    }
+  }
+
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
@@ -402,14 +480,31 @@ export default function CdrAnalyticsTool() {
                 Baixa o CSV exportado do Portal ICC e calcula os indicadores.
               </p>
             </div>
-            <Button type="submit" disabled={analyzing}>
-              {analyzing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <DownloadCloud className="h-4 w-4" />
-              )}
-              Analisar
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {analytics ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleOpenEvidence}
+                  disabled={checkingJira}
+                >
+                  {checkingJira ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-4 w-4" />
+                  )}
+                  Salvar evidencia
+                </Button>
+              ) : null}
+              <Button type="submit" disabled={analyzing}>
+                {analyzing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <DownloadCloud className="h-4 w-4" />
+                )}
+                Analisar
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -490,119 +585,149 @@ export default function CdrAnalyticsTool() {
             />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <ChartCard
-              title="Chamadas por DDD"
-              description="Top 20 DDDs extraidos da coluna ANI."
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={callsByDdd} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <ChartTooltip />
-                  <Bar dataKey="count" name="Chamadas" fill="#dc2626" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard
-              title="Movel x fixo"
-              description="Classificacao por quantidade de digitos do ANI normalizado."
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={phoneTypeData}
-                    dataKey="count"
-                    nameKey="label"
-                    outerRadius={95}
-                    label={({ name, label, percent }) => `${name || label} ${pct(percent)}`}
-                  >
-                    {phoneTypeData.map((entry, index) => (
-                      <Cell
-                        key={entry.key}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <ChartTooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard
-              title="Transferencias por skill"
-              description="Ranking por NOME_SKILL e TRANSFERCODE."
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={transferData.slice(0, 10)}
-                  layout="vertical"
-                  margin={{ top: 8, right: 16, bottom: 8, left: 40 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="nomeSkill"
-                    tick={{ fontSize: 10 }}
-                    width={120}
-                  />
-                  <ChartTooltip />
-                  <Bar dataKey="count" name="Chamadas" fill="#2563eb" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Tipos de encerramento" description="DISCONNECTION_TYPE_DESC">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={(charts.disconnections || []).slice(0, 10)}
-                  layout="vertical"
-                  margin={{ top: 8, right: 16, bottom: 8, left: 40 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="label"
-                    tick={{ fontSize: 10 }}
-                    width={130}
-                  />
-                  <ChartTooltip />
-                  <Bar dataKey="count" name="Chamadas" fill="#16a34a" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
+          <div ref={setModuleRef("flow")} data-module-id="flow">
+            <CdrCallFlowChart data={charts.callFlowByHour || []} />
           </div>
 
-          <RankingTable
-            title="Maiores trilhas navegadas (DNA)"
-            rows={charts.dnaRanking || []}
-            columns={topDnaColumns}
-          />
+          <div ref={setModuleRef("map")} data-module-id="map">
+            <BrazilCdrHeatmap states={charts.callsByState || []} />
+          </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
+            <div ref={setModuleRef("ddd")} data-module-id="ddd">
+              <ChartCard
+                title="Chamadas por DDD"
+                description="Top 20 DDDs extraidos da coluna ANI."
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={callsByDdd} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <ChartTooltip />
+                    <Bar dataKey="count" name="Chamadas" fill="#dc2626" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+
+            <div ref={setModuleRef("phone-type")} data-module-id="phone-type">
+              <ChartCard
+                title="Movel x fixo"
+                description="Classificacao por quantidade de digitos do ANI normalizado."
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={phoneTypeData}
+                      dataKey="count"
+                      nameKey="label"
+                      outerRadius={95}
+                      label={({ name, label, percent }) => `${name || label} ${pct(percent)}`}
+                    >
+                      {phoneTypeData.map((entry, index) => (
+                        <Cell
+                          key={entry.key}
+                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <ChartTooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+
+            <div ref={setModuleRef("transfers")} data-module-id="transfers">
+              <ChartCard
+                title="Transferencias por skill"
+                description="Ranking por NOME_SKILL e TRANSFERCODE."
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={transferData.slice(0, 10)}
+                    layout="vertical"
+                    margin={{ top: 8, right: 16, bottom: 8, left: 40 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      type="category"
+                      dataKey="nomeSkill"
+                      tick={{ fontSize: 10 }}
+                      width={120}
+                    />
+                    <ChartTooltip />
+                    <Bar dataKey="count" name="Chamadas" fill="#2563eb" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+
+            <div ref={setModuleRef("disconnections")} data-module-id="disconnections">
+              <ChartCard title="Tipos de encerramento" description="DISCONNECTION_TYPE_DESC">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={(charts.disconnections || []).slice(0, 10)}
+                    layout="vertical"
+                    margin={{ top: 8, right: 16, bottom: 8, left: 40 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      type="category"
+                      dataKey="label"
+                      tick={{ fontSize: 10 }}
+                      width={130}
+                    />
+                    <ChartTooltip />
+                    <Bar dataKey="count" name="Chamadas" fill="#16a34a" radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+          </div>
+
+          <div ref={setModuleRef("dna")} data-module-id="dna">
             <RankingTable
-              title="Top skills"
-              rows={charts.skills || []}
-              columns={[
-                { key: "label", label: "Skill" },
-                { key: "count", label: "Chamadas", render: (row) => numberBr(row.count) },
-              ]}
+              title="Maiores trilhas navegadas (DNA)"
+              rows={charts.dnaRanking || []}
+              columns={topDnaColumns}
             />
-            <RankingTable
-              title="Segmentos retornados"
-              rows={charts.segments || []}
-              columns={[
-                { key: "label", label: "Segmento" },
-                { key: "count", label: "Chamadas", render: (row) => numberBr(row.count) },
-              ]}
-            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <div ref={setModuleRef("skills")} data-module-id="skills">
+              <RankingTable
+                title="Top skills"
+                rows={charts.skills || []}
+                columns={[
+                  { key: "label", label: "Skill" },
+                  { key: "count", label: "Chamadas", render: (row) => numberBr(row.count) },
+                ]}
+              />
+            </div>
+            <div ref={setModuleRef("segments")} data-module-id="segments">
+              <RankingTable
+                title="Segmentos retornados"
+                rows={charts.segments || []}
+                columns={[
+                  { key: "label", label: "Segmento" },
+                  { key: "count", label: "Chamadas", render: (row) => numberBr(row.count) },
+                ]}
+              />
+            </div>
           </div>
         </div>
       )}
+      <CdrDashboardEvidenceDialog
+        open={evidenceOpen}
+        onOpenChange={setEvidenceOpen}
+        analytics={analytics}
+        filters={filters}
+        moduleOptions={EVIDENCE_MODULES}
+        moduleElements={moduleRefs.current}
+      />
     </div>
   );
 }
