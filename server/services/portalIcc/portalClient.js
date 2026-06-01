@@ -1,6 +1,7 @@
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { HttpCookieAgent, HttpsCookieAgent } from "http-cookie-agent/http";
+import http from "node:http";
+import https from "node:https";
 import { CookieJar } from "tough-cookie";
 import { parseCdrResponse, ensureAuthenticatedHtml } from "./cdrParser.js";
 
@@ -52,6 +53,63 @@ function shouldRejectUnauthorized(env) {
   const value = env.PORTAL_ICC_TLS_REJECT_UNAUTHORIZED;
   if (value === false) return false;
   return String(value ?? "true").toLowerCase() !== "false";
+}
+
+function resolveRequestUrl(config, fallbackBaseUrl) {
+  return new URL(config?.url || "", config?.baseURL || fallbackBaseUrl).toString();
+}
+
+async function storeResponseCookies(jar, response, fallbackBaseUrl) {
+  const setCookie = response?.headers?.["set-cookie"];
+  if (!setCookie) return;
+
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+  const requestUrl = resolveRequestUrl(response.config, fallbackBaseUrl);
+  await Promise.all(cookies.map((cookie) => jar.setCookie(cookie, requestUrl)));
+}
+
+function createCookieAwareAxios({ baseURL, jar, rejectUnauthorized, timeout, proxy, headers }) {
+  const client = axios.create({
+    baseURL,
+    httpAgent: new http.Agent({ keepAlive: true }),
+    httpsAgent: new https.Agent({
+      keepAlive: true,
+      rejectUnauthorized,
+    }),
+    withCredentials: true,
+    timeout,
+    maxRedirects: 0,
+    validateStatus: (status) => status >= 200 && status < 400,
+    proxy,
+    headers,
+  });
+
+  client.interceptors.request.use(async (config) => {
+    const requestUrl = resolveRequestUrl(config, baseURL);
+    const cookieHeader = await jar.getCookieString(requestUrl);
+
+    if (cookieHeader) {
+      config.headers = config.headers || {};
+      config.headers.Cookie = cookieHeader;
+    }
+
+    return config;
+  });
+
+  client.interceptors.response.use(
+    async (response) => {
+      await storeResponseCookies(jar, response, baseURL);
+      return response;
+    },
+    async (error) => {
+      if (error?.response) {
+        await storeResponseCookies(jar, error.response, baseURL);
+      }
+      throw error;
+    },
+  );
+
+  return client;
 }
 
 function logPortalError(scope, step, error) {
@@ -134,19 +192,11 @@ export class PortalIccClient {
       );
     }
 
-    this.client = axios.create({
+    this.client = createCookieAwareAxios({
       baseURL: this.baseUrl,
-      httpAgent: new HttpCookieAgent({
-        cookies: { jar: this.jar },
-      }),
-      httpsAgent: new HttpsCookieAgent({
-        cookies: { jar: this.jar },
-        rejectUnauthorized: this.rejectUnauthorized,
-      }),
-      withCredentials: true,
       timeout: Number(env.PORTAL_ICC_TIMEOUT_MS || 45_000),
-      maxRedirects: 0,
-      validateStatus: (status) => status >= 200 && status < 400,
+      jar: this.jar,
+      rejectUnauthorized: this.rejectUnauthorized,
       proxy: parseProxyConfig(env.PORTAL_ICC_PROXY),
       headers: BASE_HEADERS,
     });
@@ -395,6 +445,18 @@ export class PortalIccClient {
       });
     } catch (error) {
       logPortalError("portal-cdr", "GET search", error);
+      if (Number(error?.response?.status) === 417) {
+        const sessionError = new Error(
+          "Sessao Portal ICC expirada. Faca login novamente.",
+        );
+        sessionError.code = "PORTAL_SESSION_EXPIRED";
+        sessionError.status = 401;
+        sessionError.details = {
+          upstreamStatus: 417,
+          location: error?.response?.headers?.location || "",
+        };
+        throw sessionError;
+      }
       throw error;
     }
 

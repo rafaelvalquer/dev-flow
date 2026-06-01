@@ -310,6 +310,7 @@ async function main() {
   await fs.mkdir(outputDir, { recursive: true });
 
   await copyDir(clientDistSource, clientDistTarget);
+  await removeDirIfPossible(serverTarget);
   await copyDir(serverSource, serverTarget, { filter: shouldCopyServerEntry });
   await removeDirIfPossible(sttServiceTarget);
   await copyDir(sttServiceSource, sttServiceTarget, {

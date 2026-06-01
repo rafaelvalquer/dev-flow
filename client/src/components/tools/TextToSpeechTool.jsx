@@ -98,7 +98,18 @@ async function fetchBlob(url, body) {
     let msg = `HTTP ${r.status}`;
     try {
       const txt = await r.text();
-      msg = txt || msg;
+      if (txt) {
+        try {
+          const data = JSON.parse(txt);
+          msg =
+            data?.error?.details?.upstreamBody?.detail ||
+            data?.error?.message ||
+            data?.message ||
+            txt;
+        } catch {
+          msg = txt;
+        }
+      }
     } catch {}
     throw new Error(msg);
   }
@@ -117,7 +128,7 @@ export default function TextToSpeechTool() {
   const [text, setText] = useState("");
   const [voice, setVoice] = useState(TTS_VOICE_OPTIONS[0].value);
   const [rate, setRate] = useState("0");
-  const [volume, setVolume] = useState("1.0"); // opcional
+  const [volume, setVolume] = useState("0"); // percentual opcional
 
   const [mp3Url, setMp3Url] = useState(null);
   const [mp3Blob, setMp3Blob] = useState(null);

@@ -1,24 +1,45 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  ChevronsUpDown,
   Database,
   Download,
   Loader2,
   LogIn,
   LogOut,
+  Paperclip,
   RefreshCw,
   Search,
   ShieldCheck,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -26,6 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { testJiraStatus } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_CDR_FIELDS,
@@ -35,6 +57,7 @@ import {
   logoutCdrPortal,
   searchCdr,
 } from "@/lib/cdr";
+import { jiraIssuePicker, jiraUploadIssueAttachments } from "@/lib/jiraClient";
 
 const FILTER_KEY = "devflow:cdr:lastFilters";
 
@@ -60,10 +83,38 @@ const DEFAULT_FILTERS = {
   valor5: "",
 };
 
+const LEGACY_FIELD_VALUES = {
+  callId: "call_id",
+  codigoAplicacao: "codigo_aplicacao",
+  versaoAplicacao: "versao_aplicacao",
+  disconnectionTypeDesc: "disconnection_type_desc",
+  nomeSkill: "nome_skill",
+  idSkill: "id_skill",
+  digitCode: "digit_code",
+};
+
+function normalizeSavedFilters(filters) {
+  const next = { ...DEFAULT_FILTERS, ...(filters || {}) };
+
+  for (let index = 1; index <= 5; index += 1) {
+    const fieldKey = `campo${index}`;
+    next[fieldKey] = LEGACY_FIELD_VALUES[next[fieldKey]] || next[fieldKey];
+  }
+
+  return next;
+}
+
 function loadSavedFilters() {
   try {
     const saved = window.localStorage.getItem(FILTER_KEY);
-    return saved ? { ...DEFAULT_FILTERS, ...JSON.parse(saved) } : DEFAULT_FILTERS;
+    if (!saved) return DEFAULT_FILTERS;
+
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return DEFAULT_FILTERS;
+    }
+
+    return normalizeSavedFilters(parsed);
   } catch {
     return DEFAULT_FILTERS;
   }
@@ -75,6 +126,17 @@ function saveFilters(filters) {
   } catch {}
 }
 
+function useDebouncedValue(value, delayMs = 250) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(id);
+  }, [delayMs, value]);
+
+  return debounced;
+}
+
 function escapeCsv(value = "") {
   const stringValue = String(value ?? "");
   if (/[";\n\r]/.test(stringValue)) {
@@ -83,14 +145,18 @@ function escapeCsv(value = "") {
   return stringValue;
 }
 
-function downloadCsv(columns, rows) {
+function buildCsvBlob(columns, rows) {
   const header = columns.map(escapeCsv).join(";");
   const body = rows
     .map((row) => columns.map((column) => escapeCsv(row[column])).join(";"))
     .join("\n");
-  const blob = new Blob([`\ufeff${header}\n${body}`], {
+  return new Blob([`\ufeff${header}\n${body}`], {
     type: "text/csv;charset=utf-8",
   });
+}
+
+function downloadCsv(columns, rows) {
+  const blob = buildCsvBlob(columns, rows);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
 
@@ -100,6 +166,26 @@ function downloadCsv(columns, rows) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function evidenceFileName() {
+  const date = new Date();
+  const stamp = date
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}Z$/, "")
+    .replace("T", "-");
+  return `evidencias-${stamp}.csv`;
+}
+
+function createEvidenceFile(columns, rows) {
+  return new File([buildCsvBlob(columns, rows)], evidenceFileName(), {
+    type: "text/csv;charset=utf-8",
+  });
+}
+
+function jiraConnectionMessage() {
+  return "Sem conexao com o Jira. Desconecte da VPN ou verifique sua conexao com a internet.";
 }
 
 function FieldLabel({ children }) {
@@ -257,7 +343,7 @@ function FilterPair({ index, filters, fields, disabled, onChange }) {
           <SelectTrigger className="h-9 rounded-lg px-3 text-sm">
             <SelectValue placeholder="Campo" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="max-h-72 overflow-y-auto">
             {fields.map((field) => (
               <SelectItem key={`${index}-${field.value}`} value={field.value}>
                 {field.label}
@@ -281,10 +367,343 @@ function FilterPair({ index, filters, fields, disabled, onChange }) {
   );
 }
 
+function JiraTicketPicker({ value, onChange, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [options, setOptions] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const debouncedQuery = useDebouncedValue(query, 250);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!open) return;
+      const q = String(debouncedQuery || "").trim();
+      if (q.length < 2) {
+        setOptions([]);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const data = await jiraIssuePicker({ query: q });
+        if (!alive) return;
+        const sections = Array.isArray(data?.sections) ? data.sections : [];
+        const issues = sections.flatMap((section) =>
+          Array.isArray(section?.issues) ? section.issues : [],
+        );
+        setOptions(
+          issues
+            .map((issue) => ({
+              key: issue?.key || issue?.keyHtml?.replace(/<[^>]+>/g, "") || "",
+              summary: issue?.summaryText || issue?.summary || "",
+            }))
+            .filter((issue) => issue.key),
+        );
+      } catch {
+        if (alive) setOptions([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+    };
+  }, [debouncedQuery, open]);
+
+  function applyManualValue() {
+    const typed = String(query || "").trim().toUpperCase();
+    if (!typed) return;
+    const issue = { key: typed, summary: "" };
+    setSelected(issue);
+    onChange(typed);
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          className="h-10 w-full justify-between rounded-xl border-zinc-200 bg-white text-left text-sm hover:bg-zinc-50"
+        >
+          <span className="min-w-0 truncate">
+            {selected?.key || value || "Selecionar ticket Jira"}
+          </span>
+          {loading ? (
+            <Loader2 className="ml-2 h-4 w-4 animate-spin text-zinc-500" />
+          ) : (
+            <ChevronsUpDown className="ml-2 h-4 w-4 text-zinc-500" />
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[520px] max-w-[calc(100vw-3rem)] rounded-2xl border-zinc-200 p-2">
+        <Command shouldFilter={false}>
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Buscar ou colar a chave do ticket..."
+          />
+          <CommandList className="max-h-[280px]">
+            <CommandEmpty>
+              {loading
+                ? "Buscando..."
+                : String(query || "").trim().length < 2
+                  ? "Digite 2 ou mais caracteres."
+                  : "Nenhum ticket encontrado."}
+            </CommandEmpty>
+            <CommandGroup>
+              {String(query || "").trim() ? (
+                <CommandItem
+                  value={`manual-${query}`}
+                  onSelect={applyManualValue}
+                  className="rounded-xl"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      Usar "{String(query || "").trim().toUpperCase()}"
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      Para quando voce ja sabe a chave do ticket.
+                    </div>
+                  </div>
+                </CommandItem>
+              ) : null}
+              {options.map((issue) => (
+                <CommandItem
+                  key={issue.key}
+                  value={`${issue.key} ${issue.summary}`}
+                  onSelect={() => {
+                    setSelected(issue);
+                    onChange(issue.key);
+                    setOpen(false);
+                  }}
+                  className="rounded-xl"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {issue.key}
+                    </div>
+                    <div className="truncate text-xs text-zinc-500">
+                      {issue.summary || "-"}
+                    </div>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function CdrEvidenceDialog({ open, onOpenChange, columns, rows }) {
+  const [ticketKey, setTicketKey] = useState("");
+  const [mode, setMode] = useState("all");
+  const [selectedRows, setSelectedRows] = useState(() => new Set());
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setTicketKey("");
+      setMode("all");
+      setSelectedRows(new Set());
+    }
+  }, [open]);
+
+  const selectionRows = mode === "all"
+    ? rows
+    : rows.filter((_, index) => selectedRows.has(index));
+  const canSave = Boolean(ticketKey.trim()) && selectionRows.length > 0 && !saving;
+  const previewColumns = columns.slice(0, 8);
+
+  function toggleRow(index) {
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelectedRows((current) => {
+      if (current.size === rows.length) return new Set();
+      return new Set(rows.map((_, index) => index));
+    });
+  }
+
+  async function handleSaveEvidence() {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await testJiraStatus();
+      const file = createEvidenceFile(columns, selectionRows);
+      await jiraUploadIssueAttachments(ticketKey.trim(), [file]);
+      toast.success(`Evidencia anexada em ${ticketKey.trim().toUpperCase()}.`);
+      onOpenChange(false);
+    } catch (err) {
+      const status = err?.status || err?.body?.status;
+      if (!status || status === 401 || status === 403 || /jira/i.test(err?.message || "")) {
+        toast.error(jiraConnectionMessage());
+      } else {
+        toast.error(err?.message || "Nao foi possivel anexar a evidencia no Jira.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
+      <DialogContent className="max-h-[92vh] max-w-5xl overflow-hidden p-0 sm:rounded-2xl">
+        <DialogHeader className="border-b border-zinc-200 bg-white px-5 py-4">
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <Paperclip className="h-4 w-4 text-red-600" />
+            Salvar evidencia CDR
+          </DialogTitle>
+          <DialogDescription>
+            Gere um CSV da pagina atual e anexe no ticket Jira selecionado.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid max-h-[70vh] gap-4 overflow-y-auto px-5 py-4">
+          <div className="grid gap-1.5">
+            <FieldLabel>Ticket Jira</FieldLabel>
+            <JiraTicketPicker value={ticketKey} onChange={setTicketKey} disabled={saving} />
+          </div>
+
+          <div className="grid gap-2">
+            <FieldLabel>Linhas da evidencia</FieldLabel>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-xl border px-3 py-3 text-left text-sm transition",
+                  mode === "all"
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                )}
+                onClick={() => setMode("all")}
+                disabled={saving}
+              >
+                <span className="flex items-center gap-2 font-semibold">
+                  {mode === "all" ? <Check className="h-4 w-4" /> : null}
+                  Todas as linhas
+                </span>
+                <span className="mt-1 block text-xs text-zinc-500">
+                  Anexa os {rows.length} registro(s) exibidos nesta pagina.
+                </span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-xl border px-3 py-3 text-left text-sm transition",
+                  mode === "selected"
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                )}
+                onClick={() => setMode("selected")}
+                disabled={saving}
+              >
+                <span className="flex items-center gap-2 font-semibold">
+                  {mode === "selected" ? <Check className="h-4 w-4" /> : null}
+                  Selecionar linhas
+                </span>
+                <span className="mt-1 block text-xs text-zinc-500">
+                  Escolha manualmente quais registros entram no CSV.
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {mode === "selected" ? (
+            <div className="grid gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-zinc-600">
+                  {selectedRows.size} de {rows.length} linha(s) selecionada(s)
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={toggleAllVisible} disabled={saving}>
+                  {selectedRows.size === rows.length ? "Limpar selecao" : "Selecionar todas"}
+                </Button>
+              </div>
+
+              <div className="max-h-[320px] overflow-auto rounded-xl border border-zinc-200 bg-white">
+                <table className="min-w-full border-collapse text-left text-xs">
+                  <thead className="sticky top-0 z-10 bg-zinc-100 text-zinc-700">
+                    <tr>
+                      <th className="w-10 border-b border-zinc-200 px-3 py-2">
+                        <span className="sr-only">Selecionar</span>
+                      </th>
+                      {previewColumns.map((column) => (
+                        <th key={column} className="whitespace-nowrap border-b border-zinc-200 px-3 py-2 font-semibold">
+                          {column}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, rowIndex) => (
+                      <tr
+                        key={`evidence-${row.CallID || row.DataRow || "row"}-${rowIndex}`}
+                        className={cn(
+                          "cursor-pointer odd:bg-white even:bg-zinc-50 hover:bg-red-50/60",
+                          selectedRows.has(rowIndex) ? "bg-red-50" : "",
+                        )}
+                        onClick={() => toggleRow(rowIndex)}
+                      >
+                        <td className="border-b border-zinc-100 px-3 py-2">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-zinc-300 accent-red-600"
+                            checked={selectedRows.has(rowIndex)}
+                            onChange={() => toggleRow(rowIndex)}
+                            onClick={(event) => event.stopPropagation()}
+                            disabled={saving}
+                            aria-label={`Selecionar linha ${rowIndex + 1}`}
+                          />
+                        </td>
+                        {previewColumns.map((column) => (
+                          <td key={`${rowIndex}-${column}`} className="whitespace-nowrap border-b border-zinc-100 px-3 py-2 text-zinc-700">
+                            {row[column]}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter className="border-t border-zinc-200 bg-white px-5 py-4">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={handleSaveEvidence} disabled={!canSave}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Anexar evidencia
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CdrResults({ result, loading = false, onPageChange }) {
   const columns = result?.columns || [];
   const rows = result?.rows || [];
   const pagination = result?.pagination || null;
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [checkingJira, setCheckingJira] = useState(false);
 
   if (!result) {
     return (
@@ -308,6 +727,18 @@ function CdrResults({ result, loading = false, onPageChange }) {
     );
   }
 
+  async function handleOpenEvidence() {
+    setCheckingJira(true);
+    try {
+      await testJiraStatus();
+      setEvidenceOpen(true);
+    } catch {
+      toast.error(jiraConnectionMessage());
+    } finally {
+      setCheckingJira(false);
+    }
+  }
+
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -317,15 +748,26 @@ function CdrResults({ result, loading = false, onPageChange }) {
             {rows.length} registro(s) nesta página, origem {result.source || "portal"}, HTML {result.rawHtmlLength || 0} bytes.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => downloadCsv(columns, rows)}
-        >
-          <Download className="h-4 w-4" />
-          CSV
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => downloadCsv(columns, rows)}
+          >
+            <Download className="h-4 w-4" />
+            CSV
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleOpenEvidence}
+            disabled={checkingJira}
+          >
+            {checkingJira ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+            Salvar evidencia
+          </Button>
+        </div>
       </div>
 
       <div className="max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-white">
@@ -354,6 +796,12 @@ function CdrResults({ result, loading = false, onPageChange }) {
       </div>
 
       <CdrPagination pagination={pagination} loading={loading} onPageChange={onPageChange} />
+      <CdrEvidenceDialog
+        open={evidenceOpen}
+        onOpenChange={setEvidenceOpen}
+        columns={columns}
+        rows={rows}
+      />
     </div>
   );
 }
@@ -430,7 +878,11 @@ export default function CdrSearchTool() {
       saveFilters(nextFilters);
     } catch (err) {
       setError(err?.message || "Erro ao consultar CDR.");
-      if (err?.status === 401 || err?.code === "PORTAL_SESSION_EXPIRED") {
+      if (
+        err?.status === 401 ||
+        err?.status === 417 ||
+        err?.code === "PORTAL_SESSION_EXPIRED"
+      ) {
         setSession(null);
         toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
       }

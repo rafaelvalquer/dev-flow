@@ -21,14 +21,23 @@ function toPublicError(err) {
     "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
   ]);
   const isNetworkError = networkErrorCodes.has(err?.code);
+  const isPortalSessionExpired =
+    err?.code === "PORTAL_SESSION_EXPIRED" ||
+    Number(err?.status) === 417 ||
+    Number(err?.response?.status) === 417;
 
   return new AppError({
     status: Number(
-      err?.status ||
-        (err?.code === "PORTAL_SESSION_EXPIRED" ? 401 : isNetworkError ? 502 : 400),
+      isPortalSessionExpired ? 401 : err?.status || (isNetworkError ? 502 : 400),
     ),
-    code: isNetworkError ? "PORTAL_ICC_NETWORK_ERROR" : err?.code || "PORTAL_ICC_ERROR",
-    message: err?.message || "Falha ao acessar Portal ICC.",
+    code: isPortalSessionExpired
+      ? "PORTAL_SESSION_EXPIRED"
+      : isNetworkError
+        ? "PORTAL_ICC_NETWORK_ERROR"
+        : err?.code || "PORTAL_ICC_ERROR",
+    message: isPortalSessionExpired
+      ? "Sessao Portal ICC expirada. Faca login novamente."
+      : err?.message || "Falha ao acessar Portal ICC.",
     details: err?.details || {
       code: err?.code,
       status: err?.response?.status,

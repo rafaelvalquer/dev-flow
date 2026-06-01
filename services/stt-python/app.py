@@ -1,5 +1,6 @@
 # services\stt-python\app.py
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -74,6 +75,7 @@ model = None
 model_load_error = None
 
 app = FastAPI(title="Whisper Local STT API")
+logger = logging.getLogger("stt-python")
 
 
 def ensure_audio_runtime():
@@ -442,6 +444,7 @@ class TTSRequest(BaseModel):
     @classmethod
     def normalize_pct(cls, v):
         if isinstance(v, (int, float)):
+            v = int(round(v))
             sign = "+" if v >= 0 else ""
             return f"{sign}{v}%"
         if isinstance(v, str):
@@ -449,9 +452,33 @@ class TTSRequest(BaseModel):
             if s == "":
                 return "+0%"
             if s.lstrip("+-").replace(".", "", 1).isdigit() and not s.endswith("%"):
-                return f"{s}%"
+                number = int(round(float(s)))
+                sign = "+" if number >= 0 else ""
+                return f"{sign}{number}%"
+            if s.endswith("%"):
+                raw = s[:-1]
+                if raw.lstrip("+-").replace(".", "", 1).isdigit():
+                    number = int(round(float(raw)))
+                    sign = "+" if number >= 0 else ""
+                    return f"{sign}{number}%"
             return s
         return "+0%"
+
+
+async def save_edge_tts(text: str, path: str, req: TTSRequest):
+    try:
+        communicate = edge_tts.Communicate(
+            text,
+            voice=req.voice,
+            rate=req.rate,
+            volume=req.volume,
+        )
+        await communicate.save(path)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=f"Parametros TTS invalidos: {err}") from err
+    except Exception as err:
+        logger.exception("Falha ao gerar TTS via edge-tts")
+        raise HTTPException(status_code=502, detail=f"edge-tts failed: {err}") from err
 
 
 @app.post("/tts")
@@ -461,13 +488,7 @@ async def tts(req: TTSRequest):
         raise HTTPException(status_code=400, detail="Campo 'text' vazio.")
 
     out_mp3 = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.mp3")
-    communicate = edge_tts.Communicate(
-        text,
-        voice=req.voice,
-        rate=req.rate,
-        volume=req.volume,
-    )
-    await communicate.save(out_mp3)
+    await save_edge_tts(text, out_mp3, req)
 
     return FileResponse(out_mp3, media_type="audio/mpeg", filename=os.path.basename(out_mp3))
 
@@ -482,13 +503,7 @@ async def tts_ulaw(req: TTSRequest):
     tmp_mp3 = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.mp3")
     out_wav = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.wav")
 
-    communicate = edge_tts.Communicate(
-        text,
-        voice=req.voice,
-        rate=req.rate,
-        volume=req.volume,
-    )
-    await communicate.save(tmp_mp3)
+    await save_edge_tts(text, tmp_mp3, req)
 
     cmd = [
         FFMPEG,
