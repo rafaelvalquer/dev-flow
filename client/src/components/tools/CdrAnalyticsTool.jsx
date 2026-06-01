@@ -30,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { testJiraStatus } from "@/lib/auth";
 import {
   analyzeCdr,
@@ -41,6 +42,7 @@ import { cn } from "@/lib/utils";
 import BrazilCdrHeatmap from "./BrazilCdrHeatmap";
 import CdrDashboardEvidenceDialog from "./CdrDashboardEvidenceDialog";
 import CdrCallFlowChart from "./CdrCallFlowChart";
+import DnaJourneySankey from "./DnaJourneySankey";
 
 const SEGMENT_PRESETS = ["POS", "PRE", "CTL", "TP_POS", "TP_POS_G", "CTL_COB"];
 const PIE_COLORS = ["#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed"];
@@ -74,6 +76,11 @@ const EVIDENCE_MODULES = [
     id: "disconnections",
     label: "Tipos de encerramento",
     description: "Distribuicao por DISCONNECTION_TYPE_DESC.",
+  },
+  {
+    id: "dna-funnel",
+    label: "Funil de jornada por DNA",
+    description: "Sankey com caminhos navegados e pontos de abandono.",
   },
   {
     id: "dna",
@@ -322,6 +329,7 @@ export default function CdrAnalyticsTool() {
   const [analyzing, setAnalyzing] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [checkingJira, setCheckingJira] = useState(false);
+  const [dnaView, setDnaView] = useState("funnel");
 
   useEffect(() => {
     let active = true;
@@ -688,12 +696,52 @@ export default function CdrAnalyticsTool() {
             </div>
           </div>
 
-          <div ref={setModuleRef("dna")} data-module-id="dna">
-            <RankingTable
-              title="Maiores trilhas navegadas (DNA)"
-              rows={charts.dnaRanking || []}
-              columns={topDnaColumns}
-            />
+          <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900">
+                  Analise de jornada DNA
+                </h3>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Escolha entre o fluxo navegavel da jornada e o ranking das trilhas mais usadas.
+                </p>
+              </div>
+            </div>
+
+            <Tabs value={dnaView} onValueChange={setDnaView}>
+              <TabsList className="flex h-auto flex-wrap gap-2 rounded-xl bg-zinc-100 p-1">
+                <TabsTrigger value="funnel" className="rounded-lg">
+                  Funil de jornada
+                </TabsTrigger>
+                <TabsTrigger value="ranking" className="rounded-lg">
+                  Maiores trilhas
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent
+                value="funnel"
+                forceMount
+                className="mt-4 data-[state=inactive]:hidden"
+              >
+                <div ref={setModuleRef("dna-funnel")} data-module-id="dna-funnel">
+                  <DnaJourneySankey data={charts.dnaJourneyFunnel} embedded />
+                </div>
+              </TabsContent>
+
+              <TabsContent
+                value="ranking"
+                forceMount
+                className="mt-4 data-[state=inactive]:hidden"
+              >
+                <div ref={setModuleRef("dna")} data-module-id="dna">
+                  <RankingTable
+                    title="Maiores trilhas navegadas (DNA)"
+                    rows={charts.dnaRanking || []}
+                    columns={topDnaColumns}
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">

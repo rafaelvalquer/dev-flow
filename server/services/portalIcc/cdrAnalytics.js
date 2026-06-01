@@ -104,6 +104,9 @@ const DDD_TO_UF = {
   99: "MA",
 };
 
+const DNA_MAX_DEPTH = 8;
+const DNA_CONTINUATION_NODE = "...";
+
 function normalizeHeader(value) {
   return String(value || "")
     .replace(/^\uFEFF/, "")
@@ -293,6 +296,156 @@ function callFlowFromBuckets(buckets) {
   });
 }
 
+function parseDnaSteps(value) {
+  return cleanValue(value)
+    .split("|")
+    .map((step) => cleanValue(step))
+    .filter(Boolean);
+}
+
+function dnaNodeKey(depth, code) {
+  return `${depth}:${code}`;
+}
+
+function createDnaJourneyAccumulator() {
+  return {
+    nodes: new Map(),
+    links: new Map(),
+    validJourneys: 0,
+    truncatedJourneys: 0,
+  };
+}
+
+function ensureDnaNode(acc, depth, code) {
+  const key = dnaNodeKey(depth, code);
+  if (!acc.nodes.has(key)) {
+    acc.nodes.set(key, {
+      key,
+      code,
+      depth,
+      count: 0,
+      abandonments: 0,
+      descriptions: new Map(),
+    });
+  }
+  return acc.nodes.get(key);
+}
+
+function addDnaJourney(acc, dna, scriptPointDesc, isAbandoned) {
+  const originalSteps = parseDnaSteps(dna);
+  if (!originalSteps.length) return;
+
+  const truncated = originalSteps.length > DNA_MAX_DEPTH;
+  const steps = truncated
+    ? [...originalSteps.slice(0, DNA_MAX_DEPTH - 1), DNA_CONTINUATION_NODE]
+    : originalSteps.slice(0, DNA_MAX_DEPTH);
+
+  acc.validJourneys += 1;
+  if (truncated) acc.truncatedJourneys += 1;
+
+  steps.forEach((code, index) => {
+    const depth = index + 1;
+    const node = ensureDnaNode(acc, depth, code);
+    node.count += 1;
+    if (isAbandoned && index === steps.length - 1) node.abandonments += 1;
+
+    const desc = cleanValue(scriptPointDesc);
+    if (desc && index === steps.length - 1 && code !== DNA_CONTINUATION_NODE) {
+      node.descriptions.set(desc, (node.descriptions.get(desc) || 0) + 1);
+    }
+
+    if (index === 0) return;
+    const source = dnaNodeKey(index, steps[index - 1]);
+    const target = dnaNodeKey(depth, code);
+    const linkKey = `${source}->${target}`;
+    const current = acc.links.get(linkKey) || {
+      source,
+      target,
+      value: 0,
+      abandonments: 0,
+    };
+    current.value += 1;
+    if (isAbandoned && index === steps.length - 1) current.abandonments += 1;
+    acc.links.set(linkKey, current);
+  });
+}
+
+function topDescription(descriptions) {
+  return [...descriptions.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+}
+
+function dnaJourneyFromAccumulator(acc) {
+  const rawNodes = [...acc.nodes.values()];
+  const sortedNodes = rawNodes.sort(
+    (a, b) => b.count - a.count || a.depth - b.depth || a.code.localeCompare(b.code),
+  );
+  const keepKeys = new Set(sortedNodes.slice(0, 80).map((node) => node.key));
+  const nodes = sortedNodes
+    .filter((node) => keepKeys.has(node.key))
+    .map((node) => {
+      const description = topDescription(node.descriptions);
+      const label =
+        description && node.code !== DNA_CONTINUATION_NODE
+          ? `${node.code} - ${description}`
+          : node.code;
+      return {
+        id: node.key,
+        name: node.key,
+        code: node.code,
+        label,
+        description,
+        depth: node.depth,
+        count: node.count,
+        abandonments: node.abandonments,
+        abandonmentRate: node.count ? node.abandonments / node.count : 0,
+      };
+    });
+
+  const links = [...acc.links.values()]
+    .filter((link) => keepKeys.has(link.source) && keepKeys.has(link.target))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 120)
+    .map((link) => ({
+      source: link.source,
+      target: link.target,
+      value: link.value,
+      abandonments: link.abandonments,
+      abandonmentRate: link.value ? link.abandonments / link.value : 0,
+    }));
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const topAbandonmentSteps = nodes
+    .filter((node) => node.abandonments > 0)
+    .sort(
+      (a, b) =>
+        b.abandonments - a.abandonments ||
+        b.abandonmentRate - a.abandonmentRate ||
+        b.count - a.count,
+    )
+    .slice(0, 12)
+    .map((node) => ({
+      id: node.id,
+      code: node.code,
+      label: node.label,
+      description: node.description,
+      depth: node.depth,
+      count: node.count,
+      abandonments: node.abandonments,
+      abandonmentRate: node.abandonmentRate,
+    }));
+
+  return {
+    nodes,
+    links: links.filter((link) => nodeById.has(link.source) && nodeById.has(link.target)),
+    topAbandonmentSteps,
+    summary: {
+      validJourneys: acc.validJourneys,
+      truncatedJourneys: acc.truncatedJourneys,
+      maxDepth: DNA_MAX_DEPTH,
+    },
+  };
+}
+
 function callsByStateFromMap(map) {
   return [...map.values()]
     .map((state) => {
@@ -355,6 +508,7 @@ export function analyzeCdrCsv(csvText, options = {}) {
   const disconnectionCounts = new Map();
   const skillCounts = new Map();
   const stateCounts = new Map();
+  const dnaJourney = createDnaJourneyAccumulator();
   const callFlowBuckets = createCallFlowBuckets();
 
   let totalDurationSum = 0;
@@ -458,6 +612,7 @@ export function analyzeCdrCsv(csvText, options = {}) {
       const desc = cleanValue(row.SCRIPT_POINT_DESC);
       if (desc) current.descriptions.set(desc, (current.descriptions.get(desc) || 0) + 1);
       dnaCounts.set(dna, current);
+      addDnaJourney(dnaJourney, dna, desc, !isTransferred);
     }
 
     increment(segmentCounts, row.SEGMENTO);
@@ -500,6 +655,7 @@ export function analyzeCdrCsv(csvText, options = {}) {
         .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
         .slice(0, 15),
       dnaRanking: topDnaFromMap(dnaCounts, 20),
+      dnaJourneyFunnel: dnaJourneyFromAccumulator(dnaJourney),
       segments: topFromMap(segmentCounts, 15),
       disconnections: topFromMap(disconnectionCounts, 12),
       skills: topFromMap(skillCounts, 15),

@@ -61,6 +61,12 @@ function addHeader(pdf, { analytics, filters }) {
 }
 
 function expandScrollableAreas(root) {
+  root.removeAttribute("hidden");
+  root.style.display = "block";
+  root.querySelectorAll("[hidden]").forEach((element) => {
+    element.removeAttribute("hidden");
+    element.style.display = "block";
+  });
   root.querySelectorAll("[data-pdf-expand]").forEach((element) => {
     element.style.maxHeight = "none";
     element.style.overflow = "visible";
