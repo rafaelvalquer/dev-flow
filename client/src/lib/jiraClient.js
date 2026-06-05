@@ -197,6 +197,14 @@ export async function jiraGetIssue(key, fieldsCsv) {
   return requestJson(url, { method: "GET" });
 }
 
+export async function jiraGetIssueEditMeta(key) {
+  const issueKey = String(key || "").trim();
+  if (!issueKey) throw new Error("Ticket Jira invalido.");
+  return requestJson(`/api/jira/issue/${encodeURIComponent(issueKey)}/editmeta`, {
+    method: "GET",
+  });
+}
+
 export async function jiraGetComments(key) {
   const url = `/api/jira/issue/${encodeURIComponent(key)}/comments`;
   return requestJson(url, { method: "GET" });

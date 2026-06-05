@@ -496,6 +496,29 @@ export default function jiraRoutes({ upload, env }) {
     }
   });
 
+  // Campos editaveis da issue
+  router.get("/issue/:key/editmeta", async (req, res) => {
+    try {
+      const { key } = req.params;
+      const url = `${JIRA_BASE}/rest/api/3/issue/${encodeURIComponent(
+        key
+      )}/editmeta`;
+      const r = await fetchWithTimeout(url, {
+        headers: jiraHeaders(req),
+        timeoutMs: env.REQUEST_TIMEOUT_MS,
+      });
+      return sendUpstream(res, r, "application/json", {
+        service: "jira",
+        message: "Falha ao consultar campos editaveis no Jira.",
+      });
+    } catch (err) {
+      console.error("GET issue editmeta error:", err);
+      return res
+        .status(500)
+        .json({ error: "Proxy error on GET issue editmeta", details: String(err) });
+    }
+  });
+
   // GET issue
   router.get("/issue/:key", async (req, res) => {
     try {

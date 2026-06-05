@@ -120,3 +120,10 @@ export async function analyzeCdr(filters = {}) {
 
   return request(`/analytics?${params.toString()}`);
 }
+
+export async function compareCdrAnalytics(payload = {}) {
+  return request("/analytics/compare", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}

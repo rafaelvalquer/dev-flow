@@ -55,14 +55,14 @@ import {
 const DEFAULT_PROJECT_KEY = "ICON";
 const EMPTY = "__empty__";
 
-const SECTION_TITLES = {
+export const SECTION_TITLES = {
   classification: "Classificacao",
   peopleDates: "Pessoas e datas",
   details: "Detalhes",
   others: "Outros campos do Jira",
 };
 
-const RESERVED_FIELD_IDS = new Set([
+export const RESERVED_FIELD_IDS = new Set([
   "project",
   "issuetype",
   "summary",
@@ -107,15 +107,15 @@ function quoteJqlName(value) {
   return `"${escapeJqlText(value)}"`;
 }
 
-function getFieldId(field) {
+export function getFieldId(field) {
   return field?.fieldId || field?.key || field?.id || "";
 }
 
-function getFieldName(field) {
+export function getFieldName(field) {
   return field?.name || field?.fieldName || getFieldId(field);
 }
 
-function toFieldList(meta) {
+export function toFieldList(meta) {
   const fields = meta?.fields;
   if (Array.isArray(fields)) return fields.filter(Boolean);
   if (fields && typeof fields === "object") {
@@ -179,11 +179,11 @@ function flattenAllowedValues(field) {
   return flat;
 }
 
-function isFieldRequired(field) {
+export function isFieldRequired(field) {
   return Boolean(field?.required);
 }
 
-function defaultValueForField(field) {
+export function defaultValueForField(field) {
   const value = field?.defaultValue;
   if (value == null) return "";
 
@@ -199,12 +199,12 @@ function defaultValueForField(field) {
   return String(value);
 }
 
-function isEmptyValue(value) {
+export function isEmptyValue(value) {
   if (Array.isArray(value)) return value.length === 0;
   return String(value || "").trim() === "";
 }
 
-function fieldKind(field) {
+export function fieldKind(field) {
   const id = getFieldId(field);
   const name = normalizeText(getFieldName(field));
   const schema = field?.schema || {};
@@ -266,7 +266,7 @@ function formatOptionValue(field, rawValue) {
   return { id: rawValue };
 }
 
-function formatFieldValue(field, value) {
+export function formatFieldValue(field, value) {
   const id = getFieldId(field);
   const schema = field?.schema || {};
   const kind = fieldKind(field);
@@ -619,7 +619,7 @@ function FieldShell({ field, error, children }) {
   );
 }
 
-function GenericField({
+export function GenericField({
   field,
   value,
   onChange,
@@ -732,7 +732,7 @@ function GenericField({
   );
 }
 
-function groupFields(fields) {
+export function groupFields(fields) {
   const groups = {
     classification: [],
     peopleDates: [],

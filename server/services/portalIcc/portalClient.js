@@ -496,18 +496,20 @@ export class PortalIccClient {
     const params = {
       dataInicial: filters.dataInicial || "",
       dataFinal: filters.dataFinal || "",
-      campo1: "segmento",
-      valor1: filters.segmento || filters.valor1 || "",
+      campo1: filters.campo1 || (filters.segmento ? "segmento" : "0"),
+      valor1: filters.valor1 || filters.segmento || "",
+      campo2: filters.campo2 || "0",
+      valor2: filters.valor2 || "",
+      campo3: filters.campo3 || "0",
+      valor3: filters.valor3 || "",
+      campo4: filters.campo4 || "0",
+      valor4: filters.valor4 || "",
+      campo5: filters.campo5 || "0",
+      valor5: filters.valor5 || "",
     };
 
     if (!params.dataInicial || !params.dataFinal) {
       const error = new Error("dataInicial e dataFinal sao obrigatorias.");
-      error.status = 400;
-      throw error;
-    }
-
-    if (!params.valor1) {
-      const error = new Error("segmento e obrigatorio.");
       error.status = 400;
       throw error;
     }

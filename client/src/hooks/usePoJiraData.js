@@ -164,6 +164,40 @@ export default function usePoJiraData() {
     setRows((prev) => (prev || []).map(patchIssue));
   }, []);
 
+  const applyTicketDueDateLocal = useCallback((issueKey, dueDate) => {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    const nextDueDate = String(dueDate || "").slice(0, 10);
+    if (!key) return;
+
+    const patchIssue = (issue) => {
+      if (getIssueKey(issue) !== key) return issue;
+      return {
+        ...issue,
+        dueDateRaw: nextDueDate,
+        dueDate: nextDueDate,
+        duedate: nextDueDate,
+        jira: {
+          ...(issue?.jira || {}),
+          dueDate: nextDueDate,
+          duedate: nextDueDate,
+        },
+        fields: {
+          ...(issue?.fields || {}),
+          duedate: nextDueDate || null,
+        },
+      };
+    };
+
+    setRawIssues((prev) => {
+      const next = (prev || []).map(patchIssue);
+      setViewData(buildPoView(next));
+      return next;
+    });
+    setRows((prev) => (prev || []).map(patchIssue));
+  }, []);
+
   const refreshIssue = useCallback(async (issueKey) => {
     const key = String(issueKey || "")
       .trim()
@@ -284,5 +318,6 @@ export default function usePoJiraData() {
     refreshIssue,
     applyCronogramaPatchLocal,
     applyTicketStatusLocal,
+    applyTicketDueDateLocal,
   };
 }

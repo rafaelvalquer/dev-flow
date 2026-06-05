@@ -34,23 +34,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { testJiraStatus } from "@/lib/auth";
 import {
   analyzeCdr,
+  compareCdrAnalytics,
+  DEFAULT_CDR_FIELDS,
   getCdrAuthStatus,
+  getCdrFields,
   loginCdrPortal,
   logoutCdrPortal,
 } from "@/lib/cdr";
 import { cn } from "@/lib/utils";
 import BrazilCdrHeatmap from "./BrazilCdrHeatmap";
+import CdrComparisonView from "./CdrComparisonView";
 import CdrDashboardEvidenceDialog from "./CdrDashboardEvidenceDialog";
+import CdrFilterPair from "./CdrFilterPair";
 import CdrCallFlowChart from "./CdrCallFlowChart";
+import CdrHourRegionHeatmap from "./CdrHourRegionHeatmap";
 import DnaJourneySankey from "./DnaJourneySankey";
 
-const SEGMENT_PRESETS = ["POS", "PRE", "CTL", "TP_POS", "TP_POS_G", "CTL_COB"];
 const PIE_COLORS = ["#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed"];
 const EVIDENCE_MODULES = [
   {
     id: "flow",
     label: "Fluxo de chamadas por hora",
     description: "Grafico de pico por inicio e fim de ligacao.",
+  },
+  {
+    id: "hour-region",
+    label: "Heatmap hora x DDD/UF",
+    description: "Matriz regional por horario de inicio.",
   },
   {
     id: "map",
@@ -101,6 +111,37 @@ const EVIDENCE_MODULES = [
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function defaultDashboardFilters(overrides = {}) {
+  return {
+    dataInicial: todayISO(),
+    dataFinal: todayISO(),
+    campo1: "segmento",
+    valor1: "POS",
+    campo2: "0",
+    valor2: "",
+    campo3: "0",
+    valor3: "",
+    campo4: "0",
+    valor4: "",
+    campo5: "0",
+    valor5: "",
+    ...overrides,
+  };
+}
+
+function activeFilterSummary(filters = {}, fields = DEFAULT_CDR_FIELDS) {
+  const labels = new Map(fields.map((field) => [field.value, field.label]));
+  const active = [];
+  for (let index = 1; index <= 5; index += 1) {
+    const campo = filters[`campo${index}`] || "0";
+    const valor = filters[`valor${index}`] || "";
+    if (campo !== "0" && valor) {
+      active.push(`${labels.get(campo) || campo}: ${valor}`);
+    }
+  }
+  return active.join(" | ") || "Sem filtros adicionais";
 }
 
 function FieldLabel({ children }) {
@@ -317,12 +358,21 @@ export default function CdrAnalyticsTool() {
   const [booting, setBooting] = useState(true);
   const [session, setSession] = useState(null);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
-  const [filters, setFilters] = useState({
-    dataInicial: todayISO(),
-    dataFinal: todayISO(),
-    segmento: "POS",
-  });
+  const [fields, setFields] = useState(DEFAULT_CDR_FIELDS);
+  const [analysisMode, setAnalysisMode] = useState("single");
+  const [filters, setFilters] = useState(() => defaultDashboardFilters());
+  const [compareForm, setCompareForm] = useState(() => ({
+    left: {
+      label: "PRE",
+      filters: defaultDashboardFilters({ valor1: "PRE" }),
+    },
+    right: {
+      label: "POS",
+      filters: defaultDashboardFilters({ valor1: "POS" }),
+    },
+  }));
   const [analytics, setAnalytics] = useState(null);
+  const [comparison, setComparison] = useState(null);
   const [error, setError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -344,6 +394,22 @@ export default function CdrAnalyticsTool() {
         if (active) setBooting(false);
       });
 
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    getCdrFields()
+      .then((data) => {
+        if (active && Array.isArray(data?.fields) && data.fields.length) {
+          setFields(data.fields);
+        }
+      })
+      .catch(() => {
+        if (active) setFields(DEFAULT_CDR_FIELDS);
+      });
     return () => {
       active = false;
     };
@@ -419,9 +485,17 @@ export default function CdrAnalyticsTool() {
     setAnalyzing(true);
 
     try {
-      const data = await analyzeCdr(filters);
-      setAnalytics(data);
-      toast.success("CSV CDR analisado com sucesso.");
+      if (analysisMode === "compare") {
+        const data = await compareCdrAnalytics(compareForm);
+        setComparison(data);
+        setAnalytics(null);
+        toast.success("Comparativo CDR analisado com sucesso.");
+      } else {
+        const data = await analyzeCdr(filters);
+        setAnalytics(data);
+        setComparison(null);
+        toast.success("CSV CDR analisado com sucesso.");
+      }
     } catch (err) {
       setError(err?.message || "Nao foi possivel analisar o CDR.");
       if (
@@ -451,6 +525,29 @@ export default function CdrAnalyticsTool() {
 
   function updateFilter(key, value) {
     setFilters((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateCompareFilter(side, key, value) {
+    setCompareForm((current) => ({
+      ...current,
+      [side]: {
+        ...current[side],
+        filters: {
+          ...current[side].filters,
+          [key]: value,
+        },
+      },
+    }));
+  }
+
+  function updateCompareLabel(side, value) {
+    setCompareForm((current) => ({
+      ...current,
+      [side]: {
+        ...current[side],
+        label: value,
+      },
+    }));
   }
 
   if (booting) {
@@ -489,7 +586,7 @@ export default function CdrAnalyticsTool() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {analytics ? (
+              {analytics && analysisMode === "single" ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -515,40 +612,113 @@ export default function CdrAnalyticsTool() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <label className="grid gap-1">
-              <FieldLabel>Data inicial</FieldLabel>
-              <Input
-                type="date"
-                value={filters.dataInicial}
-                onChange={(event) => updateFilter("dataInicial", event.target.value)}
-              />
-            </label>
-            <label className="grid gap-1">
-              <FieldLabel>Data final</FieldLabel>
-              <Input
-                type="date"
-                value={filters.dataFinal}
-                onChange={(event) => updateFilter("dataFinal", event.target.value)}
-              />
-            </label>
-            <label className="grid gap-1">
-              <FieldLabel>Segmento</FieldLabel>
-              <Input
-                value={filters.segmento}
-                list="cdr-segment-presets"
-                onChange={(event) =>
-                  updateFilter("segmento", event.target.value.toUpperCase())
-                }
-                placeholder="Ex: POS"
-              />
-              <datalist id="cdr-segment-presets">
-                {SEGMENT_PRESETS.map((segment) => (
-                  <option key={segment} value={segment} />
+          <Tabs value={analysisMode} onValueChange={setAnalysisMode}>
+            <TabsList className="flex h-auto flex-wrap gap-2 rounded-xl bg-zinc-100 p-1">
+              <TabsTrigger value="single" className="rounded-lg">
+                Analise unica
+              </TabsTrigger>
+              <TabsTrigger value="compare" className="rounded-lg">
+                Comparativo
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="single" className="mt-4 grid gap-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-1">
+                  <FieldLabel>Data inicial</FieldLabel>
+                  <Input
+                    type="date"
+                    value={filters.dataInicial}
+                    onChange={(event) => updateFilter("dataInicial", event.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1">
+                  <FieldLabel>Data final</FieldLabel>
+                  <Input
+                    type="date"
+                    value={filters.dataFinal}
+                    onChange={(event) => updateFilter("dataFinal", event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                {[1, 2, 3, 4, 5].map((index) => (
+                  <CdrFilterPair
+                    key={index}
+                    index={index}
+                    filters={filters}
+                    fields={fields}
+                    disabled={analyzing}
+                    onChange={updateFilter}
+                  />
                 ))}
-              </datalist>
-            </label>
-          </div>
+              </div>
+              <p className="text-xs text-zinc-500">
+                Filtros ativos: {activeFilterSummary(filters, fields)}
+              </p>
+            </TabsContent>
+
+            <TabsContent value="compare" className="mt-4 grid gap-3">
+              <div className="grid gap-4 xl:grid-cols-2">
+                {[
+                  ["left", "Cenario A"],
+                  ["right", "Cenario B"],
+                ].map(([side, title]) => (
+                  <div
+                    key={side}
+                    className="grid gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <h4 className="text-sm font-semibold text-zinc-900">{title}</h4>
+                      <label className="grid min-w-[180px] gap-1">
+                        <FieldLabel>Rotulo</FieldLabel>
+                        <Input
+                          value={compareForm[side].label}
+                          onChange={(event) => updateCompareLabel(side, event.target.value)}
+                          placeholder={title}
+                          className="h-9"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="grid gap-1">
+                        <FieldLabel>Data inicial</FieldLabel>
+                        <Input
+                          type="date"
+                          value={compareForm[side].filters.dataInicial}
+                          onChange={(event) =>
+                            updateCompareFilter(side, "dataInicial", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label className="grid gap-1">
+                        <FieldLabel>Data final</FieldLabel>
+                        <Input
+                          type="date"
+                          value={compareForm[side].filters.dataFinal}
+                          onChange={(event) =>
+                            updateCompareFilter(side, "dataFinal", event.target.value)
+                          }
+                        />
+                      </label>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {[1, 2, 3, 4, 5].map((index) => (
+                        <CdrFilterPair
+                          key={`${side}-${index}`}
+                          index={index}
+                          filters={compareForm[side].filters}
+                          fields={fields}
+                          disabled={analyzing}
+                          onChange={(key, value) => updateCompareFilter(side, key, value)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
         </form>
       ) : null}
 
@@ -559,11 +729,13 @@ export default function CdrAnalyticsTool() {
         </div>
       ) : null}
 
-      {!analytics ? (
+      {!analytics && !comparison ? (
         <div className="rounded-xl border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-600">
           <BarChart3 className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
-          Informe o periodo e o segmento para carregar o dashboard.
+          Informe o periodo e os filtros para carregar o dashboard.
         </div>
+      ) : comparison ? (
+        <CdrComparisonView data={comparison} />
       ) : (
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -595,6 +767,10 @@ export default function CdrAnalyticsTool() {
 
           <div ref={setModuleRef("flow")} data-module-id="flow">
             <CdrCallFlowChart data={charts.callFlowByHour || []} />
+          </div>
+
+          <div ref={setModuleRef("hour-region")} data-module-id="hour-region">
+            <CdrHourRegionHeatmap data={charts.hourRegionHeatmap} />
           </div>
 
           <div ref={setModuleRef("map")} data-module-id="map">

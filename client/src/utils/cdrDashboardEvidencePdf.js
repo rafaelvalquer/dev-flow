@@ -17,6 +17,17 @@ function fileName() {
   return `evidencia-dashboard-cdr-${stampForFile()}.pdf`;
 }
 
+function filterSummary(filters = {}) {
+  const active = [];
+  for (let index = 1; index <= 5; index += 1) {
+    const campo = String(filters[`campo${index}`] || "0");
+    const valor = String(filters[`valor${index}`] || "");
+    if (campo !== "0" && valor) active.push(`${campo}: ${valor}`);
+  }
+  if (!active.length && filters.segmento) active.push(`segmento: ${filters.segmento}`);
+  return active.join(" | ") || "Sem filtros adicionais";
+}
+
 function addFooter(pdf) {
   const pageCount = pdf.getNumberOfPages();
   const width = pdf.internal.pageSize.getWidth();
@@ -45,7 +56,9 @@ function addHeader(pdf, { analytics, filters }) {
   pdf.setFontSize(9);
   pdf.setTextColor(82, 82, 91);
   pdf.text(`Periodo: ${filters?.dataInicial || "-"} a ${filters?.dataFinal || "-"}`, 12, 27);
-  pdf.text(`Segmento: ${filters?.segmento || "-"}`, 12, 33);
+  pdf.text(`Filtros: ${filterSummary(filters)}`, 12, 33, {
+    maxWidth: width - 92,
+  });
   pdf.text(`Gerado em: ${generatedAt}`, 12, 39);
 
   pdf.setTextColor(24, 24, 27);

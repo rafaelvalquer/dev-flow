@@ -277,6 +277,113 @@ function createCallFlowBuckets() {
   });
 }
 
+function createHourRegionAccumulator() {
+  return {
+    ddds: new Map(),
+    ufs: new Map(),
+  };
+}
+
+function ensureRegionBucket(map, key, payload = {}) {
+  const safeKey = cleanValue(key);
+  if (!safeKey) return null;
+  if (!map.has(safeKey)) {
+    map.set(safeKey, {
+      key: safeKey,
+      label: safeKey,
+      uf: payload.uf || "",
+      stateName: payload.stateName || "",
+      total: 0,
+      hours: new Map(),
+    });
+  }
+  return map.get(safeKey);
+}
+
+function addHourRegion(acc, { hour, ddd, uf, isTransferred }) {
+  if (!hour || !ddd) return;
+
+  const dddBucket = ensureRegionBucket(acc.ddds, ddd, {
+    uf,
+    stateName: STATE_NAMES[uf] || "",
+  });
+  const ufBucket = uf
+    ? ensureRegionBucket(acc.ufs, uf, {
+        stateName: STATE_NAMES[uf] || uf,
+      })
+    : null;
+
+  [dddBucket, ufBucket].forEach((bucket) => {
+    if (!bucket) return;
+    bucket.total += 1;
+    const hourBucket = bucket.hours.get(hour) || {
+      value: 0,
+      transferred: 0,
+      abandoned: 0,
+    };
+    hourBucket.value += 1;
+    if (isTransferred) hourBucket.transferred += 1;
+    else hourBucket.abandoned += 1;
+    bucket.hours.set(hour, hourBucket);
+  });
+}
+
+function hourRegionHeatmapFromAccumulator(acc) {
+  const hours = Array.from({ length: 24 }, (_item, index) => {
+    const hour = String(index).padStart(2, "0");
+    return { hour, label: `${hour}:00-${hour}:59` };
+  });
+
+  const ddds = [...acc.ddds.values()]
+    .sort((a, b) => b.total - a.total || a.key.localeCompare(b.key))
+    .slice(0, 20)
+    .map((item) => ({
+      key: item.key,
+      label: item.label,
+      uf: item.uf,
+      stateName: item.stateName,
+      total: item.total,
+    }));
+
+  const ufs = [...acc.ufs.values()]
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total || a.key.localeCompare(b.key))
+    .map((item) => ({
+      key: item.key,
+      label: item.key,
+      stateName: item.stateName,
+      total: item.total,
+    }));
+
+  function cellsFor(regions, sourceMap) {
+    return regions.flatMap((region) => {
+      const bucket = sourceMap.get(region.key);
+      return hours.map(({ hour }) => {
+        const cell = bucket?.hours.get(hour) || {
+          value: 0,
+          transferred: 0,
+          abandoned: 0,
+        };
+        return {
+          hour,
+          region: region.key,
+          value: cell.value,
+          transferred: cell.transferred,
+          abandoned: cell.abandoned,
+        };
+      });
+    });
+  }
+
+  return {
+    hours,
+    ddds,
+    ufs,
+    cellsByDdd: cellsFor(ddds, acc.ddds),
+    cellsByUf: cellsFor(ufs, acc.ufs),
+  };
+}
+
 function callFlowFromBuckets(buckets) {
   return buckets.map((bucket) => {
     const averageDurationSeconds = bucket.durationCount
@@ -510,6 +617,7 @@ export function analyzeCdrCsv(csvText, options = {}) {
   const stateCounts = new Map();
   const dnaJourney = createDnaJourneyAccumulator();
   const callFlowBuckets = createCallFlowBuckets();
+  const hourRegionHeatmap = createHourRegionAccumulator();
 
   let totalDurationSum = 0;
   let totalDurationCount = 0;
@@ -592,6 +700,15 @@ export function analyzeCdrCsv(csvText, options = {}) {
       stateCounts.set(uf, state);
     }
 
+    if (startDate && ddd) {
+      addHourRegion(hourRegionHeatmap, {
+        hour: startDate.hour,
+        ddd,
+        uf,
+        isTransferred,
+      });
+    }
+
     if (skill) increment(skillCounts, skill);
     if (isTransferred) {
       transferTotal += 1;
@@ -628,6 +745,16 @@ export function analyzeCdrCsv(csvText, options = {}) {
       dataInicial: options.dataInicial || "",
       dataFinal: options.dataFinal || "",
       segmento: options.segmento || "",
+      campo1: options.campo1 || "0",
+      valor1: options.valor1 || "",
+      campo2: options.campo2 || "0",
+      valor2: options.valor2 || "",
+      campo3: options.campo3 || "0",
+      valor3: options.valor3 || "",
+      campo4: options.campo4 || "0",
+      valor4: options.valor4 || "",
+      campo5: options.campo5 || "0",
+      valor5: options.valor5 || "",
     },
     csv: {
       headers,
@@ -649,6 +776,7 @@ export function analyzeCdrCsv(csvText, options = {}) {
     charts: {
       callFlowByHour: callFlowFromBuckets(callFlowBuckets),
       callsByState: callsByStateFromMap(stateCounts),
+      hourRegionHeatmap: hourRegionHeatmapFromAccumulator(hourRegionHeatmap),
       callsByDdd: topFromMap(dddCounts, 20),
       phoneTypes: topFromMap(phoneTypeCounts, 5),
       transfersBySkill: [...transferCounts.values()]
