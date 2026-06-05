@@ -318,6 +318,7 @@ const STATUS_OPTIONS = [
   "Para Homolog.",
   "Homolog. Negócio",
   "Para Deploy",
+  "Concluído",
 ];
 const PERSONAL_QUEUE_OTHER_STATUS = "Outros";
 const PERSONAL_QUEUE_COLUMNS = [...STATUS_OPTIONS, PERSONAL_QUEUE_OTHER_STATUS];
@@ -415,6 +416,58 @@ function userName(u) {
 
 function getTicketStatusName(t) {
   return t?.statusName || t?.fields?.status?.name || t?.status?.name || "";
+}
+
+function getIssueTypeInfo(ticket) {
+  const raw = ticket?.fields?.issuetype || ticket?.issuetype || {};
+  const name =
+    ticket?.issueType ||
+    ticket?.issueTypeName ||
+    raw?.name ||
+    ticket?.type ||
+    "";
+  const iconUrl =
+    ticket?.issueTypeIconUrl ||
+    ticket?.issueTypeIcon ||
+    raw?.iconUrl ||
+    "";
+  const id = ticket?.issueTypeId || raw?.id || "";
+  const description =
+    ticket?.issueTypeDescription || raw?.description || "";
+  return { id, name, iconUrl, description };
+}
+
+function IssueTypeIcon({ ticket, className = "" }) {
+  const [failed, setFailed] = useState(false);
+  const info = getIssueTypeInfo(ticket);
+  const label = info.name ? `Tipo do ticket: ${info.name}` : "Tipo do ticket";
+  const fallback = String(info.name || "?").trim().charAt(0).toUpperCase() || "?";
+
+  if (info.iconUrl && !failed) {
+    return (
+      <img
+        src={info.iconUrl}
+        alt=""
+        title={label}
+        aria-label={label}
+        className={cn("h-4 w-4 shrink-0 object-contain", className)}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className={cn(
+        "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-zinc-200 bg-white text-[9px] font-bold uppercase text-zinc-600",
+        className,
+      )}
+    >
+      {fallback}
+    </span>
+  );
 }
 
 function normalizePlain(value) {
@@ -1320,6 +1373,9 @@ function PersonalQueueView({
   movingKeys,
   onOpenDetails,
   onMoveStatus,
+  title = "Minha Fila",
+  description = "Kanban pessoal por status. Arraste um ticket para mover no Jira.",
+  actionableLabel = "moviveis",
 }) {
   const [activeId, setActiveId] = useState(null);
   const sensors = useSensors(
@@ -1420,10 +1476,10 @@ function PersonalQueueView({
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <CardTitle className="text-base text-zinc-900">
-                Minha Fila
+                {title}
               </CardTitle>
               <CardDescription>
-                Kanban pessoal por status. Arraste um ticket para mover no Jira.
+                {description}
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1431,7 +1487,7 @@ function PersonalQueueView({
                 {total} tickets
               </Badge>
               <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
-                {actionable} moviveis
+                {actionable} {actionableLabel}
               </Badge>
               <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
                 {(rows || []).filter((issue) => isReportIssueOverdue(issue)).length} atrasados
@@ -1449,7 +1505,7 @@ function PersonalQueueView({
         onDragEnd={handleDragEnd}
       >
         <div className="overflow-x-auto pb-4">
-          <div className="grid min-w-[1260px] grid-flow-col auto-cols-[minmax(270px,1fr)] gap-3 lg:min-w-0 lg:auto-cols-[minmax(260px,1fr)]">
+          <div className="grid w-max grid-flow-col auto-cols-[260px] gap-3 sm:auto-cols-[280px]">
             {PERSONAL_QUEUE_COLUMNS.map((status) => (
               <PersonalQueueColumn
                 key={status}
@@ -1493,6 +1549,7 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
     <motion.div
       ref={setNodeRef}
       layout
+      className="w-full min-w-0"
       initial={{ opacity: 0, y: 12 }}
       animate={{
         opacity: 1,
@@ -1525,9 +1582,9 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="min-h-0 flex-1 overflow-y-auto p-2">
+        <CardContent className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-2">
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-            <div className="grid gap-2">
+            <div className="grid min-w-0 gap-2">
               <AnimatePresence mode="popLayout" initial={false}>
                 {tickets.length ? (
                   tickets.map((ticket) => {
@@ -1536,6 +1593,7 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
                       <motion.div
                         key={key}
                         layout
+                        className="w-full min-w-0"
                         initial={{ opacity: 0, y: 10, scale: 0.98 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -8, scale: 0.96 }}
@@ -1623,7 +1681,7 @@ function PersonalQueueCard({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "touch-none",
+        "w-full min-w-0 max-w-full touch-none",
         overlay && "w-[280px]",
       )}
     >
@@ -1640,28 +1698,31 @@ function PersonalQueueCard({
         whileTap={overlay || moving ? undefined : { scale: 0.985 }}
         transition={{ type: "spring", stiffness: 420, damping: 32 }}
         className={cn(
-          "group rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm transition-colors",
+          "group w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm transition-colors",
           "hover:border-red-200 hover:shadow-md",
           isDragging && "opacity-40",
           overlay && "border-red-200 shadow-2xl ring-4 ring-red-100",
           moving && "pointer-events-none opacity-70",
         )}
       >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
         <button
           type="button"
-          className="min-w-0 text-left"
+          className="min-w-0 flex-1 text-left"
           onClick={() => onOpenDetails?.(key)}
         >
-          <motion.code
-            layout
-            whileHover={{ scale: 1.04 }}
-            transition={{ type: "spring", stiffness: 500, damping: 28 }}
-            className="inline-block rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700"
-          >
-            {key}
-          </motion.code>
-          <h3 className="mt-2 line-clamp-3 break-words text-sm font-semibold leading-5 text-zinc-950">
+          <span className="inline-flex max-w-full items-center gap-1.5">
+            <IssueTypeIcon ticket={ticket} />
+            <motion.code
+              layout
+              whileHover={{ scale: 1.04 }}
+              transition={{ type: "spring", stiffness: 500, damping: 28 }}
+              className="inline-block rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700"
+            >
+              {key}
+            </motion.code>
+          </span>
+          <h3 className="mt-2 whitespace-normal break-words text-sm font-semibold leading-5 text-zinc-950 [overflow-wrap:anywhere]">
             {getQueueSummary(ticket)}
           </h3>
         </button>
@@ -3100,6 +3161,8 @@ export default function AMPanelTab({
                 }}
                 onOpenSchedule={(t) => openEditor(t)}
                 onOpenDocumentation={(t) => openDocumentationOrganizer(t)}
+                movingKeys={movingPersonalKeys}
+                onMoveStatus={movePersonalTicketStatus}
               />
             </div>
           )}
@@ -3460,7 +3523,11 @@ function TicketDashboardPage({
   onOpenDetails,
   onOpenSchedule,
   onOpenDocumentation,
+  movingKeys,
+  onMoveStatus,
 }) {
+  const [viewMode, setViewMode] = useState("list");
+
   // normaliza datasets
   const missingSet = useMemo(() => {
     const s = new Set();
@@ -3646,6 +3713,37 @@ function TicketDashboardPage({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex w-full rounded-2xl bg-zinc-100 p-1 sm:w-auto">
+              <button
+                type="button"
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+                  viewMode === "list"
+                    ? "bg-white text-zinc-950 shadow-sm"
+                    : "text-zinc-600 hover:text-zinc-950",
+                )}
+                onClick={() => setViewMode("list")}
+                aria-pressed={viewMode === "list"}
+              >
+                <ListChecks className="h-4 w-4" />
+                Lista
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+                  viewMode === "kanban"
+                    ? "bg-white text-zinc-950 shadow-sm"
+                    : "text-zinc-600 hover:text-zinc-950",
+                )}
+                onClick={() => setViewMode("kanban")}
+                aria-pressed={viewMode === "kanban"}
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                Kanban
+              </button>
+            </div>
+
             <div className="relative w-full sm:w-[360px]">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
               <Input
@@ -3673,94 +3771,106 @@ function TicketDashboardPage({
 
         <Separator className="my-4" />
 
-        <Tabs value={dashTab} onValueChange={setDashTab}>
-          <TabsList className="rounded-xl bg-zinc-100 p-1">
-            <TabsTrigger
-              value="alertas"
-              className="
+        {viewMode === "list" ? (
+          <Tabs value={dashTab} onValueChange={setDashTab}>
+            <TabsList className="rounded-xl bg-zinc-100 p-1">
+              <TabsTrigger
+                value="alertas"
+                className="
                 rounded-lg text-zinc-700 hover:bg-white/60
                 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
-            >
-              <AlertTriangle className="mr-2 h-4 w-4 text-red-600 data-[state=active]:text-white" />
-              Alertas
-              <Badge className="ml-2 rounded-full bg-red-600 text-white">
-                {alertasRows.length}
-              </Badge>
-            </TabsTrigger>
+              >
+                <AlertTriangle className="mr-2 h-4 w-4 text-red-600 data-[state=active]:text-white" />
+                Alertas
+                <Badge className="ml-2 rounded-full bg-red-600 text-white">
+                  {alertasRows.length}
+                </Badge>
+              </TabsTrigger>
 
-            <TabsTrigger
-              value="levantamento"
-              className="
+              <TabsTrigger
+                value="levantamento"
+                className="
                 rounded-lg text-zinc-700 hover:bg-white/60
                 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
-            >
-              Levantamento
-              <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
-                {levantamentoRows.length}
-              </Badge>
-            </TabsTrigger>
+              >
+                Levantamento
+                <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
+                  {levantamentoRows.length}
+                </Badge>
+              </TabsTrigger>
 
-            <TabsTrigger
-              value="andamento"
-              className="
+              <TabsTrigger
+                value="andamento"
+                className="
                 rounded-lg text-zinc-700 hover:bg-white/60
                 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
-            >
-              Em andamento
-              <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
-                {andamentoRows.length}
-              </Badge>
-            </TabsTrigger>
+              >
+                Em andamento
+                <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
+                  {andamentoRows.length}
+                </Badge>
+              </TabsTrigger>
 
-            <TabsTrigger
-              value="todos"
-              className="
+              <TabsTrigger
+                value="todos"
+                className="
                 rounded-lg text-zinc-700 hover:bg-white/60
                 data-[state=active]:bg-green-600 data-[state=active]:text-white data-[state=active]:shadow-sm
       "
-            >
-              Todos
-              <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
-                {todosRows.length}
-              </Badge>
-            </TabsTrigger>
-          </TabsList>
+              >
+                Todos
+                <Badge className="ml-2 rounded-full bg-zinc-900 text-white data-[state=active]:bg-white data-[state=active]:text-green-700">
+                  {todosRows.length}
+                </Badge>
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value={dashTab} className="mt-4">
-            <TicketSection
-              title={
-                dashTab === "alertas"
-                  ? "Novos (PRE SAVE sem [INICIADO])"
-                  : dashTab === "levantamento"
-                    ? "Levantamento de requisitos"
-                    : dashTab === "andamento"
-                      ? "Em andamento"
-                      : "Todos os tickets"
-              }
-              subtitle={
-                dashTab === "alertas"
-                  ? "Atenção: itens em PRE SAVE ainda não iniciados."
-                  : dashTab === "levantamento"
-                    ? "Backlog, Refinamento, Artefatos e Para Planejar: organize requisitos, atividades, artefatos e envolvidos."
-                    : dashTab === "andamento"
-                      ? "Fluxo do PO: Em Planejamento → Para Dev → Desenvolvimento → Homolog → Deploy."
-                      : "Visão completa com busca, filtros e ordenação."
-              }
-              rows={sectionRows}
-              ticketMetaMap={ticketMetaMap}
-              missingScheduleSet={missingSet}
-              loading={loading}
-              onStart={onStart}
-              onOpenDetails={onOpenDetails}
-              onOpenSchedule={onOpenSchedule}
-              onOpenDocumentation={onOpenDocumentation}
-              emptyText="Nenhum ticket encontrado com os filtros atuais."
-            />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value={dashTab} className="mt-4">
+              <TicketSection
+                title={
+                  dashTab === "alertas"
+                    ? "Novos (PRE SAVE sem [INICIADO])"
+                    : dashTab === "levantamento"
+                      ? "Levantamento de requisitos"
+                      : dashTab === "andamento"
+                        ? "Em andamento"
+                        : "Todos os tickets"
+                }
+                subtitle={
+                  dashTab === "alertas"
+                    ? "Atenção: itens em PRE SAVE ainda não iniciados."
+                    : dashTab === "levantamento"
+                      ? "Backlog, Refinamento, Artefatos e Para Planejar: organize requisitos, atividades, artefatos e envolvidos."
+                      : dashTab === "andamento"
+                        ? "Fluxo do PO: Em Planejamento → Para Dev → Desenvolvimento → Homolog → Deploy."
+                        : "Visão completa com busca, filtros e ordenação."
+                }
+                rows={sectionRows}
+                ticketMetaMap={ticketMetaMap}
+                missingScheduleSet={missingSet}
+                loading={loading}
+                onStart={onStart}
+                onOpenDetails={onOpenDetails}
+                onOpenSchedule={onOpenSchedule}
+                onOpenDocumentation={onOpenDocumentation}
+                emptyText="Nenhum ticket encontrado com os filtros atuais."
+              />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <PersonalQueueView
+            rows={filtered}
+            loading={loading}
+            movingKeys={movingKeys}
+            onOpenDetails={onOpenDetails}
+            onMoveStatus={onMoveStatus}
+            title="Kanban global"
+            description="Todos os tickets do recorte atual agrupados por status. Arraste um ticket para mover no Jira."
+          />
+        )}
       </div>
     </div>
   );
@@ -4223,6 +4333,7 @@ const TicketCard = memo(function TicketCard({
         <CardHeader className="space-y-3 pb-4">
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
+              <IssueTypeIcon ticket={ticket} />
               <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-600 border border-zinc-200/50">
                 {key}
               </span>
@@ -5196,9 +5307,12 @@ function TicketDetailsDialog({
       <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-start gap-2 min-w-0">
-            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold">
-              {issueKey || "—"}
-            </code>
+            <span className="inline-flex shrink-0 items-center gap-1.5">
+              <IssueTypeIcon ticket={issue} />
+              <code className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold">
+                {issueKey || "—"}
+              </code>
+            </span>
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -5557,8 +5671,10 @@ function TicketDetailsDialog({
                 <Skeleton className="h-4 w-1/2" />
               </div>
             ) : (
-              <div className="whitespace-pre-wrap break-words text-sm text-zinc-800 max-h-56 overflow-auto">
-                {descText || "—"}
+              <div className="min-h-32 max-h-[70vh] resize-y overflow-y-auto rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
+                <div className="whitespace-pre-wrap break-words">
+                  {descText || "—"}
+                </div>
               </div>
             )}
           </div>

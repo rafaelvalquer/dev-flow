@@ -391,13 +391,25 @@ export async function jiraTransitionToStatus(key, statusName) {
   const wanted = String(statusName || "")
     .trim()
     .toLowerCase();
+  const wantedPlain = normalizePriorityName(statusName);
 
-  const match = transitions.find((t) => {
+  let match = transitions.find((t) => {
     const toName = String(t?.to?.name || "")
       .trim()
       .toLowerCase();
     return toName === wanted;
   });
+
+  if (!match && /(conclu|done|resolv|closed|fechad)/i.test(wantedPlain)) {
+    match = transitions.find((t) => {
+      const toName = normalizePriorityName(t?.to?.name);
+      const category = normalizePriorityName(t?.to?.statusCategory?.key);
+      return (
+        category === "done" ||
+        /(conclu|done|resolv|closed|fechad)/i.test(toName)
+      );
+    });
+  }
 
   if (!match) {
     const available = transitions

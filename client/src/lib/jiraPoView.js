@@ -109,6 +109,16 @@ function pickText(v) {
   return String(v).trim();
 }
 
+function pickIssueType(fields) {
+  const issueType = fields?.issuetype || {};
+  return {
+    issueType: issueType?.name || "",
+    issueTypeId: issueType?.id || "",
+    issueTypeIconUrl: issueType?.iconUrl || "",
+    issueTypeDescription: issueType?.description || "",
+  };
+}
+
 export async function fetchPoIssueDetail(key) {
   const issue = await jiraGetIssue(key, ISSUE_FIELDS);
   const comments = await jiraGetComments(key);
@@ -133,7 +143,7 @@ export async function fetchPoIssueDetail(key) {
       "",
     labels: issue?.fields?.labels || [],
     attachments: issue?.fields?.attachment || [],
-    issueType: issue?.fields?.issuetype?.name || "",
+    ...pickIssueType(issue?.fields),
     parentKey: issue?.fields?.parent?.key || "",
     hasIniciado,
     cronogramaAdf,
@@ -177,7 +187,7 @@ export async function fetchPoIssuesDetailed({ concurrency = 8 } = {}) {
         "",
       labels: issue?.fields?.labels || [],
       attachments: issue?.fields?.attachment || [],
-      issueType: issue?.fields?.issuetype?.name || "",
+      ...pickIssueType(issue?.fields),
       parentKey: issue?.fields?.parent?.key || "",
       hasIniciado,
       cronogramaAdf,
