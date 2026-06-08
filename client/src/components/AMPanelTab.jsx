@@ -108,6 +108,8 @@ import {
   Trash2,
   UserX,
   LayoutDashboard,
+  MessageSquareText,
+  Paperclip,
 } from "lucide-react";
 
 import AMCalendarTab from "./AMCalendarTab";
@@ -130,6 +132,7 @@ import usePoJiraData from "../hooks/usePoJiraData";
 import { DateValuePicker } from "@/components/ui/date-range-picker";
 import {
   jiraEditIssue,
+  jiraGetIssueChangelog,
   jiraGetIssueEditMeta,
   jiraSearchAssignableUsers,
   jiraSearchUsers,
@@ -4990,6 +4993,492 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
 /* =========================
    DETAILS DIALOG
 ========================= */
+const HISTORY_EVENT_TYPES = {
+  all: { label: "Todos" },
+  status: { label: "Status" },
+  comments: { label: "Comentários" },
+  attachments: { label: "Anexos" },
+  dates: { label: "Prazos" },
+  fields: { label: "Campos" },
+};
+
+const HISTORY_EVENT_META = {
+  comment: {
+    label: "Comentário",
+    filter: "comments",
+    icon: MessageSquareText,
+    className: "border-blue-200 bg-blue-50 text-blue-700",
+  },
+  status_changed: {
+    label: "Status",
+    filter: "status",
+    icon: ArrowUpDown,
+    className: "border-red-200 bg-red-50 text-red-700",
+  },
+  priority_changed: {
+    label: "Prioridade",
+    filter: "fields",
+    icon: AlertTriangle,
+    className: "border-amber-200 bg-amber-50 text-amber-800",
+  },
+  due_date_changed: {
+    label: "Prazo",
+    filter: "dates",
+    icon: CalendarDays,
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  assignee_changed: {
+    label: "Responsável",
+    filter: "fields",
+    icon: UserX,
+    className: "border-violet-200 bg-violet-50 text-violet-700",
+  },
+  attachment_changed: {
+    label: "Anexo",
+    filter: "attachments",
+    icon: Paperclip,
+    className: "border-slate-200 bg-slate-50 text-slate-700",
+  },
+  field_changed: {
+    label: "Campo",
+    filter: "fields",
+    icon: Pencil,
+    className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  },
+  other: {
+    label: "Outros",
+    filter: "fields",
+    icon: History,
+    className: "border-zinc-200 bg-zinc-50 text-zinc-700",
+  },
+};
+
+function parseHistoryDate(value) {
+  if (!value) return null;
+  const normalized = String(value).replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatHistoryDateTime(value) {
+  const date = value instanceof Date ? value : parseHistoryDate(value);
+  if (!date) return "--";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatHistoryTime(value) {
+  const date = value instanceof Date ? value : parseHistoryDate(value);
+  if (!date) return "--:--";
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function historyDayKey(value) {
+  const date = value instanceof Date ? value : parseHistoryDate(value);
+  if (!date) return "sem-data";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function historyDayLabel(ymd) {
+  if (ymd === "sem-data") return "Sem data";
+  const today = historyDayKey(new Date());
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = historyDayKey(yesterdayDate);
+  if (ymd === today) return "Hoje";
+  if (ymd === yesterday) return "Ontem";
+  const [year, month, day] = String(ymd || "").split("-");
+  return year && month && day ? `${day}/${month}/${year}` : ymd || "--";
+}
+
+function jiraActorName(actor) {
+  return actor?.displayName || actor?.name || actor?.emailAddress || "Jira";
+}
+
+function classifyHistoryField(item = {}) {
+  const field = normalizePlain(item.field || item.fieldId || "");
+  if (field === "status") return "status_changed";
+  if (field === "priority" || field === "prioridade") return "priority_changed";
+  if (
+    field === "assignee" ||
+    field === "responsavel" ||
+    field === "responsavel jira"
+  ) {
+    return "assignee_changed";
+  }
+  if (
+    field.includes("duedate") ||
+    field.includes("due date") ||
+    field.includes("prazo") ||
+    field.includes("data limite")
+  ) {
+    return "due_date_changed";
+  }
+  if (field === "attachment" || field === "anexo") return "attachment_changed";
+  return field ? "field_changed" : "other";
+}
+
+function normalizeHistoryComment(comment = {}, issueKey = "") {
+  const createdAt = parseHistoryDate(comment.created || comment.updated);
+  if (!createdAt) return null;
+  const bodyText = safeText(comment.body);
+  const author = jiraActorName(comment.author || comment.updateAuthor);
+  return {
+    id: `${issueKey}-comment-${comment.id || createdAt.getTime()}`,
+    type: "comment",
+    createdAt,
+    actor: author,
+    title: "Comentário adicionado",
+    field: "comment",
+    from: "",
+    to: "",
+    bodyText,
+    searchText: `${author} comentário ${bodyText}`,
+  };
+}
+
+function normalizeHistoryChange(history = {}, item = {}, issueKey = "", index = 0) {
+  const createdAt = parseHistoryDate(history.created);
+  if (!createdAt) return null;
+  const type = classifyHistoryField(item);
+  const field = item.field || item.fieldId || "Campo";
+  const author = jiraActorName(history.author);
+  const from = item.fromString || item.from || "";
+  const to = item.toString || item.to || "";
+  const meta = HISTORY_EVENT_META[type] || HISTORY_EVENT_META.other;
+  return {
+    id: `${issueKey}-change-${history.id || createdAt.getTime()}-${index}`,
+    type,
+    createdAt,
+    actor: author,
+    title: `${meta.label} alterado`,
+    field,
+    from,
+    to,
+    bodyText: "",
+    searchText: `${author} ${meta.label} ${field} ${from} ${to}`,
+  };
+}
+
+function normalizeHistoryAttachment(attachment = {}, issueKey = "") {
+  const createdAt = parseHistoryDate(attachment.created);
+  if (!createdAt) return null;
+  const filename = attachment.filename || attachment.name || "arquivo";
+  const author = jiraActorName(attachment.author);
+  return {
+    id: `${issueKey}-attachment-${attachment.id || filename}`,
+    type: "attachment_changed",
+    createdAt,
+    actor: author,
+    title: "Anexo incluído",
+    field: "attachment",
+    from: "",
+    to: filename,
+    bodyText: `${filename}${attachment.size ? ` • ${Math.ceil(Number(attachment.size || 0) / 1024)} KB` : ""}`,
+    searchText: `${author} anexo ${filename}`,
+  };
+}
+
+function groupHistoryEventsByDay(events = []) {
+  const groups = new Map();
+  events.forEach((event) => {
+    const key = historyDayKey(event.createdAt);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(event);
+  });
+  return Array.from(groups.entries()).map(([key, items]) => ({
+    key,
+    label: historyDayLabel(key),
+    items,
+  }));
+}
+
+function TicketOperationalHistory({ active, issueKey, issue }) {
+  const [loading, setLoading] = useState(false);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [events, setEvents] = useState([]);
+  const [failures, setFailures] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState({});
+
+  useEffect(() => {
+    if (!active || !issueKey || loadedKey === issueKey) return;
+    let alive = true;
+    setLoading(true);
+    setFailures([]);
+
+    Promise.allSettled([
+      getComments(issueKey),
+      jiraGetIssueChangelog(issueKey, { maxResults: 100 }),
+    ])
+      .then((results) => {
+        if (!alive) return;
+        const nextEvents = [];
+        const nextFailures = [];
+        const [commentsResult, changelogResult] = results;
+
+        if (commentsResult.status === "fulfilled") {
+          const list =
+            commentsResult.value?.comments ||
+            commentsResult.value?.values ||
+            commentsResult.value ||
+            [];
+          if (Array.isArray(list)) {
+            list.forEach((comment) => {
+              const event = normalizeHistoryComment(comment, issueKey);
+              if (event) nextEvents.push(event);
+            });
+          }
+        } else {
+          nextFailures.push("comentários");
+        }
+
+        if (changelogResult.status === "fulfilled") {
+          const histories =
+            changelogResult.value?.values ||
+            changelogResult.value?.histories ||
+            [];
+          if (Array.isArray(histories)) {
+            histories.forEach((history) => {
+              (history?.items || []).forEach((item, index) => {
+                const event = normalizeHistoryChange(history, item, issueKey, index);
+                if (event) nextEvents.push(event);
+              });
+            });
+          }
+        } else {
+          nextFailures.push("changelog");
+        }
+
+        const attachments = Array.isArray(issue?.fields?.attachment)
+          ? issue.fields.attachment
+          : [];
+        attachments.forEach((attachment) => {
+          const event = normalizeHistoryAttachment(attachment, issueKey);
+          if (event) nextEvents.push(event);
+        });
+
+        nextEvents.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        setEvents(nextEvents);
+        setFailures(nextFailures);
+        setLoadedKey(issueKey);
+      })
+      .finally(() => alive && setLoading(false));
+
+    return () => {
+      alive = false;
+    };
+  }, [active, issueKey, loadedKey, issue]);
+
+  useEffect(() => {
+    if (!active) return;
+    setFilter("all");
+    setQuery("");
+    setExpanded({});
+  }, [active, issueKey]);
+
+  const filteredEvents = useMemo(() => {
+    const normalizedQuery = normalizePlain(query);
+    return events.filter((event) => {
+      const meta = HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
+      if (filter !== "all" && meta.filter !== filter) return false;
+      if (!normalizedQuery) return true;
+      return normalizePlain(
+        `${event.title} ${event.actor} ${event.field} ${event.from} ${event.to} ${event.bodyText} ${event.searchText}`,
+      ).includes(normalizedQuery);
+    });
+  }, [events, filter, query]);
+
+  const groupedEvents = useMemo(
+    () => groupHistoryEventsByDay(filteredEvents),
+    [filteredEvents],
+  );
+  const latestEvent = events[0] || null;
+
+  return (
+    <section className="grid gap-3">
+      <div className="rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                {events.length} evento(s)
+              </Badge>
+              {latestEvent ? (
+                <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+                  Última movimentação: {formatHistoryDateTime(latestEvent.createdAt)}
+                </Badge>
+              ) : null}
+            </div>
+            {failures.length ? (
+              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Leitura parcial: não foi possível carregar {failures.join(" e ")}.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="relative min-w-0 lg:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar no histórico..."
+              className="h-10 rounded-xl border-zinc-200 bg-white pl-9"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {Object.entries(HISTORY_EVENT_TYPES).map(([key, item]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                filter === key
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="grid gap-3">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-24 rounded-xl" />
+          ))}
+        </div>
+      ) : groupedEvents.length ? (
+        <div className="grid gap-5">
+          {groupedEvents.map((group) => (
+            <section key={group.key} className="grid gap-2">
+              <div className="sticky top-0 z-10 w-fit rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-bold uppercase tracking-wide text-zinc-500 shadow-sm">
+                {group.label}
+              </div>
+              <div className="relative ml-4 grid gap-3 border-l border-zinc-200 pl-5">
+                {group.items.map((event) => {
+                  const meta = HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
+                  const Icon = meta.icon || History;
+                  const isExpanded = Boolean(expanded[event.id]);
+                  const commentLong = String(event.bodyText || "").length > 220;
+                  const visibleBody =
+                    commentLong && !isExpanded
+                      ? `${String(event.bodyText || "").slice(0, 220)}...`
+                      : event.bodyText;
+
+                  return (
+                    <article
+                      key={event.id}
+                      className="relative rounded-xl border border-zinc-200 bg-white p-3 shadow-sm"
+                    >
+                      <span className="absolute -left-[34px] top-4 grid h-7 w-7 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-sm">
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className={cn("rounded-full border", meta.className)}>
+                              {meta.label}
+                            </Badge>
+                            <span className="text-xs font-medium text-zinc-500">
+                              {formatHistoryTime(event.createdAt)}
+                            </span>
+                          </div>
+                          <h3 className="mt-2 text-sm font-semibold text-zinc-950">
+                            {event.title}
+                          </h3>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Por: {event.actor || "Jira"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {event.type === "comment" ? (
+                        <div className="mt-3 rounded-xl border border-zinc-100 bg-zinc-50 p-3 text-sm text-zinc-700">
+                          <div className="whitespace-pre-wrap break-words">
+                            {visibleBody || "Comentário sem texto."}
+                          </div>
+                          {commentLong ? (
+                            <button
+                              type="button"
+                              className="mt-2 text-xs font-semibold text-red-700 hover:text-red-800"
+                              onClick={() =>
+                                setExpanded((current) => ({
+                                  ...current,
+                                  [event.id]: !current[event.id],
+                                }))
+                              }
+                            >
+                              {isExpanded ? "Ver menos" : "Ver mais"}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
+                          <div className="min-w-0 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                              De
+                            </div>
+                            <div className="mt-1 break-words font-medium text-zinc-800">
+                              {event.from || "—"}
+                            </div>
+                          </div>
+                          <ArrowUpDown className="hidden h-4 w-4 text-zinc-400 sm:block" />
+                          <div className="min-w-0 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                              Para
+                            </div>
+                            <div className="mt-1 break-words font-medium text-zinc-900">
+                              {event.to || event.bodyText || "—"}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {event.field && event.type !== "comment" ? (
+                        <div className="mt-2 text-xs text-zinc-500">
+                          Campo: {event.field}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 text-center">
+          <History className="mx-auto h-8 w-8 text-zinc-300" />
+          <div className="mt-3 text-sm font-semibold text-zinc-900">
+            Nenhum evento encontrado.
+          </div>
+          <p className="mt-1 text-sm text-zinc-500">
+            Ajuste os filtros ou atualize o ticket no Jira para criar histórico.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TicketDetailsDialog({
   open,
   onOpenChange,
@@ -5021,6 +5510,7 @@ function TicketDetailsDialog({
   const [editOpen, setEditOpen] = useState(false);
   const [savingStarted, setSavingStarted] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
+  const [detailsView, setDetailsView] = useState("summary");
 
   useEffect(() => {
     if (!open || !issueKey) return;
@@ -5031,6 +5521,7 @@ function TicketDetailsDialog({
     setIssue(null);
     setComments([]);
     setPreviewAttachment(null);
+    setDetailsView("summary");
 
     Promise.allSettled([
       getIssue(issueKey, TICKET_DETAILS_FIELDS),
@@ -5385,6 +5876,34 @@ function TicketDetailsDialog({
           </div>
         ) : null}
 
+        <div className="inline-flex w-full rounded-2xl bg-zinc-100 p-1 sm:w-auto">
+          <button
+            type="button"
+            className={cn(
+              "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+              detailsView === "summary"
+                ? "bg-white text-zinc-950 shadow-sm"
+                : "text-zinc-600 hover:text-zinc-950",
+            )}
+            onClick={() => setDetailsView("summary")}
+          >
+            Resumo
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+              detailsView === "history"
+                ? "bg-white text-zinc-950 shadow-sm"
+                : "text-zinc-600 hover:text-zinc-950",
+            )}
+            onClick={() => setDetailsView("history")}
+          >
+            Histórico
+          </button>
+        </div>
+
+        {detailsView === "summary" ? (
         <div className="grid gap-3">
           {/* resumo */}
           <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
@@ -5924,6 +6443,13 @@ function TicketDetailsDialog({
             )}
           </div>
         </div>
+        ) : (
+          <TicketOperationalHistory
+            active={detailsView === "history"}
+            issueKey={issueKey}
+            issue={issue}
+          />
+        )}
 
         <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
           <div className="flex flex-wrap gap-2">
