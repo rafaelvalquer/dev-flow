@@ -13,8 +13,9 @@ function stampForFile(date = new Date()) {
     .replace("T", "-");
 }
 
-function fileName() {
-  return `evidencia-dashboard-cdr-${stampForFile()}.pdf`;
+function fileName(mode = "single") {
+  const suffix = mode === "compare" ? "comparativo-cdr" : "dashboard-cdr";
+  return `evidencia-${suffix}-${stampForFile()}.pdf`;
 }
 
 function filterSummary(filters = {}) {
@@ -43,7 +44,11 @@ function addFooter(pdf) {
   }
 }
 
-function addHeader(pdf, { analytics, filters }) {
+function isCompareEvidence(filters = {}, analytics = {}) {
+  return filters?.mode === "compare" || analytics?.source === "portal-export-compare";
+}
+
+function addSingleHeader(pdf, { analytics, filters }) {
   const generatedAt = new Date().toLocaleString("pt-BR");
   const summary = analytics?.summary || {};
   const width = pdf.internal.pageSize.getWidth();
@@ -71,6 +76,61 @@ function addHeader(pdf, { analytics, filters }) {
   pdf.text(`Transferencias: ${numberBr(summary.transferTotal)}`, width - 12, 39, {
     align: "right",
   });
+}
+
+function addCompareHeader(pdf, { analytics, filters }) {
+  const generatedAt = new Date().toLocaleString("pt-BR");
+  const width = pdf.internal.pageSize.getWidth();
+  const labels = analytics?.comparison?.labels || {
+    left: filters?.left?.label || analytics?.left?.label || "Periodo A",
+    right: filters?.right?.label || analytics?.right?.label || "Periodo B",
+  };
+  const leftFilters = filters?.left?.filters || analytics?.left?.filters || {};
+  const rightFilters = filters?.right?.filters || analytics?.right?.filters || {};
+  const leftSummary = analytics?.left?.summary || {};
+  const rightSummary = analytics?.right?.summary || {};
+
+  pdf.setFillColor(248, 250, 252);
+  pdf.rect(0, 0, width, 58, "F");
+  pdf.setTextColor(24, 24, 27);
+  pdf.setFontSize(18);
+  pdf.text("Comparativo CDR", 12, 17);
+  pdf.setFontSize(9);
+  pdf.setTextColor(82, 82, 91);
+  pdf.text(
+    `${labels.left}: ${leftFilters.dataInicial || "-"} a ${leftFilters.dataFinal || "-"}`,
+    12,
+    27,
+  );
+  pdf.text(
+    `${labels.right}: ${rightFilters.dataInicial || "-"} a ${rightFilters.dataFinal || "-"}`,
+    12,
+    33,
+  );
+  pdf.text(`Filtros ${labels.left}: ${filterSummary(leftFilters)}`, 12, 39, {
+    maxWidth: width - 24,
+  });
+  pdf.text(`Filtros ${labels.right}: ${filterSummary(rightFilters)}`, 12, 45, {
+    maxWidth: width - 24,
+  });
+  pdf.text(`Gerado em: ${generatedAt}`, 12, 53);
+
+  pdf.setTextColor(24, 24, 27);
+  pdf.text(`${labels.left}: ${numberBr(leftSummary.analyzedCalls)} chamadas`, width - 12, 27, {
+    align: "right",
+  });
+  pdf.text(`${labels.right}: ${numberBr(rightSummary.analyzedCalls)} chamadas`, width - 12, 33, {
+    align: "right",
+  });
+}
+
+function addHeader(pdf, { analytics, filters }) {
+  if (isCompareEvidence(filters, analytics)) {
+    addCompareHeader(pdf, { analytics, filters });
+    return 70;
+  }
+  addSingleHeader(pdf, { analytics, filters });
+  return 56;
 }
 
 function expandScrollableAreas(root) {
@@ -229,9 +289,9 @@ export async function createDashboardEvidencePdfFile({
   }
 
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  addHeader(pdf, { analytics, filters });
+  const cursorStart = addHeader(pdf, { analytics, filters });
 
-  let cursorY = 56;
+  let cursorY = cursorStart;
   for (const module of selected) {
     const element = moduleElements?.[module.id];
     if (!element) continue;
@@ -240,7 +300,7 @@ export async function createDashboardEvidencePdfFile({
   }
 
   addFooter(pdf);
-  return new File([pdf.output("blob")], fileName(), {
+  return new File([pdf.output("blob")], fileName(isCompareEvidence(filters, analytics) ? "compare" : "single"), {
     type: "application/pdf",
   });
 }

@@ -8,7 +8,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowDownRight, ArrowRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, CircleHelp } from "lucide-react";
+import {
+  Tooltip as UiTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 function numberBr(value) {
   return new Intl.NumberFormat("pt-BR").format(Number(value || 0));
@@ -31,12 +37,44 @@ function DeltaIcon({ value }) {
   return <ArrowRight className="h-4 w-4 text-zinc-500" />;
 }
 
-function ComparisonCard({ title, leftLabel, rightLabel, left, right, delta, formatter = numberBr }) {
+function MetricHelp({ description }) {
+  if (!description) return null;
+  return (
+    <UiTooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-grid h-5 w-5 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+          aria-label="Descricao do indicador"
+        >
+          <CircleHelp className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs leading-relaxed">
+        {description}
+      </TooltipContent>
+    </UiTooltip>
+  );
+}
+
+function ComparisonCard({
+  title,
+  description,
+  leftLabel,
+  rightLabel,
+  left,
+  right,
+  delta,
+  formatter = numberBr,
+}) {
   return (
     <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium text-zinc-500">{title}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-medium text-zinc-500">{title}</p>
+            <MetricHelp description={description} />
+          </div>
           <div className="mt-3 grid gap-2 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-zinc-500">{leftLabel}</span>
@@ -115,6 +153,7 @@ export default function CdrComparisonView({ data }) {
   const chartData = data.comparison?.charts?.kpis || [];
 
   return (
+    <TooltipProvider>
     <div className="grid gap-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <ComparisonCard
@@ -125,6 +164,7 @@ export default function CdrComparisonView({ data }) {
         />
         <ComparisonCard
           title="TMA total"
+          description="Tempo medio da chamada inteira no CDR, considerando o periodo total da ligacao do inicio ao fim."
           leftLabel={labels.left}
           rightLabel={labels.right}
           formatter={duration}
@@ -132,6 +172,7 @@ export default function CdrComparisonView({ data }) {
         />
         <ComparisonCard
           title="TMA URA"
+          description="Tempo medio apenas dentro da URA, calculado pelo periodo em que a chamada permaneceu no atendimento automatico."
           leftLabel={labels.left}
           rightLabel={labels.right}
           formatter={duration}
@@ -190,5 +231,6 @@ export default function CdrComparisonView({ data }) {
         />
       </div>
     </div>
+    </TooltipProvider>
   );
 }

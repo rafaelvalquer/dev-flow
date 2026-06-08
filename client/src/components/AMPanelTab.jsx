@@ -1941,6 +1941,14 @@ export default function AMPanelTab({
     return issue;
   }, [refreshIssue]);
 
+  const refreshTicketAfterMutation = useCallback(async (issueKey) => {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+    if (!key) return null;
+    return refreshIssueInPanel(key);
+  }, [refreshIssueInPanel]);
+
   useEffect(() => {
     ensureLoaded().catch(() => null);
   }, [ensureLoaded]);
@@ -2168,7 +2176,7 @@ export default function AMPanelTab({
       }`;
       await createComment(key, adfFromPlainText(comment || fallbackComment));
 
-      await reload();
+      await refreshTicketAfterMutation(key);
       closeResolutionDialog();
     } catch (e) {
       console.error(e);
@@ -2193,7 +2201,7 @@ export default function AMPanelTab({
         ],
       },
     });
-    return refreshIssueInPanel(key);
+    return refreshTicketAfterMutation(key);
   }
 
   async function updateTicketPriority(issueKey, priorityName) {
@@ -2202,7 +2210,7 @@ export default function AMPanelTab({
       .toUpperCase();
     if (!key || !priorityName) return;
     await jiraUpdateIssuePriority(key, priorityName);
-    return refreshIssueInPanel(key);
+    return refreshTicketAfterMutation(key);
   }
 
   async function updateTicketStatus(issueKey, statusName) {
@@ -2211,7 +2219,7 @@ export default function AMPanelTab({
       .toUpperCase();
     if (!key || !statusName) return;
     await jiraTransitionToStatus(key, statusName);
-    return refreshIssueInPanel(key);
+    return refreshTicketAfterMutation(key);
   }
 
   async function updateTicketDueDate(issueKey, dueDate) {
@@ -2238,9 +2246,10 @@ export default function AMPanelTab({
               ...(prev.fields || {}),
               duedate: nextDueDate || null,
             },
-          }
+        }
         : prev,
     );
+    return refreshTicketAfterMutation(key);
   }
 
   async function movePersonalTicketStatus(issueKey, statusName, previousStatus) {
@@ -2261,7 +2270,7 @@ export default function AMPanelTab({
 
     try {
       await jiraTransitionToStatus(key, nextStatus);
-      await refreshIssueInPanel(key).catch(() => null);
+      await refreshTicketAfterMutation(key).catch(() => null);
       toast.success(`${key} movido para ${nextStatus}.`);
     } catch (e) {
       console.error(e);
@@ -2289,7 +2298,7 @@ export default function AMPanelTab({
         dueDate: dueDateDraft,
       });
       closeEditor();
-      await reload();
+      await refreshTicketAfterMutation(editorIssue.key);
       setSubView("calendario");
     } catch (e) {
       console.error(e);
@@ -3335,12 +3344,12 @@ export default function AMPanelTab({
             onDocumentationFlagChange={setDocumentationFolderFlag}
             onOpenDocumentation={(ticket) => openDocumentationOrganizer(ticket)}
             onOpenSchedule={(ticket) => openEditor(ticket)}
-            onTicketUpdated={refreshIssueInPanel}
+            onTicketUpdated={refreshTicketAfterMutation}
             onMarkedStarted={async () => {
               // cria comentário [INICIADO] sem mudar status
               if (!detailsKey) return;
               await createComment(detailsKey, adfFromPlainText("[INICIADO]"));
-              await reload();
+              return refreshTicketAfterMutation(detailsKey);
             }}
           />
         </main>
@@ -5010,6 +5019,7 @@ function TicketDetailsDialog({
   const [dueDateSaveState, setDueDateSaveState] = useState("");
   const [savingFolderFlag, setSavingFolderFlag] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [savingStarted, setSavingStarted] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
 
   useEffect(() => {
@@ -5157,18 +5167,22 @@ function TicketDetailsDialog({
     setSavingStatus(true);
     setErr("");
     try {
-      await onChangeStatus?.(issueKey, statusDraft);
-      setIssue((prev) =>
-        prev
-          ? {
-              ...prev,
-              fields: {
-                ...(prev.fields || {}),
-                status: { ...(prev.fields?.status || {}), name: statusDraft },
-              },
-            }
-          : prev,
-      );
+      const freshIssue = await onChangeStatus?.(issueKey, statusDraft);
+      if (freshIssue) {
+        setIssue(freshIssue?.fields ? freshIssue : { fields: freshIssue });
+      } else {
+        setIssue((prev) =>
+          prev
+            ? {
+                ...prev,
+                fields: {
+                  ...(prev.fields || {}),
+                  status: { ...(prev.fields?.status || {}), name: statusDraft },
+                },
+              }
+            : prev,
+        );
+      }
     } catch (e) {
       setErr(e?.message || "Falha ao alterar status.");
     } finally {
@@ -5187,21 +5201,25 @@ function TicketDetailsDialog({
     setSavingPriority(true);
     setErr("");
     try {
-      await onChangePriority?.(issueKey, priorityDraft);
-      setIssue((prev) =>
-        prev
-          ? {
-              ...prev,
-              fields: {
-                ...(prev.fields || {}),
-                priority: {
-                  ...(prev.fields?.priority || {}),
-                  name: priorityDraft,
+      const freshIssue = await onChangePriority?.(issueKey, priorityDraft);
+      if (freshIssue) {
+        setIssue(freshIssue?.fields ? freshIssue : { fields: freshIssue });
+      } else {
+        setIssue((prev) =>
+          prev
+            ? {
+                ...prev,
+                fields: {
+                  ...(prev.fields || {}),
+                  priority: {
+                    ...(prev.fields?.priority || {}),
+                    name: priorityDraft,
+                  },
                 },
-              },
-            }
-          : prev,
-      );
+              }
+            : prev,
+        );
+      }
     } catch (e) {
       setErr(e?.message || "Falha ao alterar prioridade.");
     } finally {
@@ -5231,7 +5249,10 @@ function TicketDetailsDialog({
     );
 
     try {
-      await onChangeDueDate?.(issueKey, nextDueDate);
+      const freshIssue = await onChangeDueDate?.(issueKey, nextDueDate);
+      if (freshIssue) {
+        setIssue(freshIssue?.fields ? freshIssue : { fields: freshIssue });
+      }
       setDueDateSaveState("saved");
     } catch (e) {
       setDueDateDraft(previousDueDate);
@@ -5292,6 +5313,30 @@ function TicketDetailsDialog({
       setSavingFolderFlag(false);
     }
   }
+
+  async function markDetailsAsStarted() {
+    if (!issueKey) return;
+    setSavingStarted(true);
+    setErr("");
+    try {
+      const freshIssue = await onMarkedStarted?.();
+      if (freshIssue) {
+        setIssue(freshIssue?.fields ? freshIssue : { fields: freshIssue });
+      }
+      const refreshedComments = await getComments(issueKey).catch(() => null);
+      const list =
+        refreshedComments?.comments ||
+        refreshedComments?.values ||
+        refreshedComments ||
+        [];
+      if (Array.isArray(list)) setComments(list);
+    } catch (e) {
+      setErr(e?.message || "Falha ao marcar ticket como iniciado.");
+    } finally {
+      setSavingStarted(false);
+    }
+  }
+
   const progressLabel = meta?.hasStarted
     ? latestCommentText
     : "Sem comentário de início";
@@ -5896,12 +5941,10 @@ function TicketDetailsDialog({
               <Button
                 variant="outline"
                 className="rounded-xl border-zinc-200 bg-white"
-                onClick={async () => {
-                  await onMarkedStarted?.();
-                }}
-                disabled={!issueKey}
+                onClick={markDetailsAsStarted}
+                disabled={!issueKey || savingStarted}
               >
-                Marcar como iniciado
+                {savingStarted ? "Salvando..." : "Marcar como iniciado"}
               </Button>
             ) : null}
 
@@ -5941,10 +5984,13 @@ function TicketDetailsDialog({
       open={editOpen}
       onOpenChange={setEditOpen}
       issueKey={issueKey}
-      onSaved={async (freshIssue) => {
-        const normalized = freshIssue?.fields ? freshIssue : { fields: freshIssue };
-        setIssue(normalized);
-        await onTicketUpdated?.(issueKey).catch(() => null);
+      onSaved={async (savedIssueKey) => {
+        const freshIssue = await onTicketUpdated?.(savedIssueKey || issueKey);
+        if (freshIssue) {
+          const normalized = freshIssue?.fields ? freshIssue : { fields: freshIssue };
+          setIssue(normalized);
+        }
+        return freshIssue;
       }}
     />
     <AttachmentPreviewModal
@@ -6009,6 +6055,43 @@ function areEditValuesEqual(a, b) {
   return JSON.stringify(a ?? "") === JSON.stringify(b ?? "");
 }
 
+function summarizeEditValue(field, value) {
+  if (isEmptyValue(value)) return "—";
+  if (Array.isArray(value)) {
+    return value.map((item) => summarizeEditValue(field, item)).join(", ");
+  }
+
+  const raw = String(value || "");
+  const schema = field?.schema || {};
+  const allowedValues = Array.isArray(field?.allowedValues)
+    ? field.allowedValues
+    : [];
+
+  if (raw.includes("::")) {
+    return raw
+      .split("::")
+      .map((part) => summarizeEditValue(field, part))
+      .join(" / ");
+  }
+
+  const option = allowedValues.find((item) => editOptionId(item) === raw);
+  const label =
+    option?.displayName ||
+    option?.name ||
+    option?.value ||
+    option?.key ||
+    raw;
+
+  const normalized =
+    schema.type === "date"
+      ? fmtDateBr(raw)
+      : schema.type === "datetime"
+        ? raw.replace("T", " ")
+        : String(label || raw);
+
+  return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized;
+}
+
 function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -6050,6 +6133,102 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
   const modalBusy = loading || saving;
   const projectKey = issue?.fields?.project?.key || "";
   const parentJql = projectKey ? `project = ${projectKey} ORDER BY updated DESC` : "";
+
+  const requiredErrors = useMemo(() => {
+    const errors = {};
+    if (summaryField && isFieldRequired(summaryField) && !String(summary || "").trim()) {
+      errors.summary = "Resumo e obrigatorio.";
+    }
+    if (
+      descriptionField &&
+      isFieldRequired(descriptionField) &&
+      !String(description || "").trim()
+    ) {
+      errors.description = "Descricao e obrigatoria.";
+    }
+    if (parentField && isFieldRequired(parentField) && !String(parentKey || "").trim()) {
+      errors.parent = "Ticket pai e obrigatorio.";
+    }
+    editableExtraFields.forEach((field) => {
+      const id = getFieldId(field);
+      if (!id || !isFieldRequired(field)) return;
+      if (isEmptyValue(fieldValues[id])) {
+        errors[id] = `${getFieldName(field)} e obrigatorio.`;
+      }
+    });
+    return errors;
+  }, [
+    description,
+    descriptionField,
+    editableExtraFields,
+    fieldValues,
+    parentField,
+    parentKey,
+    summary,
+    summaryField,
+  ]);
+
+  const visibleFieldErrors = useMemo(
+    () => ({ ...requiredErrors, ...fieldErrors }),
+    [fieldErrors, requiredErrors],
+  );
+
+  const pendingChanges = useMemo(() => {
+    const changes = [];
+    if (summaryField && !areEditValuesEqual(summary, initialValues.summary)) {
+      changes.push({
+        id: "summary",
+        label: getFieldName(summaryField),
+        before: summarizeEditValue(summaryField, initialValues.summary),
+        after: summarizeEditValue(summaryField, summary),
+      });
+    }
+    if (
+      descriptionField &&
+      !areEditValuesEqual(description, initialValues.description)
+    ) {
+      changes.push({
+        id: "description",
+        label: getFieldName(descriptionField),
+        before: summarizeEditValue(descriptionField, initialValues.description),
+        after: summarizeEditValue(descriptionField, description),
+      });
+    }
+    if (parentField && !areEditValuesEqual(parentKey, initialValues.parent)) {
+      changes.push({
+        id: "parent",
+        label: getFieldName(parentField),
+        before: summarizeEditValue(parentField, initialValues.parent),
+        after: summarizeEditValue(parentField, parentKey),
+      });
+    }
+    editableExtraFields.forEach((field) => {
+      const id = getFieldId(field);
+      if (!id) return;
+      const nextValue = fieldValues[id];
+      const previousValue = initialValues.fields?.[id];
+      if (areEditValuesEqual(nextValue, previousValue)) return;
+      changes.push({
+        id,
+        label: getFieldName(field),
+        before: summarizeEditValue(field, previousValue),
+        after: summarizeEditValue(field, nextValue),
+      });
+    });
+    return changes;
+  }, [
+    description,
+    descriptionField,
+    editableExtraFields,
+    fieldValues,
+    initialValues,
+    parentField,
+    parentKey,
+    summary,
+    summaryField,
+  ]);
+
+  const hasRequiredErrors = Object.keys(requiredErrors).length > 0;
 
   useEffect(() => {
     if (!open || !issueKey) return;
@@ -6127,8 +6306,7 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
     };
   }, [open, issueKey]);
 
-  function setFieldValue(fieldId, value) {
-    setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
+  function clearEditFieldError(fieldId) {
     setFieldErrors((prev) => {
       if (!prev?.[fieldId]) return prev;
       const next = { ...prev };
@@ -6137,30 +6315,14 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
     });
   }
 
+  function setFieldValue(fieldId, value) {
+    setFieldValues((prev) => ({ ...prev, [fieldId]: value }));
+    clearEditFieldError(fieldId);
+  }
+
   function validateEditForm() {
-    const errors = {};
-    if (summaryField && isFieldRequired(summaryField) && !String(summary || "").trim()) {
-      errors.summary = "Resumo e obrigatorio.";
-    }
-    if (
-      descriptionField &&
-      isFieldRequired(descriptionField) &&
-      !String(description || "").trim()
-    ) {
-      errors.description = "Descricao e obrigatoria.";
-    }
-    if (parentField && isFieldRequired(parentField) && !String(parentKey || "").trim()) {
-      errors.parent = "Ticket pai e obrigatorio.";
-    }
-    editableExtraFields.forEach((field) => {
-      const id = getFieldId(field);
-      if (!id || !isFieldRequired(field)) return;
-      if (isEmptyValue(fieldValues[id])) {
-        errors[id] = `${getFieldName(field)} e obrigatorio.`;
-      }
-    });
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
+    setFieldErrors(requiredErrors);
+    return Object.keys(requiredErrors).length === 0;
   }
 
   function buildEditPayload() {
@@ -6202,7 +6364,7 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
     if (!key || !validateEditForm()) return;
 
     const payload = buildEditPayload();
-    if (!Object.keys(payload.fields || {}).length) {
+    if (!pendingChanges.length || !Object.keys(payload.fields || {}).length) {
       onOpenChange(false);
       return;
     }
@@ -6212,9 +6374,8 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
     setFieldErrors({});
     try {
       await jiraEditIssue(key, payload);
-      const freshIssue = await getIssue(key, TICKET_DETAILS_FIELDS);
       toast.success(`${key} atualizado no Jira.`);
-      await onSaved?.(freshIssue);
+      await onSaved?.(key);
       onOpenChange(false);
     } catch (error) {
       const body = error?.body || {};
@@ -6256,6 +6417,70 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
           </div>
         ) : (
           <div className="grid gap-4">
+            <section className="sticky top-0 z-10 rounded-2xl border border-zinc-200 bg-white/95 p-4 shadow-sm backdrop-blur">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-900">
+                    Alterações pendentes
+                  </h3>
+                  <p className="text-xs text-zinc-500">
+                    Somente os campos alterados abaixo serão enviados ao Jira.
+                  </p>
+                </div>
+                <Badge
+                  className={cn(
+                    "w-fit rounded-full border",
+                    pendingChanges.length
+                      ? "border-amber-200 bg-amber-50 text-amber-800"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700",
+                  )}
+                >
+                  {pendingChanges.length
+                    ? `${pendingChanges.length} campo(s) alterado(s)`
+                    : "Sem alterações"}
+                </Badge>
+              </div>
+
+              {hasRequiredErrors ? (
+                <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                  Preencha os campos obrigatórios marcados antes de salvar.
+                </div>
+              ) : null}
+
+              {pendingChanges.length ? (
+                <div className="mt-3 grid max-h-44 gap-2 overflow-y-auto pr-1">
+                  {pendingChanges.map((change) => (
+                    <div
+                      key={change.id}
+                      className="grid gap-1 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs"
+                    >
+                      <div className="font-semibold text-zinc-900">
+                        {change.label}
+                      </div>
+                      <div className="grid gap-1 text-zinc-600 sm:grid-cols-2">
+                        <span>
+                          Atual:{" "}
+                          <span className="font-medium text-zinc-800">
+                            {change.before}
+                          </span>
+                        </span>
+                        <span>
+                          Novo:{" "}
+                          <span className="font-medium text-zinc-900">
+                            {change.after}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                  Edite algum campo para habilitar o salvamento.
+                </div>
+              )}
+            </section>
+
             <section className="rounded-2xl border border-zinc-200 bg-white p-4">
               <div className="mb-3 flex flex-col gap-1">
                 <h3 className="text-sm font-semibold text-zinc-900">
@@ -6276,13 +6501,16 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
                     </span>
                     <Input
                       value={summary}
-                      onChange={(event) => setSummary(event.target.value)}
+                      onChange={(event) => {
+                        setSummary(event.target.value);
+                        clearEditFieldError("summary");
+                      }}
                       disabled={modalBusy}
                       className="rounded-xl border-zinc-200 bg-white"
                     />
-                    {fieldErrors.summary ? (
+                    {visibleFieldErrors.summary ? (
                       <span className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                        {fieldErrors.summary}
+                        {visibleFieldErrors.summary}
                       </span>
                     ) : null}
                   </label>
@@ -6298,14 +6526,17 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
                     </span>
                     <Textarea
                       value={description}
-                      onChange={(event) => setDescription(event.target.value)}
+                      onChange={(event) => {
+                        setDescription(event.target.value);
+                        clearEditFieldError("description");
+                      }}
                       disabled={modalBusy}
                       rows={6}
                       className="rounded-xl border-zinc-200 bg-white"
                     />
-                    {fieldErrors.description ? (
+                    {visibleFieldErrors.description ? (
                       <span className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                        {fieldErrors.description}
+                        {visibleFieldErrors.description}
                       </span>
                     ) : null}
                   </label>
@@ -6315,9 +6546,12 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
                   <GenericField
                     field={parentField}
                     value={parentKey}
-                    onChange={setParentKey}
+                    onChange={(value) => {
+                      setParentKey(value);
+                      clearEditFieldError("parent");
+                    }}
                     disabled={modalBusy}
-                    fieldErrors={fieldErrors}
+                    fieldErrors={visibleFieldErrors}
                     projectKey={projectKey}
                     parentJql={parentJql}
                   />
@@ -6349,7 +6583,7 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
                           value={fieldValues[id]}
                           onChange={(value) => setFieldValue(id, value)}
                           disabled={modalBusy}
-                          fieldErrors={fieldErrors}
+                          fieldErrors={visibleFieldErrors}
                           projectKey={projectKey}
                           parentJql={parentJql}
                         />
@@ -6382,7 +6616,9 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
             type="button"
             className="rounded-xl bg-red-600 text-white hover:bg-red-700"
             onClick={submitEdit}
-            disabled={modalBusy || !issue}
+            disabled={
+              modalBusy || !issue || !pendingChanges.length || hasRequiredErrors
+            }
           >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {saving ? "Salvando..." : "Salvar alteracoes"}

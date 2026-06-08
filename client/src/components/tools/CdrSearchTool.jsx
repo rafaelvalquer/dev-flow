@@ -53,7 +53,11 @@ import JiraTicketPicker from "./JiraTicketPicker";
 const FILTER_KEY = "devflow:cdr:lastFilters";
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 const DEFAULT_FILTERS = {
@@ -86,6 +90,9 @@ const LEGACY_FIELD_VALUES = {
 
 function normalizeSavedFilters(filters) {
   const next = { ...DEFAULT_FILTERS, ...(filters || {}) };
+  const today = todayISO();
+  next.dataInicial = today;
+  next.dataFinal = today;
 
   for (let index = 1; index <= 5; index += 1) {
     const fieldKey = `campo${index}`;
@@ -98,16 +105,16 @@ function normalizeSavedFilters(filters) {
 function loadSavedFilters() {
   try {
     const saved = window.localStorage.getItem(FILTER_KEY);
-    if (!saved) return DEFAULT_FILTERS;
+    if (!saved) return normalizeSavedFilters({});
 
     const parsed = JSON.parse(saved);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return DEFAULT_FILTERS;
+      return normalizeSavedFilters({});
     }
 
     return normalizeSavedFilters(parsed);
   } catch {
-    return DEFAULT_FILTERS;
+    return normalizeSavedFilters({});
   }
 }
 

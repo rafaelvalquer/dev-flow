@@ -110,7 +110,11 @@ const EVIDENCE_MODULES = [
 ];
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function defaultDashboardFilters(overrides = {}) {
@@ -363,12 +367,12 @@ export default function CdrAnalyticsTool() {
   const [filters, setFilters] = useState(() => defaultDashboardFilters());
   const [compareForm, setCompareForm] = useState(() => ({
     left: {
-      label: "PRE",
-      filters: defaultDashboardFilters({ valor1: "PRE" }),
+      label: "Periodo A",
+      filters: defaultDashboardFilters({ campo1: "0", valor1: "" }),
     },
     right: {
-      label: "POS",
-      filters: defaultDashboardFilters({ valor1: "POS" }),
+      label: "Periodo B",
+      filters: defaultDashboardFilters({ campo1: "0", valor1: "" }),
     },
   }));
   const [analytics, setAnalytics] = useState(null);
@@ -420,6 +424,28 @@ export default function CdrAnalyticsTool() {
   const phoneTypeData = charts.phoneTypes || [];
   const callsByDdd = charts.callsByDdd || [];
   const transferData = charts.transfersBySkill || [];
+  const hasEvidenceData =
+    (analysisMode === "single" && Boolean(analytics)) ||
+    (analysisMode === "compare" && Boolean(comparison));
+  const evidenceData = analysisMode === "compare" ? comparison : analytics;
+  const evidenceFilters =
+    analysisMode === "compare"
+      ? {
+          mode: "compare",
+          left: compareForm.left,
+          right: compareForm.right,
+        }
+      : filters;
+  const evidenceModules =
+    analysisMode === "compare"
+      ? [
+          {
+            id: "comparison",
+            label: "Comparativo por periodo",
+            description: "Resumo lado a lado dos periodos analisados.",
+          },
+        ]
+      : EVIDENCE_MODULES;
 
   function setModuleRef(id) {
     return (node) => {
@@ -550,6 +576,30 @@ export default function CdrAnalyticsTool() {
     }));
   }
 
+  function setSingleDatesToToday() {
+    const today = todayISO();
+    setFilters((current) => ({
+      ...current,
+      dataInicial: today,
+      dataFinal: today,
+    }));
+  }
+
+  function setCompareDatesToToday(side) {
+    const today = todayISO();
+    setCompareForm((current) => ({
+      ...current,
+      [side]: {
+        ...current[side],
+        filters: {
+          ...current[side].filters,
+          dataInicial: today,
+          dataFinal: today,
+        },
+      },
+    }));
+  }
+
   if (booting) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
@@ -586,7 +636,7 @@ export default function CdrAnalyticsTool() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {analytics && analysisMode === "single" ? (
+              {hasEvidenceData ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -618,11 +668,22 @@ export default function CdrAnalyticsTool() {
                 Analise unica
               </TabsTrigger>
               <TabsTrigger value="compare" className="rounded-lg">
-                Comparativo
+                Comparativo por periodo
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="single" className="mt-4 grid gap-3">
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={setSingleDatesToToday}
+                  disabled={analyzing}
+                >
+                  Hoje
+                </Button>
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-1">
                   <FieldLabel>Data inicial</FieldLabel>
@@ -670,15 +731,26 @@ export default function CdrAnalyticsTool() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h4 className="text-sm font-semibold text-zinc-900">{title}</h4>
-                      <label className="grid min-w-[180px] gap-1">
-                        <FieldLabel>Rotulo</FieldLabel>
-                        <Input
-                          value={compareForm[side].label}
-                          onChange={(event) => updateCompareLabel(side, event.target.value)}
-                          placeholder={title}
-                          className="h-9"
-                        />
-                      </label>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="grid min-w-[180px] gap-1">
+                          <FieldLabel>Rotulo</FieldLabel>
+                          <Input
+                            value={compareForm[side].label}
+                            onChange={(event) => updateCompareLabel(side, event.target.value)}
+                            placeholder={title}
+                            className="h-9"
+                          />
+                        </label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCompareDatesToToday(side)}
+                          disabled={analyzing}
+                        >
+                          Hoje
+                        </Button>
+                      </div>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="grid gap-1">
@@ -735,7 +807,9 @@ export default function CdrAnalyticsTool() {
           Informe o periodo e os filtros para carregar o dashboard.
         </div>
       ) : comparison ? (
-        <CdrComparisonView data={comparison} />
+        <div ref={setModuleRef("comparison")} data-module-id="comparison">
+          <CdrComparisonView data={comparison} />
+        </div>
       ) : (
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -947,9 +1021,9 @@ export default function CdrAnalyticsTool() {
       <CdrDashboardEvidenceDialog
         open={evidenceOpen}
         onOpenChange={setEvidenceOpen}
-        analytics={analytics}
-        filters={filters}
-        moduleOptions={EVIDENCE_MODULES}
+        analytics={evidenceData}
+        filters={evidenceFilters}
+        moduleOptions={evidenceModules}
         moduleElements={moduleRefs.current}
       />
     </div>

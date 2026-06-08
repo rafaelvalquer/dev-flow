@@ -50,6 +50,7 @@ export default function CdrDashboardEvidenceDialog({
 
   const selectedCount = selectedModules.size;
   const canSave = Boolean(ticketKey.trim()) && selectedCount > 0 && !saving;
+  const isComparison = filters?.mode === "compare" || analytics?.source === "portal-export-compare";
 
   const modules = useMemo(
     () =>
@@ -114,7 +115,9 @@ export default function CdrDashboardEvidenceDialog({
         <DialogHeader className="border-b border-zinc-200 bg-white px-5 py-4">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Paperclip className="h-4 w-4 text-red-600" />
-            Salvar evidencia Dashboard CDR
+            {isComparison
+              ? "Salvar evidencia Comparativo CDR"
+              : "Salvar evidencia Dashboard CDR"}
           </DialogTitle>
           <DialogDescription>
             Gere um PDF visual dos modulos selecionados e anexe no ticket Jira.
