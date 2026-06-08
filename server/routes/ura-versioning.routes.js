@@ -15,6 +15,8 @@ const VERSION_STATUSES = new Set([
   "cancelled",
 ]);
 
+const MAX_EVIDENCES = 80;
+
 function badRequest(message) {
   const err = new Error(message);
   err.status = 400;
@@ -52,6 +54,45 @@ function normalizeLineList(value) {
     .slice(0, 200);
 }
 
+function normalizeJiraSnapshot(value = {}, ticket = "") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const key = String(value.key || ticket || "").trim().toUpperCase().slice(0, 80);
+  if (!key) return {};
+
+  return {
+    key,
+    summary: String(value.summary || "").trim().slice(0, 500),
+    status: String(value.status || "").trim().slice(0, 160),
+    assignee: String(value.assignee || "").trim().slice(0, 160),
+    priority: String(value.priority || "").trim().slice(0, 80),
+    url: String(value.url || "").trim().slice(0, 1000),
+    updatedAt: value.updatedAt || null,
+    syncedAt: value.syncedAt || new Date().toISOString(),
+  };
+}
+
+function normalizeEvidence(value = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = String(value.id || value.attachmentId || value.filename || "").trim().slice(0, 160);
+  const filename = String(value.filename || value.name || "evidencia").trim().slice(0, 260);
+  if (!filename) return null;
+
+  return {
+    id,
+    filename,
+    size: Number(value.size || 0) || 0,
+    mimeType: String(value.mimeType || value.contentType || "").trim().slice(0, 160),
+    author: String(value.author || "").trim().slice(0, 160),
+    createdAt: value.createdAt || value.created || new Date().toISOString(),
+    url: String(value.url || value.content || value.downloadUrl || "").trim().slice(0, 1000),
+  };
+}
+
+function normalizeEvidences(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(normalizeEvidence).filter(Boolean).slice(0, MAX_EVIDENCES);
+}
+
 function normalizeUraPayload(body = {}) {
   const name = String(body.name || "").trim().slice(0, 160);
   if (!name) throw badRequest("Nome da URA e obrigatorio.");
@@ -76,15 +117,21 @@ function normalizeVersionPayload(body = {}) {
   }
 
   const status = String(body.status || "deployed").trim();
+  const ticket = String(body.ticket || "").trim().slice(0, 80).toUpperCase();
   return {
     version,
     deploymentDate: new Date(`${rawDate}T00:00:00.000Z`),
     developer: String(body.developer || "").trim().slice(0, 160),
-    ticket: String(body.ticket || "").trim().slice(0, 80).toUpperCase(),
+    ticket,
+    jiraSnapshot: normalizeJiraSnapshot(body.jiraSnapshot, ticket),
+    evidences: normalizeEvidences(body.evidences),
     description: String(body.description || "").trim().slice(0, 4000),
     changes: normalizeLineList(body.changes),
     scripts: normalizeLineList(body.scripts),
     status: VERSION_STATUSES.has(status) ? status : "deployed",
+    deploymentStatusUpdatedAt: body.deploymentStatusUpdatedAt
+      ? new Date(body.deploymentStatusUpdatedAt)
+      : new Date(),
   };
 }
 
@@ -115,10 +162,13 @@ function serializeVersion(doc) {
       : "",
     developer: doc.developer || "",
     ticket: doc.ticket || "",
+    jiraSnapshot: doc.jiraSnapshot || {},
+    evidences: Array.isArray(doc.evidences) ? doc.evidences : [],
     description: doc.description || "",
     changes: Array.isArray(doc.changes) ? doc.changes : [],
     scripts: Array.isArray(doc.scripts) ? doc.scripts : [],
     status: doc.status || "deployed",
+    deploymentStatusUpdatedAt: doc.deploymentStatusUpdatedAt || null,
     createdAt: doc.createdAt || null,
     updatedAt: doc.updatedAt || null,
     createdBy: toStringId(doc.createdBy),

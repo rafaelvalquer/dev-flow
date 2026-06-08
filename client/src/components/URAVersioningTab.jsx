@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
   Code2,
+  ExternalLink,
+  FileText,
   GitBranch,
+  Link2,
   Loader2,
+  Paperclip,
   Pencil,
   Plus,
   RefreshCw,
   Rocket,
   Trash2,
+  UploadCloud,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -49,6 +54,8 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import JiraTicketPicker from "@/components/tools/JiraTicketPicker";
+import { jiraGetIssue, jiraUploadIssueAttachments } from "@/lib/jiraClient";
 import { cn } from "@/lib/utils";
 import {
   createUra,
@@ -88,11 +95,16 @@ const EMPTY_VERSION_FORM = {
   deploymentDate: "",
   developer: "",
   ticket: "",
+  jiraSnapshot: {},
+  evidences: [],
   description: "",
   changesText: "",
   scriptsText: "",
   status: "deployed",
 };
+
+const JIRA_VERSION_FIELDS =
+  "summary,status,assignee,priority,updated";
 
 function statusMeta(options, value) {
   return options.find((item) => item.value === value) || options[0];
@@ -125,6 +137,97 @@ function normalizeTicket(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function jiraBrowseUrlFromIssue(issue, key) {
+  const safeKey = normalizeTicket(key || issue?.key);
+  const self = String(issue?.self || "");
+  const base = self.replace(/\/rest\/api\/3\/issue\/.*$/i, "");
+  if (base && safeKey) return `${base}/browse/${safeKey}`;
+  return safeKey ? `https://clarobr-jsw-tecnologia.atlassian.net/browse/${safeKey}` : "";
+}
+
+function buildJiraSnapshot(issue, fallbackKey = "") {
+  if (!issue) return {};
+  const fields = issue.fields || {};
+  const key = normalizeTicket(issue.key || fallbackKey);
+  if (!key) return {};
+
+  return {
+    key,
+    summary: fields.summary || "",
+    status: fields.status?.name || "",
+    assignee: fields.assignee?.displayName || "",
+    priority: fields.priority?.name || "",
+    url: jiraBrowseUrlFromIssue(issue, key),
+    updatedAt: fields.updated || null,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
+async function fetchJiraSnapshot(ticketKey) {
+  const key = normalizeTicket(ticketKey);
+  if (!key) return {};
+  const issue = await jiraGetIssue(key, JIRA_VERSION_FIELDS);
+  return buildJiraSnapshot(issue, key);
+}
+
+function formatDateTimeBR(value) {
+  if (!value) return "Nao informado";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function normalizeEvidenceFromAttachment(attachment = {}) {
+  return {
+    id: String(attachment.id || attachment.filename || Date.now()),
+    filename: attachment.filename || attachment.name || "evidencia",
+    size: Number(attachment.size || 0) || 0,
+    mimeType: attachment.mimeType || attachment.contentType || "",
+    author: attachment.author?.displayName || attachment.author || "",
+    createdAt: attachment.created || attachment.createdAt || new Date().toISOString(),
+    url: attachment.content || attachment.downloadUrl || "",
+  };
+}
+
+function buildVersionPayloadFromData(data = {}) {
+  return {
+    uraId: data.uraId,
+    version: data.version,
+    deploymentDate: data.deploymentDate,
+    developer: data.developer,
+    ticket: normalizeTicket(data.ticket),
+    jiraSnapshot: data.jiraSnapshot || {},
+    evidences: Array.isArray(data.evidences) ? data.evidences : [],
+    description: data.description,
+    changes: Array.isArray(data.changes) ? data.changes : splitLines(data.changesText),
+    scripts: Array.isArray(data.scripts) ? data.scripts : splitLines(data.scriptsText),
+    status: data.status,
+    deploymentStatusUpdatedAt: data.deploymentStatusUpdatedAt || new Date().toISOString(),
+  };
+}
+
+function versionToPayload(version = {}) {
+  return buildVersionPayloadFromData({
+    ...version,
+    changes: version.changes,
+    scripts: version.scripts,
+  });
+}
+
+function sortVersions(list) {
+  return [...list].sort((a, b) => {
+    const byDate = String(b.deploymentDate || "").localeCompare(String(a.deploymentDate || ""));
+    if (byDate) return byDate;
+    return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+  });
+}
+
 export default function URAVersioningTab() {
   const [uras, setUras] = useState([]);
   const [versions, setVersions] = useState([]);
@@ -139,6 +242,8 @@ export default function URAVersioningTab() {
   const [editingVersion, setEditingVersion] = useState(null);
   const [uraForm, setUraForm] = useState(EMPTY_URA_FORM);
   const [versionForm, setVersionForm] = useState(EMPTY_VERSION_FORM);
+  const [syncingVersionId, setSyncingVersionId] = useState("");
+  const [uploadingEvidenceId, setUploadingEvidenceId] = useState("");
 
   const selectedUra = useMemo(
     () => uras.find((ura) => ura.id === selectedUraId) || null,
@@ -220,6 +325,8 @@ export default function URAVersioningTab() {
       ...EMPTY_VERSION_FORM,
       uraId: selectedUraId || uras[0]?.id || "",
       deploymentDate: new Date().toISOString().slice(0, 10),
+      jiraSnapshot: {},
+      evidences: [],
     });
     setVersionModalOpen(true);
   }
@@ -233,12 +340,30 @@ export default function URAVersioningTab() {
       deploymentDate: version.deploymentDate || "",
       developer: version.developer || "",
       ticket: version.ticket || "",
+      jiraSnapshot: version.jiraSnapshot || {},
+      evidences: Array.isArray(version.evidences) ? version.evidences : [],
       description: version.description || "",
       changesText: joinLines(version.changes),
       scriptsText: joinLines(version.scripts),
       status: version.status || "deployed",
     });
     setVersionModalOpen(true);
+  }
+
+  function upsertVersionLocal(saved, { previousUraId = "" } = {}) {
+    if (!saved?.id) return;
+    setVersions((current) => {
+      const belongsToSelected = saved.uraId === selectedUraId;
+      const movedAway = previousUraId === selectedUraId && saved.uraId !== selectedUraId;
+      if (movedAway) return current.filter((item) => item.id !== saved.id);
+      if (!belongsToSelected) return current;
+
+      const exists = current.some((item) => item.id === saved.id);
+      const next = exists
+        ? current.map((item) => (item.id === saved.id ? saved : item))
+        : [saved, ...current];
+      return sortVersions(next);
+    });
   }
 
   async function saveUra(event) {
@@ -268,20 +393,20 @@ export default function URAVersioningTab() {
 
   async function saveVersion(event) {
     event.preventDefault();
-    const payload = {
-      uraId: versionForm.uraId,
-      version: versionForm.version,
-      deploymentDate: versionForm.deploymentDate,
-      developer: versionForm.developer,
-      ticket: normalizeTicket(versionForm.ticket),
-      description: versionForm.description,
-      changes: splitLines(versionForm.changesText),
-      scripts: splitLines(versionForm.scriptsText),
-      status: versionForm.status,
-    };
+    const ticket = normalizeTicket(versionForm.ticket);
+    const payload = buildVersionPayloadFromData({
+      ...versionForm,
+      ticket,
+      jiraSnapshot: ticket ? versionForm.jiraSnapshot : {},
+      evidences: versionForm.evidences,
+    });
 
     setSaving(true);
     try {
+      if (ticket && payload.jiraSnapshot?.key !== ticket) {
+        payload.jiraSnapshot = await fetchJiraSnapshot(ticket);
+      }
+
       const saved = editingVersion
         ? await updateUraVersion(editingVersion.id, payload)
         : await createUraVersion(payload.uraId, payload);
@@ -289,7 +414,7 @@ export default function URAVersioningTab() {
       if (payload.uraId !== selectedUraId) {
         setSelectedUraId(payload.uraId);
       } else {
-        await loadVersions(payload.uraId);
+        upsertVersionLocal(saved, { previousUraId: editingVersion?.uraId });
       }
       setSelectedVersionId(saved.id);
       setVersionModalOpen(false);
@@ -298,6 +423,62 @@ export default function URAVersioningTab() {
       toast.error(err?.message || "Nao foi possivel salvar o versionamento.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function syncVersionJira(version = selectedVersion) {
+    const ticket = normalizeTicket(version?.ticket);
+    if (!version?.id || !ticket) return;
+
+    setSyncingVersionId(version.id);
+    try {
+      const jiraSnapshot = await fetchJiraSnapshot(ticket);
+      const saved = await updateUraVersion(version.id, {
+        ...versionToPayload(version),
+        jiraSnapshot,
+      });
+      upsertVersionLocal(saved);
+      setSelectedVersionId(saved.id);
+      toast.success("Dados do Jira sincronizados.");
+    } catch (err) {
+      toast.error(err?.message || "Nao foi possivel sincronizar o ticket Jira.");
+    } finally {
+      setSyncingVersionId("");
+    }
+  }
+
+  async function attachVersionEvidence(version = selectedVersion, files = []) {
+    const ticket = normalizeTicket(version?.ticket);
+    const list = Array.from(files || []);
+    if (!version?.id || !ticket || !list.length) return;
+
+    setUploadingEvidenceId(version.id);
+    try {
+      const result = await jiraUploadIssueAttachments(ticket, list);
+      const uploaded = Array.isArray(result)
+        ? result
+        : Array.isArray(result?.attachments)
+          ? result.attachments
+          : [];
+      const nextEvidences = [
+        ...(Array.isArray(version.evidences) ? version.evidences : []),
+        ...uploaded.map(normalizeEvidenceFromAttachment),
+      ];
+      const jiraSnapshot = await fetchJiraSnapshot(ticket).catch(
+        () => version.jiraSnapshot || {},
+      );
+      const saved = await updateUraVersion(version.id, {
+        ...versionToPayload(version),
+        jiraSnapshot,
+        evidences: nextEvidences,
+      });
+      upsertVersionLocal(saved);
+      setSelectedVersionId(saved.id);
+      toast.success("Evidencia anexada ao Jira.");
+    } catch (err) {
+      toast.error(err?.message || "Nao foi possivel anexar a evidencia no Jira.");
+    } finally {
+      setUploadingEvidenceId("");
     }
   }
 
@@ -657,6 +838,10 @@ export default function URAVersioningTab() {
         onOpenChange={(open) => !open && setSelectedVersionId("")}
         onEdit={() => openEditVersionModal(selectedVersion)}
         onDelete={() => removeSelectedVersion(selectedVersion)}
+        onSyncJira={() => syncVersionJira(selectedVersion)}
+        onAttachEvidence={(files) => attachVersionEvidence(selectedVersion, files)}
+        syncingJira={syncingVersionId === selectedVersion?.id}
+        uploadingEvidence={uploadingEvidenceId === selectedVersion?.id}
       />
 
       <UraDialog
@@ -691,8 +876,23 @@ function InfoRow({ label, value }) {
   );
 }
 
-function VersionDetailsSheet({ ura, version, open, onOpenChange, onEdit, onDelete }) {
+function VersionDetailsSheet({
+  ura,
+  version,
+  open,
+  onOpenChange,
+  onEdit,
+  onDelete,
+  onSyncJira,
+  onAttachEvidence,
+  syncingJira,
+  uploadingEvidence,
+}) {
+  const fileInputRef = useRef(null);
   const meta = statusMeta(VERSION_STATUS_OPTIONS, version?.status);
+  const jira = version?.jiraSnapshot || {};
+  const evidences = Array.isArray(version?.evidences) ? version.evidences : [];
+  const jiraUrl = jira.url || jiraBrowseUrlFromIssue(null, version?.ticket);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -710,7 +910,7 @@ function VersionDetailsSheet({ ura, version, open, onOpenChange, onEdit, onDelet
           <div className="mt-6 grid gap-5">
             <div className="flex flex-wrap gap-2">
               <Badge className={cn("rounded-full border", meta.className)}>
-                {meta.label}
+                Implantacao: {meta.label}
               </Badge>
               {version.ticket ? (
                 <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
@@ -725,6 +925,142 @@ function VersionDetailsSheet({ ura, version, open, onOpenChange, onEdit, onDelet
               <InfoRow label="Desenvolvedor" value={version.developer || "Nao informado"} />
               <InfoRow label="Ticket" value={version.ticket || "Nao informado"} />
             </div>
+
+            <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                    <Link2 className="h-4 w-4 text-red-600" />
+                    Ticket Jira
+                  </h3>
+                  {version.ticket ? (
+                    <div className="mt-3 grid gap-2 text-sm text-zinc-700">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-800">
+                          {version.ticket}
+                        </Badge>
+                        {jira.status ? (
+                          <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+                            Jira: {jira.status}
+                          </Badge>
+                        ) : null}
+                        {jira.priority ? (
+                          <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                            {jira.priority}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="line-clamp-2 font-medium text-zinc-900">
+                        {jira.summary || "Resumo ainda nao sincronizado."}
+                      </p>
+                      <div className="grid gap-1 text-xs text-zinc-500">
+                        <span>Responsavel: {jira.assignee || "Nao informado"}</span>
+                        <span>Atualizado no Jira: {formatDateTimeBR(jira.updatedAt)}</span>
+                        <span>Sincronizado: {formatDateTimeBR(jira.syncedAt)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-zinc-500">
+                      Nenhum ticket Jira vinculado a esta versao.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 flex-col gap-2 sm:w-40">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-zinc-200 bg-white"
+                    onClick={onSyncJira}
+                    disabled={!version.ticket || syncingJira}
+                  >
+                    {syncingJira ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Sincronizar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-zinc-200 bg-white"
+                    disabled={!jiraUrl}
+                    onClick={() => jiraUrl && window.open(jiraUrl, "_blank", "noopener,noreferrer")}
+                  >
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Abrir Jira
+                  </Button>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                    <Paperclip className="h-4 w-4 text-red-600" />
+                    Evidencias
+                  </h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Arquivos anexados no ticket Jira e registrados neste versionamento.
+                  </p>
+                </div>
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files || []);
+                      event.target.value = "";
+                      onAttachEvidence?.(files);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-red-200 bg-white text-red-700 hover:bg-red-50"
+                    disabled={!version.ticket || uploadingEvidence}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {uploadingEvidence ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <UploadCloud className="mr-2 h-4 w-4" />
+                    )}
+                    Anexar evidencia
+                  </Button>
+                </div>
+              </div>
+
+              {evidences.length ? (
+                <div className="mt-4 grid gap-2">
+                  {evidences.map((evidence, index) => (
+                    <div
+                      key={`${evidence.id || evidence.filename}-${index}`}
+                      className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm"
+                    >
+                      <FileText className="h-4 w-4 shrink-0 text-zinc-500" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-semibold text-zinc-900">
+                          {evidence.filename || "evidencia"}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          {Math.ceil(Number(evidence.size || 0) / 1024)} KB
+                          {" "}• {formatDateTimeBR(evidence.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-sm text-zinc-500">
+                  Nenhuma evidencia registrada.
+                </p>
+              )}
+            </section>
 
             {version.description ? (
               <section className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -861,6 +1197,37 @@ function UraDialog({ open, onOpenChange, form, setForm, editing, saving, onSubmi
 }
 
 function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, saving, onSubmit }) {
+  const [loadingTicket, setLoadingTicket] = useState(false);
+
+  async function handleTicketChange(value) {
+    const ticket = normalizeTicket(value);
+    setForm((current) => ({
+      ...current,
+      ticket,
+      jiraSnapshot: ticket ? current.jiraSnapshot : {},
+    }));
+    if (!ticket) return;
+
+    setLoadingTicket(true);
+    try {
+      const jiraSnapshot = await fetchJiraSnapshot(ticket);
+      setForm((current) => ({
+        ...current,
+        ticket,
+        jiraSnapshot,
+      }));
+    } catch (err) {
+      toast.error(err?.message || "Nao foi possivel consultar o ticket Jira.");
+      setForm((current) => ({
+        ...current,
+        ticket,
+        jiraSnapshot: {},
+      }));
+    } finally {
+      setLoadingTicket(false);
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl rounded-2xl sm:w-full max-h-[88vh] overflow-y-auto">
@@ -916,13 +1283,63 @@ function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, savin
                 placeholder="Desenvolvedor"
                 className="h-11 rounded-xl"
               />
-              <Input
-                value={form.ticket}
-                onChange={(event) => setForm((current) => ({ ...current, ticket: event.target.value }))}
-                placeholder="Ticket (ex: JIRA-245)"
-                className="h-11 rounded-xl"
-              />
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Ticket Jira
+                  </span>
+                  {loadingTicket ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-zinc-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Consultando
+                    </span>
+                  ) : null}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <JiraTicketPicker
+                    value={form.ticket}
+                    onChange={handleTicketChange}
+                    disabled={saving || loadingTicket}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-zinc-200 bg-white"
+                    disabled={!form.ticket || saving || loadingTicket}
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        ticket: "",
+                        jiraSnapshot: {},
+                      }))
+                    }
+                  >
+                    Remover
+                  </Button>
+                </div>
+              </div>
             </div>
+
+            {form.ticket ? (
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-800">
+                    {form.ticket}
+                  </Badge>
+                  {form.jiraSnapshot?.status ? (
+                    <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+                      {form.jiraSnapshot.status}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-2 line-clamp-2 font-medium text-zinc-900">
+                  {form.jiraSnapshot?.summary || "Resumo Jira ainda nao carregado."}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Responsavel: {form.jiraSnapshot?.assignee || "Nao informado"}
+                </p>
+              </div>
+            ) : null}
 
             <Textarea
               value={form.description}
@@ -964,7 +1381,7 @@ function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, savin
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" className="bg-red-600 text-white hover:bg-red-700" disabled={saving}>
+            <Button type="submit" className="bg-red-600 text-white hover:bg-red-700" disabled={saving || loadingTicket}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Salvar
             </Button>
