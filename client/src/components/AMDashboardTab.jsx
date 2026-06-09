@@ -83,6 +83,8 @@ import {
 
 import { Cell } from "recharts";
 
+import ReactECharts from "echarts-for-react";
+
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 
 import "/node_modules/react-grid-layout/css/styles.css";
@@ -94,6 +96,7 @@ function cn(...a) {
 
 const LS_KEY = "am_dashboard_layout_v1";
 const LS_SLA_TARGET_KEY = "am_dashboard_sla_target_pct_v1";
+const DASHBOARD_LAYOUT_SCHEMA_VERSION = 2;
 const JIRA_BASE_URL = "https://clarobr-jsw-tecnologia.atlassian.net";
 
 function uid(prefix = "w") {
@@ -673,6 +676,13 @@ const METRICS = [
     allowedViz: ["bar", "barh", "donut", "pie", "treemap"],
   },
   {
+    metric: "statusFunnel",
+    title: "Gargalos por status",
+    subtitle: "Dias medios por status",
+    defaultViz: "funnel",
+    allowedViz: ["funnel"],
+  },
+  {
     metric: "sla",
     title: "Dentro do prazo vs Estourados",
     subtitle: "SLA por data limite (original/alterada)",
@@ -770,6 +780,7 @@ const VIZ_LABEL = {
   stack: "Barras empilhadas",
   kpi: "KPI",
   gauge: "Gauge",
+  funnel: "Funnel",
   composed: "Composto",
 };
 
@@ -785,6 +796,7 @@ const VIZ_ICON = {
   stack: BarChart3,
   kpi: Gauge,
   gauge: Gauge,
+  funnel: BarChart3,
   composed: BarChart3,
 };
 
@@ -815,6 +827,7 @@ const METRIC_ACCENT = {
   updatedPerDay: "#6366f1", // indigo
   priority: SEMANTIC_COLORS.warning,
   status: "#8b5cf6", // violet
+  statusFunnel: "#0f766e",
   owner: SEMANTIC_COLORS.success,
   sla: SEMANTIC_COLORS.danger,
   size: SEMANTIC_COLORS.cyan,
@@ -901,6 +914,15 @@ function truncateLabel(value, max = 18) {
   return s.length > max ? `${s.slice(0, max - 1)}...` : s;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function movingAverage(series, key, windowSize = 7) {
   const list = Array.isArray(series) ? series : [];
   return list.map((item, index) => {
@@ -932,6 +954,7 @@ function buildDefaultConfig() {
     { id: uid("w"), metric: "directorates", viz: "bar" },
     { id: uid("w"), metric: "noAssignee", viz: "kpi" },
     { id: uid("w"), metric: "noSchedule", viz: "kpi" },
+    { id: uid("w"), metric: "statusFunnel", viz: "funnel" },
   ];
 
   const lg = [
@@ -947,6 +970,7 @@ function buildDefaultConfig() {
     { i: widgets[9].id, x: 6, y: 12, w: 6, h: 4 },
     { i: widgets[10].id, x: 0, y: 16, w: 3, h: 3 },
     { i: widgets[11].id, x: 3, y: 16, w: 3, h: 3 },
+    { i: widgets[12].id, x: 6, y: 16, w: 6, h: 4 },
   ];
 
   const makeSmaller = (cols) =>
@@ -1030,7 +1054,11 @@ function loadFromStorage() {
       }));
 
     const layouts = parsed.layouts || {};
-    return { widgets, layouts };
+    return {
+      widgets,
+      layouts,
+      version: Number(parsed.version || 1),
+    };
   } catch {
     return null;
   }
@@ -1038,14 +1066,51 @@ function loadFromStorage() {
 
 function saveToStorage(payload) {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({
+        ...(payload || {}),
+        version: DASHBOARD_LAYOUT_SCHEMA_VERSION,
+      })
+    );
   } catch {}
+}
+
+function migrateDashboardConfig(config, colsMap) {
+  const version = Number(config?.version || 1);
+  const widgets = Array.isArray(config?.widgets) ? [...config.widgets] : [];
+  const layouts = { ...(config?.layouts || {}) };
+
+  if (
+    version < DASHBOARD_LAYOUT_SCHEMA_VERSION &&
+    !widgets.some((widget) => widget?.metric === "statusFunnel")
+  ) {
+    const next = {
+      id: uid("w"),
+      metric: "statusFunnel",
+      viz: "funnel",
+    };
+    const size = widgetGridSize(next);
+    widgets.push(next);
+
+    for (const bp of Object.keys(colsMap || {})) {
+      const l = Array.isArray(layouts?.[bp]) ? layouts[bp] : [];
+      layouts[bp] = [...l, { i: next.id, x: 0, y: Infinity, ...size }];
+    }
+  }
+
+  return {
+    widgets,
+    layouts,
+    version: DASHBOARD_LAYOUT_SCHEMA_VERSION,
+  };
 }
 
 function widgetGridSize(widget) {
   const v = String(widget?.viz || "");
   if (v === "kpi") return { w: 3, h: 3 };
   if (v === "gauge") return { w: 4, h: 4 };
+  if (v === "funnel") return { w: 6, h: 4 };
   if (v === "line" || v === "area") return { w: 6, h: 4 };
   if (v === "composed") return { w: 6, h: 4 };
   return { w: 4, h: 4 };
@@ -1188,6 +1253,7 @@ export default function AMDashboardTab({
   const [layouts, setLayouts] = useState(defaultConfig.layouts);
 
   const [ready, setReady] = useState(false);
+  const [storageHydrated, setStorageHydrated] = useState(false);
   const hydratedRef = useRef(false);
 
   const [slaTargetPct, setSlaTargetPct] = useState(90);
@@ -1234,35 +1300,38 @@ export default function AMDashboardTab({
 
     const stored = loadFromStorage();
     if (stored) {
+      const migrated = migrateDashboardConfig(stored, colsMap);
       // 1) garante que TODOS widgets existam em TODOS breakpoints
       const filled = normalizeAndFillLayouts(
-        stored.layouts,
-        stored.widgets,
+        migrated.layouts,
+        migrated.widgets,
         colsMap
       );
 
       // 2) valida/clampa
-      const validated = validateLayouts(filled, stored.widgets, colsMap);
+      const validated = validateLayouts(filled, migrated.widgets, colsMap);
 
       // 3) se tiver Infinity (itens “sem posição”) ou overlap, auto organiza
       const needsPack = hasInfinityY(validated) || hasOverlapInAnyBp(validated);
       const finalLayouts = needsPack
-        ? packLayoutsByWidgetOrder(validated, stored.widgets, colsMap)
+        ? packLayoutsByWidgetOrder(validated, migrated.widgets, colsMap)
         : validated;
 
-      setWidgets(stored.widgets);
+      setWidgets(migrated.widgets);
       setLayouts(finalLayouts);
     }
 
     hydratedRef.current = true;
+    setStorageHydrated(true);
   }, [ready, colsMap]);
 
   useEffect(() => {
     if (!ready) return;
+    if (!storageHydrated) return;
     if (!hydratedRef.current) return;
 
     saveToStorage({ widgets, layouts });
-  }, [ready, widgets, layouts]);
+  }, [ready, storageHydrated, widgets, layouts]);
 
   useEffect(() => {
     try {
@@ -1327,6 +1396,9 @@ export default function AMDashboardTab({
           return pick(listOpen.filter((t) => t.priority === name));
 
         case "status":
+          return pick(listOpen.filter((t) => t.status === name));
+
+        case "statusFunnel":
           return pick(listOpen.filter((t) => t.status === name));
 
         case "owner":
@@ -1579,6 +1651,33 @@ export default function AMDashboardTab({
     const today0 = startOfTodayLocal();
 
     // ✅ ISSUE TYPE (somente abertos)
+    const statusFunnel = countBy(openList, (x) => x.status)
+      .map((entry, idx) => {
+        const tickets = openList.filter((ticket) => ticket.status === entry.name);
+        const avgAge =
+          tickets.length > 0
+            ? Math.round(
+                tickets.reduce(
+                  (sum, ticket) => sum + getAgeDays(ticket, today0),
+                  0
+                ) / tickets.length
+              )
+            : 0;
+        const stalled = tickets.filter(
+          (ticket) => getDaysSinceUpdate(ticket, today0) >= 7
+        ).length;
+        return {
+          name: entry.name,
+          value: avgAge,
+          tickets: entry.value,
+          stalled,
+          fill: CHART_COLORS[idx % CHART_COLORS.length],
+        };
+      })
+      .filter((item) => item.value > 0)
+      .sort((a, b) => b.value - a.value || b.tickets - a.tickets)
+      .slice(0, 8);
+
     const issueTypeCounts = countBy(openList, (x) => x.issueType)
       .sort((a, b) => b.value - a.value)
       .map((item, idx) => ({
@@ -1766,6 +1865,7 @@ export default function AMDashboardTab({
       priorityCounts: withPercent(priorityCounts),
       sizeCounts: withPercent(sizeCounts),
       statusCounts,
+      statusFunnel,
       ownerCounts,
       createdSeries,
       updatedSeries,
@@ -1823,10 +1923,11 @@ export default function AMDashboardTab({
 
     setLayouts((prev) => {
       const nextLayouts = { ...(prev || {}) };
+      const size = widgetGridSize(next);
 
       for (const bp of Object.keys(nextLayouts)) {
         const l = Array.isArray(nextLayouts[bp]) ? nextLayouts[bp] : [];
-        nextLayouts[bp] = [...l, { i: next.id, x: 0, y: Infinity, w: 4, h: 4 }];
+        nextLayouts[bp] = [...l, { i: next.id, x: 0, y: Infinity, ...size }];
       }
 
       return nextLayouts;
@@ -1845,21 +1946,11 @@ export default function AMDashboardTab({
 
     setLayouts((prev) => {
       const nextLayouts = { ...(prev || {}) };
+      const size = widgetGridSize(next);
 
       for (const bp of Object.keys(nextLayouts)) {
         const l = Array.isArray(nextLayouts[bp]) ? nextLayouts[bp] : [];
-        let w = 4;
-        let h = 4;
-
-        if (next.viz === "kpi") {
-          w = 3;
-          h = 3;
-        } else if (next.viz === "line" || next.viz === "area") {
-          w = 6;
-          h = 4;
-        }
-
-        nextLayouts[bp] = [...l, { i: next.id, x: 0, y: Infinity, w, h }];
+        nextLayouts[bp] = [...l, { i: next.id, x: 0, y: Infinity, ...size }];
       }
 
       return nextLayouts;
@@ -2667,6 +2758,8 @@ const DashboardWidget = memo(function DashboardWidget({
         return d.ownerCounts || [];
       case "status":
         return d.statusCounts || [];
+      case "statusFunnel":
+        return d.statusFunnel || [];
       case "sla":
         return currentViz === "stack" ? d.slaStack || [] : d.slaPie || [];
       case "aging":
@@ -3056,7 +3149,7 @@ function widgetEmptyText(metric, viz, emptyContext) {
   if (["line", "area", "composed", "multiLine"].includes(viz)) {
     return `Nenhuma série temporal nos últimos ${emptyContext?.periodDays || 30} dias.`;
   }
-  if (["bar", "barh", "pie", "donut", "treemap"].includes(viz)) {
+  if (["bar", "barh", "pie", "donut", "treemap", "funnel"].includes(viz)) {
     return "Nenhum item para ranking neste recorte.";
   }
   return "Sem dados suficientes neste recorte.";
@@ -3087,6 +3180,106 @@ function WidgetBody({
   if (loading) return <WidgetLoading />;
 
   const emptyText = widgetEmptyText(metric, viz, emptyContext);
+
+  if (viz === "funnel") {
+    const series = Array.isArray(data)
+      ? data.filter((item) => Number(item?.value || 0) > 0)
+      : [];
+    if (!series.length) return <EmptyChart text={emptyText} />;
+
+    const maxValue = Math.max(100, ...series.map((item) => Number(item.value) || 0));
+    const option = {
+      tooltip: {
+        trigger: "item",
+        formatter: (params) => {
+          const item = params?.data || {};
+          return [
+            `<strong>${escapeHtml(params?.name || item.name || "Status")}</strong>`,
+            `Dias medios: <strong>${Number(item.value || 0)}d</strong>`,
+            `Tickets: <strong>${Number(item.tickets || 0)}</strong>`,
+            `Parados 7d+: <strong>${Number(item.stalled || 0)}</strong>`,
+          ].join("<br/>");
+        },
+      },
+      toolbox: {
+        right: 8,
+        top: 0,
+        feature: {
+          dataView: { readOnly: false },
+          restore: {},
+          saveAsImage: {},
+        },
+      },
+      legend: {
+        bottom: 0,
+        type: "scroll",
+        data: series.map((item) => item.name),
+        textStyle: { color: "#52525b", fontSize: 11 },
+      },
+      series: [
+        {
+          name: "Dias medios",
+          type: "funnel",
+          left: "8%",
+          top: 24,
+          bottom: 42,
+          width: "84%",
+          min: 0,
+          max: maxValue,
+          minSize: "8%",
+          maxSize: "100%",
+          sort: "descending",
+          gap: 2,
+          label: {
+            show: true,
+            position: "inside",
+            color: "#18181b",
+            fontSize: 11,
+            fontWeight: 700,
+            formatter: (params) =>
+              `${truncateLabel(params?.name, 18)}: ${Number(params?.value || 0)}d`,
+          },
+          labelLine: {
+            length: 10,
+            lineStyle: {
+              width: 1,
+              type: "solid",
+            },
+          },
+          itemStyle: {
+            borderColor: "#fff",
+            borderWidth: 1,
+          },
+          emphasis: {
+            label: {
+              fontSize: 14,
+            },
+          },
+          data: series.map((item, idx) => ({
+            ...item,
+            itemStyle: {
+              color: item.fill || CHART_COLORS[idx % CHART_COLORS.length],
+            },
+          })),
+        },
+      ],
+    };
+
+    return (
+      <div className="h-full min-h-[180px] rounded-2xl border border-zinc-100 bg-zinc-50/40 p-2">
+        <ReactECharts
+          option={option}
+          style={{ height: "100%", minHeight: 180, width: "100%" }}
+          opts={{ renderer: "canvas" }}
+          notMerge
+          lazyUpdate
+          onEvents={{
+            click: (params) => onItemClick?.(params?.name),
+          }}
+        />
+      </div>
+    );
+  }
 
   if (viz === "kpi") {
     const value = typeof data === "number" ? data : 0;

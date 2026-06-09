@@ -48,6 +48,71 @@ import {
 import "react-day-picker/dist/style.css";
 
 const AUTH_SESSION_EXPIRED_EVENT = "devflow:auth-session-expired";
+const SAVED_LOGIN_CREDENTIALS_KEY = "devflow:saved-login-credentials:v1";
+const MAX_SAVED_LOGIN_CREDENTIALS = 5;
+
+function readSavedLoginCredentials() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(SAVED_LOGIN_CREDENTIALS_KEY);
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+
+    const seen = new Set();
+
+    return parsed
+      .map((item) => ({
+        email: String(item?.email || "").trim(),
+        password: String(item?.password || ""),
+        savedAt: Number(item?.savedAt || 0),
+      }))
+      .filter((item) => item.email && item.password)
+      .filter((item) => {
+        const key = item.email.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => b.savedAt - a.savedAt)
+      .slice(0, MAX_SAVED_LOGIN_CREDENTIALS);
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedLoginCredentials(credentials) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      SAVED_LOGIN_CREDENTIALS_KEY,
+      JSON.stringify(credentials)
+    );
+  } catch {
+    // Ignora falhas de armazenamento local; o login continua funcionando.
+  }
+}
+
+function saveLoginCredential({ email, password }) {
+  const normalizedEmail = String(email || "").trim();
+  if (!normalizedEmail || !password) return readSavedLoginCredentials();
+
+  const previousCredentials = readSavedLoginCredentials();
+  const nextCredentials = [
+    {
+      email: normalizedEmail,
+      password,
+      savedAt: Date.now(),
+    },
+    ...previousCredentials.filter(
+      (item) => item.email.toLowerCase() !== normalizedEmail.toLowerCase()
+    ),
+  ].slice(0, MAX_SAVED_LOGIN_CREDENTIALS);
+
+  writeSavedLoginCredentials(nextCredentials);
+  return nextCredentials;
+}
 
 function isSameOriginApiRequest(input) {
   try {
@@ -495,15 +560,55 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 }
 
 function AuthScreen({ onAuthenticated }) {
+  const initialSavedCredentials = useMemo(() => readSavedLoginCredentials(), []);
   const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [savedCredentials, setSavedCredentials] = useState(
+    initialSavedCredentials
+  );
+  const [email, setEmail] = useState(initialSavedCredentials[0]?.email || "");
+  const [password, setPassword] = useState(
+    initialSavedCredentials[0]?.password || ""
+  );
   const [jiraApiToken, setJiraApiToken] = useState("");
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(
+    initialSavedCredentials.length > 0
+  );
+  const [saveCredentials, setSaveCredentials] = useState(
+    initialSavedCredentials.length > 0
+  );
+  const [autofilledEmail, setAutofilledEmail] = useState(
+    initialSavedCredentials[0]?.email || ""
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const isRegister = mode === "register";
+
+  function handleEmailChange(value) {
+    setEmail(value);
+
+    if (isRegister) return;
+
+    const savedCredential = savedCredentials.find(
+      (item) => item.email.toLowerCase() === value.trim().toLowerCase()
+    );
+
+    if (savedCredential) {
+      setPassword(savedCredential.password);
+      setAutofilledEmail(savedCredential.email);
+      setRememberMe(true);
+      setSaveCredentials(true);
+      return;
+    }
+
+    if (
+      autofilledEmail &&
+      value.trim().toLowerCase() !== autofilledEmail.toLowerCase()
+    ) {
+      setPassword("");
+      setAutofilledEmail("");
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -514,6 +619,9 @@ function AuthScreen({ onAuthenticated }) {
       const user = isRegister
         ? await registerUser({ email, password, jiraApiToken })
         : await loginUser({ email, password, rememberMe });
+      if (!isRegister && saveCredentials) {
+        setSavedCredentials(saveLoginCredential({ email, password }));
+      }
       onAuthenticated(user);
     } catch (err) {
       setError(err?.message || "Nao foi possivel autenticar.");
@@ -523,9 +631,31 @@ function AuthScreen({ onAuthenticated }) {
   }
 
   function toggleMode() {
-    setMode((value) => (value === "login" ? "register" : "login"));
+    const nextMode = mode === "login" ? "register" : "login";
+    setMode(nextMode);
     setError("");
-    setRememberMe(false);
+    setAutofilledEmail("");
+
+    if (nextMode === "register") {
+      setPassword("");
+      setJiraApiToken("");
+      setRememberMe(false);
+      setSaveCredentials(false);
+      return;
+    }
+
+    const savedCredential =
+      savedCredentials.find(
+        (item) => item.email.toLowerCase() === email.trim().toLowerCase()
+      ) || savedCredentials[0];
+
+    if (savedCredential) {
+      setEmail(savedCredential.email);
+      setPassword(savedCredential.password);
+      setAutofilledEmail(savedCredential.email);
+      setRememberMe(true);
+      setSaveCredentials(true);
+    }
   }
 
   return (
@@ -553,10 +683,22 @@ function AuthScreen({ onAuthenticated }) {
               <input
                 type="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => handleEmailChange(event.target.value)}
+                list={
+                  !isRegister && savedCredentials.length
+                    ? "auth-saved-emails"
+                    : undefined
+                }
                 autoComplete="email"
                 required
               />
+              {!isRegister && savedCredentials.length ? (
+                <datalist id="auth-saved-emails">
+                  {savedCredentials.map((item) => (
+                    <option key={item.email} value={item.email} />
+                  ))}
+                </datalist>
+              ) : null}
             </div>
           </label>
 
@@ -567,7 +709,10 @@ function AuthScreen({ onAuthenticated }) {
               <input
                 type="password"
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setAutofilledEmail("");
+                }}
                 autoComplete={isRegister ? "new-password" : "current-password"}
                 minLength={8}
                 required
@@ -592,17 +737,33 @@ function AuthScreen({ onAuthenticated }) {
           ) : null}
 
           {!isRegister ? (
-            <label className="auth-remember">
-              <input
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(event) => setRememberMe(event.target.checked)}
-              />
-              <span className="auth-remember__box" aria-hidden="true">
-                {rememberMe ? <Check className="h-3.5 w-3.5" /> : null}
-              </span>
-              <span>Manter logado</span>
-            </label>
+            <div className="auth-options">
+              <label className="auth-remember">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.target.checked)}
+                />
+                <span className="auth-remember__box" aria-hidden="true">
+                  {rememberMe ? <Check className="h-3.5 w-3.5" /> : null}
+                </span>
+                <span>Manter logado</span>
+              </label>
+
+              <label className="auth-remember">
+                <input
+                  type="checkbox"
+                  checked={saveCredentials}
+                  onChange={(event) =>
+                    setSaveCredentials(event.target.checked)
+                  }
+                />
+                <span className="auth-remember__box" aria-hidden="true">
+                  {saveCredentials ? <Check className="h-3.5 w-3.5" /> : null}
+                </span>
+                <span>Salvar senha neste computador</span>
+              </label>
+            </div>
           ) : null}
 
           {error ? <p className="auth-error">{error}</p> : null}

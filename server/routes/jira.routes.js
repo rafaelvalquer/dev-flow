@@ -245,6 +245,28 @@ function norm(s) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function encodeRFC5987Value(value) {
+  return encodeURIComponent(String(value || "")).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function contentDispositionFilename(filename) {
+  const original = String(filename || "file");
+  const fallback =
+    original
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\x20-\x7E]+/g, "_")
+      .replace(/["\\]/g, "_")
+      .trim() || "file";
+
+  return `filename="${fallback}"; filename*=UTF-8''${encodeRFC5987Value(
+    original
+  )}`;
+}
+
 function getErrorCause(error) {
   return error?.cause || error?.errors?.[0] || null;
 }
@@ -937,9 +959,7 @@ export default function jiraRoutes({ upload, env }) {
 
       res.setHeader(
         "Content-Disposition",
-        `${
-          inline ? "inline" : "attachment"
-        }; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(
+        `${inline ? "inline" : "attachment"}; ${contentDispositionFilename(
           filename
         )}`
       );
