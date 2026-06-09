@@ -484,6 +484,105 @@ function normalizePlain(value) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function jiraErrorActionFor(type) {
+  if (type === "transition") {
+    return "Abra o ticket no Jira e verifique as transições disponíveis.";
+  }
+  if (type === "priority") {
+    return "Confira se a prioridade está habilitada no projeto Jira.";
+  }
+  if (type === "edit" || type === "dueDate") {
+    return "Revise os campos obrigatórios e as permissões de edição no Jira.";
+  }
+  if (type === "comment") {
+    return "Confirme permissão para comentar no ticket e tente novamente.";
+  }
+  if (type === "schedule") {
+    return "Valide se o campo de cronograma está editável no Jira.";
+  }
+  return "Tente novamente ou valide o ticket diretamente no Jira.";
+}
+
+function formatJiraActionableError(error, context = {}) {
+  const status = Number(
+    error?.status ||
+      error?.statusCode ||
+      error?.response?.status ||
+      error?.body?.status ||
+      0,
+  );
+  const body = error?.body || {};
+  const errorMessages = Array.isArray(body?.errorMessages)
+    ? body.errorMessages
+    : [];
+  const fieldErrors =
+    body?.errors && typeof body.errors === "object"
+      ? Object.values(body.errors)
+      : [];
+  const raw = [
+    error?.message,
+    body?.message,
+    body?.error,
+    ...errorMessages,
+    ...fieldErrors,
+    context?.fallback,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const normalized = normalizePlain(raw);
+  const action = jiraErrorActionFor(context.type);
+  const ticketSuffix = context.issueKey ? ` Ticket: ${context.issueKey}.` : "";
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    /\b(unauthorized|forbidden|token|credencial|credential|permiss|permission|auth)\b/.test(
+      normalized,
+    )
+  ) {
+    return `Token Jira expirado ou sem permissão. Revise o token em Configurações e confirme acesso ao ticket.${ticketSuffix}`;
+  }
+
+  if (status === 429 || /rate limit|too many requests|limite/.test(normalized)) {
+    return "Jira limitou as requisições. Aguarde alguns segundos e tente novamente.";
+  }
+
+  if (
+    context.type === "transition" ||
+    /transition|transicao|transição|workflow|no transitions|indisponivel|indisponível/.test(
+      normalized,
+    )
+  ) {
+    return `Transição indisponível para este status. ${action}${ticketSuffix}`;
+  }
+
+  if (
+    context.type === "priority" ||
+    /priority|prioridade|priorities|not found/.test(normalized)
+  ) {
+    return `Prioridade não existe ou não está disponível no Jira. ${action}${ticketSuffix}`;
+  }
+
+  if (
+    context.type === "edit" ||
+    /editmeta|required|obrigatorio|obrigatório|field|campo|customfield|cannot be set|cannot set/.test(
+      normalized,
+    )
+  ) {
+    return `Campo obrigatório ausente ou bloqueado no Jira. ${action}${ticketSuffix}`;
+  }
+
+  if (
+    /timeout|network|failed to fetch|fetch failed|conexao|conexão|econn|abort/.test(
+      normalized,
+    )
+  ) {
+    return "Falha de conexão com Jira. Verifique a rede/VPN e tente novamente.";
+  }
+
+  return `${context.fallback || "Não foi possível concluir a ação no Jira."} ${action}${ticketSuffix}`;
+}
+
 function getIssueLabels(issue) {
   const labels = Array.isArray(issue?.labels)
     ? issue.labels
@@ -1489,6 +1588,12 @@ function PersonalQueueView({
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
+              {loading && total ? (
+                <Badge className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Atualizando
+                </Badge>
+              ) : null}
               <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
                 {total} tickets
               </Badge>
@@ -1511,7 +1616,7 @@ function PersonalQueueView({
         onDragEnd={handleDragEnd}
       >
         <div className="overflow-x-auto pb-4">
-          <div className="grid w-max grid-flow-col auto-cols-[260px] gap-3 sm:auto-cols-[280px]">
+          <div className="grid w-max grid-flow-col auto-cols-[minmax(280px,320px)] items-start gap-4">
             {PERSONAL_QUEUE_COLUMNS.map((status) => (
               <PersonalQueueColumn
                 key={status}
@@ -1519,6 +1624,7 @@ function PersonalQueueView({
                 tickets={grouped[status] || []}
                 movingKeys={movingKeys}
                 onOpenDetails={onOpenDetails}
+                loading={loading}
               />
             ))}
           </div>
@@ -1542,7 +1648,13 @@ function PersonalQueueView({
   );
 }
 
-function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
+function PersonalQueueColumn({
+  status,
+  tickets,
+  movingKeys,
+  onOpenDetails,
+  loading = false,
+}) {
   const isOther = status === PERSONAL_QUEUE_OTHER_STATUS;
   const { setNodeRef, isOver } = useDroppable({
     id: `column:${status}`,
@@ -1567,7 +1679,7 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
     >
       <Card
         className={cn(
-          "flex max-h-[72vh] min-h-[420px] flex-col overflow-hidden rounded-3xl border bg-white shadow-sm transition-all duration-200",
+          "flex max-h-[74vh] min-h-[440px] flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-200",
           isOver && !isOther
             ? "border-red-300 bg-red-50/50 shadow-lg ring-2 ring-red-100"
             : "border-zinc-200",
@@ -1576,10 +1688,15 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
       >
         <CardHeader className="border-b border-zinc-100 p-3">
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="truncate text-sm text-zinc-900">
-              {status}
-            </CardTitle>
-            <Badge className="shrink-0 rounded-full border border-zinc-200 bg-white text-zinc-700">
+            <div className="flex min-w-0 items-center gap-2">
+              {loading ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" />
+              ) : null}
+              <CardTitle className="truncate text-sm text-zinc-900">
+                {status}
+              </CardTitle>
+            </div>
+            <Badge className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] text-zinc-700">
               {tickets.length}
             </Badge>
           </div>
@@ -1618,6 +1735,18 @@ function PersonalQueueColumn({ status, tickets, movingKeys, onOpenDetails }) {
                       </motion.div>
                     );
                   })
+                ) : loading ? (
+                  <motion.div
+                    key={`loading-${status}`}
+                    layout
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.96 }}
+                    className="grid gap-2"
+                  >
+                    <Skeleton className="h-28 rounded-xl" />
+                    <Skeleton className="h-24 rounded-xl" />
+                  </motion.div>
                 ) : (
                   <motion.div
                     key={`empty-${status}`}
@@ -1688,7 +1817,7 @@ function PersonalQueueCard({
       style={style}
       className={cn(
         "w-full min-w-0 max-w-full touch-none",
-        overlay && "w-[280px]",
+        overlay && "w-[300px]",
       )}
     >
       <motion.div
@@ -1704,7 +1833,7 @@ function PersonalQueueCard({
         whileTap={overlay || moving ? undefined : { scale: 0.985 }}
         transition={{ type: "spring", stiffness: 420, damping: 32 }}
         className={cn(
-          "group w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm transition-colors",
+          "group w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-zinc-200 bg-white p-2.5 shadow-sm transition-colors",
           "hover:border-red-200 hover:shadow-md",
           isDragging && "opacity-40",
           overlay && "border-red-200 shadow-2xl ring-4 ring-red-100",
@@ -1717,18 +1846,21 @@ function PersonalQueueCard({
           className="min-w-0 flex-1 text-left"
           onClick={() => onOpenDetails?.(key)}
         >
-          <span className="inline-flex max-w-full items-center gap-1.5">
+          <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
             <IssueTypeIcon ticket={ticket} />
             <motion.code
               layout
               whileHover={{ scale: 1.04 }}
               transition={{ type: "spring", stiffness: 500, damping: 28 }}
-              className="inline-block rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-semibold text-zinc-700"
+              className="inline-block rounded-md bg-zinc-100 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-700"
             >
               {key}
             </motion.code>
+            <span className="max-w-[132px] truncate rounded-full border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+              {status}
+            </span>
           </span>
-          <h3 className="mt-2 whitespace-normal break-words text-sm font-semibold leading-5 text-zinc-950 [overflow-wrap:anywhere]">
+          <h3 className="mt-2 line-clamp-3 whitespace-normal break-words text-[13px] font-semibold leading-5 text-zinc-950 [overflow-wrap:anywhere]">
             {getQueueSummary(ticket)}
           </h3>
         </button>
@@ -1743,7 +1875,7 @@ function PersonalQueueCard({
           whileTap={disabled || moving ? undefined : { rotate: 0, scale: 0.94 }}
           transition={{ type: "spring", stiffness: 520, damping: 24 }}
           className={cn(
-            "grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500",
+            "grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-zinc-50 text-zinc-500",
             "cursor-grab active:cursor-grabbing",
             (disabled || moving) && "cursor-not-allowed opacity-50",
           )}
@@ -1756,24 +1888,29 @@ function PersonalQueueCard({
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Badge className={cn("rounded-full border", health.className)}>
+        <Badge
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+            health.className,
+          )}
+        >
           {health.label}
         </Badge>
         <Badge
-          className="rounded-full border bg-white text-zinc-700"
+          className="rounded-full border bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-700"
           style={{ borderColor: priorityColor(priority), color: priorityColor(priority) }}
         >
           {priority}
         </Badge>
         {dueYmd ? (
-          <Badge className="rounded-full border border-blue-200 bg-blue-50 text-blue-700">
+          <Badge className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
             {fmtDateBr(dueYmd)}
           </Badge>
         ) : null}
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-zinc-500">
-        <span className="truncate">{getQueueUpdatedLabel(ticket)}</span>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-2 text-[11px] text-zinc-500">
+        <span className="min-w-0 flex-1 truncate">{getQueueUpdatedLabel(ticket)}</span>
         <AnimatePresence initial={false}>
           {moving ? (
             <motion.span
@@ -1787,7 +1924,20 @@ function PersonalQueueCard({
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Movendo...
             </motion.span>
-          ) : null}
+          ) : (
+            <motion.button
+              key="details"
+              type="button"
+              initial={{ opacity: 0, x: 8, scale: 0.96 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 8, scale: 0.96 }}
+              transition={{ type: "spring", stiffness: 420, damping: 30 }}
+              className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 transition hover:border-red-200 hover:text-red-700"
+              onClick={() => onOpenDetails?.(key)}
+            >
+              Detalhes
+            </motion.button>
+          )}
         </AnimatePresence>
       </div>
       </motion.div>
@@ -2186,7 +2336,13 @@ export default function AMPanelTab({
       closeResolutionDialog();
     } catch (e) {
       console.error(e);
-      setResolutionErr(e?.message || "Falha ao registrar resolucao do alerta.");
+      setResolutionErr(
+        formatJiraActionableError(e, {
+          type: "comment",
+          issueKey: resolutionTicket?.key,
+          fallback: "Falha ao registrar resolução do alerta.",
+        }),
+      );
     } finally {
       setResolutionSaving(false);
     }
@@ -2281,9 +2437,11 @@ export default function AMPanelTab({
     } catch (e) {
       console.error(e);
       applyTicketStatusLocal(key, prevStatus);
-      const message =
-        e?.message ||
-        `Nao foi possivel mover ${key} para ${nextStatus}.`;
+      const message = formatJiraActionableError(e, {
+        type: "transition",
+        issueKey: key,
+        fallback: `Não foi possível mover ${key} para ${nextStatus}.`,
+      });
       setErr(message);
       toast.error(message);
     } finally {
@@ -2308,7 +2466,13 @@ export default function AMPanelTab({
       setSubView("calendario");
     } catch (e) {
       console.error(e);
-      setErr(e?.message || "Falha ao salvar cronograma no Jira.");
+      setErr(
+        formatJiraActionableError(e, {
+          type: "schedule",
+          issueKey: editorIssue?.key,
+          fallback: "Falha ao salvar cronograma no Jira.",
+        }),
+      );
     } finally {
       setLoading(false);
     }
@@ -2377,7 +2541,13 @@ export default function AMPanelTab({
       await refreshIssueInPanel(startIssueKey).catch(() => null);
     } catch (e) {
       console.error(e);
-      setStartErr(e?.message || "Falha ao alterar status do ticket.");
+      setStartErr(
+        formatJiraActionableError(e, {
+          type: "transition",
+          issueKey: startIssueKey,
+          fallback: "Falha ao alterar status do ticket.",
+        }),
+      );
     } finally {
       setStartLoading(false);
     }
@@ -2416,7 +2586,13 @@ export default function AMPanelTab({
       setDetailsOpen(true);
     } catch (e) {
       console.error(e);
-      setStartErr(e?.message || "Falha ao iniciar o ticket.");
+      setStartErr(
+        formatJiraActionableError(e, {
+          type: "comment",
+          issueKey: startIssueKey,
+          fallback: "Falha ao iniciar o ticket.",
+        }),
+      );
     } finally {
       setStartLoading(false);
     }
@@ -2500,7 +2676,11 @@ export default function AMPanelTab({
       updateChangeHistoryStatus(historyEntry.id, "salvo");
     } catch (e) {
       console.error(e);
-      const message = e?.message || "Falha ao persistir no Jira. Revertendo...";
+      const message = formatJiraActionableError(e, {
+        type: "schedule",
+        issueKey,
+        fallback: "Falha ao persistir no Jira. Revertendo...",
+      });
       setErr(message);
       updateChangeHistoryStatus(historyEntry.id, "revertido", message);
       toast.error(
@@ -2708,8 +2888,14 @@ export default function AMPanelTab({
         return true;
       } catch (e) {
         console.error(e);
-        const message =
-          e?.message || "Falha ao persistir no Jira. Revertendo...";
+        const affected = Array.from(
+          new Set(valid.map((item) => item.issueKey)),
+        );
+        const message = formatJiraActionableError(e, {
+          type: "schedule",
+          issueKey: affected.join(", "),
+          fallback: "Falha ao persistir no Jira. Revertendo...",
+        });
         setErr(message);
         updateChangeHistoryStatus(
           historyEntries.map((entry) => entry.id),
@@ -2717,9 +2903,6 @@ export default function AMPanelTab({
           message,
         );
 
-        const affected = Array.from(
-          new Set(valid.map((item) => item.issueKey)),
-        );
         toast.error(`Cronograma revertido: ${affected.join(", ")}`);
 
         // rollback local
@@ -2842,7 +3025,13 @@ export default function AMPanelTab({
         return true;
       } catch (e) {
         console.error(e);
-        setErr(e?.message || "Falha ao persistir no Jira. Revertendo...");
+        setErr(
+          formatJiraActionableError(e, {
+            type: "schedule",
+            issueKey: ik,
+            fallback: "Falha ao persistir no Jira. Revertendo...",
+          }),
+        );
 
         // rollback local
         setViewData((v) => ({
@@ -4154,6 +4343,13 @@ function TicketSection({
             <span className="text-zinc-500">recomendado: 12</span>
           </div>
 
+          {loading && safeRows.length ? (
+            <Badge className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Atualizando lista
+            </Badge>
+          ) : null}
+
           {/* Badge: sem cronograma */}
           {onOpenSchedule && missingScheduleSet?.size ? (
             <Tooltip>
@@ -5380,6 +5576,10 @@ function TicketHistoryGraphTimeline({ events = [], loading }) {
   if (loading) {
     return (
       <div className="grid gap-3">
+        <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Carregando histórico...
+        </div>
         <Skeleton className="h-80 rounded-xl" />
       </div>
     );
@@ -5743,6 +5943,10 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
         <TicketHistoryGraphTimeline events={filteredEvents} loading={loading} />
       ) : loading ? (
         <div className="grid gap-3">
+          <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Carregando histórico...
+          </div>
           {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-24 rounded-xl" />
           ))}
@@ -6057,7 +6261,13 @@ function TicketDetailsDialog({
         );
       }
     } catch (e) {
-      setErr(e?.message || "Falha ao alterar status.");
+      setErr(
+        formatJiraActionableError(e, {
+          type: "transition",
+          issueKey,
+          fallback: "Falha ao alterar status.",
+        }),
+      );
     } finally {
       setSavingStatus(false);
     }
@@ -6094,7 +6304,13 @@ function TicketDetailsDialog({
         );
       }
     } catch (e) {
-      setErr(e?.message || "Falha ao alterar prioridade.");
+      setErr(
+        formatJiraActionableError(e, {
+          type: "priority",
+          issueKey,
+          fallback: "Falha ao alterar prioridade.",
+        }),
+      );
     } finally {
       setSavingPriority(false);
     }
@@ -6141,7 +6357,13 @@ function TicketDetailsDialog({
           : prev,
       );
       setDueDateSaveState("error");
-      setErr(e?.message || "Falha ao alterar prazo.");
+      setErr(
+        formatJiraActionableError(e, {
+          type: "dueDate",
+          issueKey,
+          fallback: "Falha ao alterar prazo.",
+        }),
+      );
     } finally {
       setSavingDueDate(false);
     }
@@ -6204,7 +6426,13 @@ function TicketDetailsDialog({
         [];
       if (Array.isArray(list)) setComments(list);
     } catch (e) {
-      setErr(e?.message || "Falha ao marcar ticket como iniciado.");
+      setErr(
+        formatJiraActionableError(e, {
+          type: "comment",
+          issueKey,
+          fallback: "Falha ao marcar ticket como iniciado.",
+        }),
+      );
     } finally {
       setSavingStarted(false);
     }
@@ -6291,6 +6519,10 @@ function TicketDetailsDialog({
           <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
             {loading ? (
               <div className="grid gap-2">
+                <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando detalhes...
+                </div>
                 <Skeleton className="h-4 w-2/3" />
                 <Skeleton className="h-4 w-1/2" />
                 <Skeleton className="h-4 w-1/3" />
@@ -6637,6 +6869,10 @@ function TicketDetailsDialog({
 
             {loading ? (
               <div className="grid gap-2">
+                <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando anexos...
+                </div>
                 <Skeleton className="h-12 w-full rounded-xl" />
                 <Skeleton className="h-12 w-full rounded-xl" />
               </div>
@@ -7201,7 +7437,13 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
         setInitialValues(nextInitialValues);
       } catch (error) {
         if (alive) {
-          setErr(error?.message || "Falha ao carregar campos editaveis do Jira.");
+          setErr(
+            formatJiraActionableError(error, {
+              type: "edit",
+              issueKey: key,
+              fallback: "Falha ao carregar campos editáveis do Jira.",
+            }),
+          );
         }
       } finally {
         if (alive) setLoading(false);
@@ -7290,7 +7532,13 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
       if (body?.errors && typeof body.errors === "object") {
         setFieldErrors(body.errors);
       }
-      setErr(error?.message || "Falha ao salvar ticket no Jira.");
+      setErr(
+        formatJiraActionableError(error, {
+          type: "edit",
+          issueKey: key,
+          fallback: "Falha ao salvar ticket no Jira.",
+        }),
+      );
     } finally {
       setSaving(false);
     }
