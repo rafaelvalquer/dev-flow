@@ -47,11 +47,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { DataSet } from "vis-data/peer";
+import { Timeline } from "vis-timeline/peer";
 import { Tree } from "react-arborist";
 import JSZip from "jszip";
 import { renderAsync } from "docx-preview";
 import { saveAs } from "file-saver";
 import { toast } from "sonner";
+import "vis-timeline/styles/vis-timeline-graph2d.min.css";
 
 import {
   Popover,
@@ -5204,6 +5207,354 @@ function groupHistoryEventsByDay(events = []) {
   }));
 }
 
+function escapeHistoryHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function truncateHistoryText(value, max = 90) {
+  const text = String(value || "").trim().replace(/\s+/g, " ");
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+}
+
+function historyGraphGroupId(type) {
+  if (type === "status_changed") return "status";
+  if (type === "comment") return "comments";
+  return "activities";
+}
+
+function historyStatusTone(value) {
+  const normalized = normalizePlain(value);
+  if (
+    /done|concluido|concluida|encerrado|encerrada|closed|resolved|finalizado/.test(
+      normalized,
+    )
+  ) {
+    return "green";
+  }
+  if (
+    /progress|desenvolvimento|refinamento|review|em andamento|iniciado|artefato|homolog/.test(
+      normalized,
+    )
+  ) {
+    return "yellow";
+  }
+  if (/to do|todo|backlog|novo|pre save|presave|aberto|open/.test(normalized)) {
+    return "blue";
+  }
+  return "gray";
+}
+
+function historyGraphTooltip(event) {
+  const meta = HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
+  const lines = [
+    meta.label,
+    `Autor: ${event.actor || "Jira"}`,
+    `Data: ${formatHistoryDateTime(event.createdAt)}`,
+  ];
+  if (event.from || event.to) {
+    lines.push(`De: ${event.from || "-"}`);
+    lines.push(`Para: ${event.to || "-"}`);
+  }
+  if (event.bodyText) lines.push(truncateHistoryText(event.bodyText, 140));
+  return escapeHistoryHtml(lines.join("\n"));
+}
+
+function historyGraphItemContent(event) {
+  if (event.type === "comment") {
+    return `
+      <div class="ticket-history-graph-item ticket-history-graph-comment">
+        <strong>${escapeHistoryHtml(event.actor || "Jira")}</strong>
+        <span>${escapeHistoryHtml(truncateHistoryText(event.bodyText || "Comentário sem texto.", 120))}</span>
+      </div>
+    `;
+  }
+
+  if (event.type === "status_changed") {
+    const tone = historyStatusTone(event.to || event.from);
+    return `
+      <div class="ticket-history-graph-item ticket-history-graph-status ticket-history-graph-status-${tone}">
+        <strong>${escapeHistoryHtml(event.to || event.from || "Status")}</strong>
+        <span>${escapeHistoryHtml(event.from ? `${event.from} -> ${event.to || "-"}` : "Mudança de status")}</span>
+      </div>
+    `;
+  }
+
+  const meta = HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
+  const detail = event.type === "attachment_changed"
+    ? event.to || event.bodyText
+    : event.to || event.bodyText || event.from || "";
+  return `
+    <div class="ticket-history-graph-item ticket-history-graph-activity">
+      <strong>${escapeHistoryHtml(meta.label)}</strong>
+      <span>${escapeHistoryHtml(truncateHistoryText(`${event.field || ""}${detail ? `: ${detail}` : ""}`, 120))}</span>
+    </div>
+  `;
+}
+
+function TicketHistoryGraphTimeline({ events = [], loading }) {
+  const containerRef = useRef(null);
+  const timelineRef = useRef(null);
+
+  const graphGroups = useMemo(
+    () => [
+      {
+        id: "status",
+        content:
+          '<div class="ticket-history-graph-group ticket-history-graph-group-status"><strong>Status</strong></div>',
+      },
+      {
+        id: "comments",
+        content:
+          '<div class="ticket-history-graph-group ticket-history-graph-group-comments"><strong>Comentários</strong></div>',
+      },
+      {
+        id: "activities",
+        content:
+          '<div class="ticket-history-graph-group ticket-history-graph-group-activities"><strong>Atividades</strong></div>',
+      },
+    ],
+    [],
+  );
+
+  const graphItems = useMemo(
+    () =>
+      events.map((event) => ({
+        id: event.id,
+        group: historyGraphGroupId(event.type),
+        start: event.createdAt,
+        content: historyGraphItemContent(event),
+        title: historyGraphTooltip(event),
+        className: cn(
+          "ticket-history-graph-vis-item",
+          `ticket-history-graph-vis-${historyGraphGroupId(event.type)}`,
+          event.type === "status_changed"
+            ? `ticket-history-graph-vis-status-${historyStatusTone(event.to || event.from)}`
+            : "",
+        ),
+      })),
+    [events],
+  );
+
+  useEffect(() => {
+    if (!containerRef.current || loading) return undefined;
+
+    const groupSet = new DataSet(graphGroups);
+    const itemSet = new DataSet(graphItems);
+    const timeline = new Timeline(containerRef.current, itemSet, groupSet, {
+      align: "center",
+      clickToUse: false,
+      editable: false,
+      groupHeightMode: "auto",
+      height: "390px",
+      margin: { axis: 16, item: { horizontal: 10, vertical: 12 } },
+      maxHeight: "480px",
+      minHeight: "320px",
+      moveable: true,
+      multiselect: false,
+      orientation: "top",
+      selectable: true,
+      showCurrentTime: true,
+      stack: true,
+      tooltip: { followMouse: true, overflowMethod: "cap" },
+      verticalScroll: true,
+      zoomable: true,
+    });
+
+    timelineRef.current = timeline;
+    if (graphItems.length) {
+      timeline.fit({ animation: false });
+    }
+
+    return () => {
+      timeline.destroy();
+      timelineRef.current = null;
+    };
+  }, [graphGroups, graphItems, loading]);
+
+  if (loading) {
+    return (
+      <div className="grid gap-3">
+        <Skeleton className="h-80 rounded-xl" />
+      </div>
+    );
+  }
+
+  return (
+    <section className="grid gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="text-sm font-semibold text-zinc-900">
+          Timeline gráfica
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 rounded-xl border-zinc-200 bg-white px-3 text-xs"
+            onClick={() =>
+              timelineRef.current?.fit?.({
+                animation: { duration: 220, easingFunction: "easeInOutQuad" },
+              })
+            }
+            disabled={!events.length}
+          >
+            Ajustar visão
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 rounded-xl border-zinc-200 bg-white px-3 text-xs"
+            onClick={() =>
+              timelineRef.current?.moveTo?.(new Date(), {
+                animation: { duration: 220, easingFunction: "easeInOutQuad" },
+              })
+            }
+          >
+            Hoje
+          </Button>
+        </div>
+      </div>
+
+      {events.length ? (
+        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+          <div
+            ref={containerRef}
+            className="ticket-history-graph min-h-[320px] overflow-hidden rounded-xl border border-zinc-100 bg-white"
+          />
+          <style>{`
+            .ticket-history-graph .vis-labelset .vis-label {
+              border-color: #e4e4e7;
+            }
+            .ticket-history-graph .vis-time-axis .vis-text {
+              color: #71717a;
+              font-size: 11px;
+            }
+            .ticket-history-graph .vis-panel.vis-center,
+            .ticket-history-graph .vis-panel.vis-left,
+            .ticket-history-graph .vis-panel.vis-right,
+            .ticket-history-graph .vis-panel.vis-top,
+            .ticket-history-graph .vis-panel.vis-bottom {
+              border-color: #e4e4e7;
+            }
+            .ticket-history-graph-group {
+              align-items: center;
+              border-radius: 999px;
+              display: inline-flex;
+              gap: 8px;
+              max-width: 150px;
+              padding: 6px 10px;
+            }
+            .ticket-history-graph-group span {
+              align-items: center;
+              border-radius: 999px;
+              display: inline-flex;
+              font-size: 11px;
+              font-weight: 800;
+              height: 22px;
+              justify-content: center;
+              width: 22px;
+            }
+            .ticket-history-graph-group strong {
+              color: #18181b;
+              font-size: 12px;
+              white-space: nowrap;
+            }
+            .ticket-history-graph-group-status {
+              background: #eff6ff;
+            }
+            .ticket-history-graph-group-status span {
+              background: #dbeafe;
+              color: #1d4ed8;
+            }
+            .ticket-history-graph-group-comments {
+              background: #f5f3ff;
+            }
+            .ticket-history-graph-group-comments span {
+              background: #ede9fe;
+              color: #6d28d9;
+            }
+            .ticket-history-graph-group-activities {
+              background: #fafaf9;
+            }
+            .ticket-history-graph-group-activities span {
+              background: #fef3c7;
+              color: #92400e;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-item {
+              border-radius: 12px;
+              border-width: 1px;
+              box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+              overflow: hidden;
+            }
+            .ticket-history-graph .vis-item .vis-item-content {
+              padding: 0;
+            }
+            .ticket-history-graph-item {
+              display: grid;
+              gap: 2px;
+              line-height: 1.2;
+              max-width: 260px;
+              min-width: 150px;
+              padding: 8px 10px;
+            }
+            .ticket-history-graph-item strong {
+              color: #18181b;
+              font-size: 12px;
+            }
+            .ticket-history-graph-item span {
+              color: #3f3f46;
+              font-size: 11px;
+              white-space: normal;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-comments {
+              background: #eff6ff;
+              border-color: #bfdbfe;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-activities {
+              background: #fafafa;
+              border-color: #d4d4d8;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-status-blue {
+              background: #dbeafe;
+              border-color: #60a5fa;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-status-yellow {
+              background: #fef3c7;
+              border-color: #f59e0b;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-status-green {
+              background: #dcfce7;
+              border-color: #22c55e;
+            }
+            .ticket-history-graph .vis-item.ticket-history-graph-vis-status-gray {
+              background: #f4f4f5;
+              border-color: #a1a1aa;
+            }
+            .ticket-history-graph .vis-item.vis-selected {
+              box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25), 0 12px 26px rgba(15, 23, 42, 0.12);
+            }
+          `}</style>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 text-center">
+          <History className="mx-auto h-8 w-8 text-zinc-300" />
+          <div className="mt-3 text-sm font-semibold text-zinc-900">
+            Nenhum evento para exibir no gráfico.
+          </div>
+          <p className="mt-1 text-sm text-zinc-500">
+            Ajuste os filtros ou consulte um ticket com movimentações no Jira.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function TicketOperationalHistory({ active, issueKey, issue }) {
   const [loading, setLoading] = useState(false);
   const [loadedKey, setLoadedKey] = useState("");
@@ -5212,6 +5563,7 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState({});
+  const [historyView, setHistoryView] = useState("list");
 
   useEffect(() => {
     if (!active || !issueKey || loadedKey === issueKey) return;
@@ -5287,6 +5639,7 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
     setFilter("all");
     setQuery("");
     setExpanded({});
+    setHistoryView("list");
   }, [active, issueKey]);
 
   const filteredEvents = useMemo(() => {
@@ -5357,9 +5710,38 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
             </button>
           ))}
         </div>
+
+        <div className="mt-3 inline-flex w-full rounded-2xl bg-zinc-100 p-1 sm:w-auto">
+          <button
+            type="button"
+            className={cn(
+              "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+              historyView === "list"
+                ? "bg-white text-zinc-950 shadow-sm"
+                : "text-zinc-600 hover:text-zinc-950",
+            )}
+            onClick={() => setHistoryView("list")}
+          >
+            Lista
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+              historyView === "graph"
+                ? "bg-white text-zinc-950 shadow-sm"
+                : "text-zinc-600 hover:text-zinc-950",
+            )}
+            onClick={() => setHistoryView("graph")}
+          >
+            Gráfico
+          </button>
+        </div>
       </div>
 
-      {loading ? (
+      {historyView === "graph" ? (
+        <TicketHistoryGraphTimeline events={filteredEvents} loading={loading} />
+      ) : loading ? (
         <div className="grid gap-3">
           {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-24 rounded-xl" />
