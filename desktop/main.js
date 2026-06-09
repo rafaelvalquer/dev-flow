@@ -432,6 +432,7 @@ async function startBackend() {
 
   process.env.NODE_ENV = process.env.NODE_ENV || "production";
   process.env.PORT = String(port);
+  process.env.DEV_FLOW_APP_VERSION = app.getVersion();
   process.env.DEV_FLOW_ENV_FILE = envFile;
   process.env.REQUEST_TIMEOUT_MS = process.env.REQUEST_TIMEOUT_MS || "60000";
   process.env.HEALTHCHECK_TIMEOUT_MS = process.env.HEALTHCHECK_TIMEOUT_MS || "8000";

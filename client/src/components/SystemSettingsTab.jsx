@@ -1,21 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Activity,
   AlertCircle,
+  Bot,
   CalendarDays,
   ChevronsUpDown,
   Check,
+  Database,
   Download,
+  Gauge,
   KeyRound,
   Loader2,
   Palette,
   Plus,
   RefreshCw,
   Save,
+  Server,
   Settings2,
   ShieldCheck,
   Trash2,
   User,
   UserX,
+  Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -54,6 +60,7 @@ import {
   updateProfile,
 } from "@/lib/auth";
 import { jiraSearchUsers } from "@/lib/jiraClient";
+import { fetchSystemDiagnostics } from "@/lib/systemDiagnostics";
 import { ModuleHeader } from "@/components/layout/ModulePrimitives";
 import {
   countActiveHolidays,
@@ -147,6 +154,295 @@ function normalizePreferences(preferences = {}) {
   };
 }
 
+function formatDuration(seconds) {
+  const value = Number(seconds || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0s";
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m`;
+  return `${Math.round(value)}s`;
+}
+
+function formatLatency(value) {
+  const latency = Number(value);
+  if (!Number.isFinite(latency)) return "Sem latencia";
+  return `${Math.round(latency)} ms`;
+}
+
+function serviceState(service, type) {
+  if (!service) {
+    return {
+      label: "Sem dados",
+      className: "border-zinc-200 bg-zinc-50 text-zinc-700",
+    };
+  }
+
+  if (service.configured === false) {
+    return {
+      label: "Nao configurado",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  }
+
+  if (type === "portalIcc" && service.authenticated === false) {
+    return {
+      label: "Nao autenticado",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+    };
+  }
+
+  if (service.ok) {
+    return {
+      label: "Online",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    };
+  }
+
+  return {
+    label: "Offline",
+    className: "border-red-200 bg-red-50 text-red-700",
+  };
+}
+
+function diagnosticMessage(service, type) {
+  if (!service) return "Nenhum dado coletado.";
+  if (service.message) return service.message;
+  if (service.error?.message) return service.error.message;
+  if (service.error) return String(service.error);
+  if (type === "api") return `Uptime: ${formatDuration(service.uptimeSec)}.`;
+  if (type === "mongo") return `Estado Mongo: ${service.label || "unknown"}.`;
+  if (type === "jira") {
+    const failed = (service.checks || []).find((check) => !check?.ok);
+    if (failed?.error?.message) return failed.error.message;
+    if (failed?.error) return String(failed.error);
+    return service.host ? `Host: ${service.host}` : "Diagnostico Jira executado.";
+  }
+  if (type === "stt") return service.status ? `HTTP ${service.status}` : "Health STT consultado.";
+  if (type === "portalIcc") {
+    return service.authenticated
+      ? `Sessao ativa para ${service.session?.username || "usuario atual"}.`
+      : "Sessao Portal ICC nao encontrada.";
+  }
+  if (type === "automation") {
+    return service.enabled === false
+      ? "Automacao desativada por configuracao."
+      : `Ultima execucao: ${formatDateTime(service.lastRunAt)}.`;
+  }
+  if (type === "gemini") {
+    return service.configured
+      ? `Modelo: ${service.model || "configurado"}.`
+      : "Chave Gemini nao configurada.";
+  }
+  return "Diagnostico coletado.";
+}
+
+function StatusBadge({ service, type }) {
+  const state = serviceState(service, type);
+  return (
+    <Badge className={cn("rounded-full border", state.className)}>
+      {state.label}
+    </Badge>
+  );
+}
+
+function DiagnosticCard({ title, description, icon: Icon, service, type }) {
+  return (
+    <section className="grid gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-2 text-zinc-700">
+            <Icon className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-zinc-900">{title}</h3>
+            <p className="text-xs text-zinc-500">{description}</p>
+          </div>
+        </div>
+        <StatusBadge service={service} type={type} />
+      </div>
+
+      <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+        <div className="flex items-center justify-between gap-3">
+          <span>Latencia</span>
+          <strong className="text-zinc-900">{formatLatency(service?.latencyMs)}</strong>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span>Ultima checagem</span>
+          <strong className="text-right text-zinc-900">
+            {formatDateTime(service?.checkedAt, "Nao executado")}
+          </strong>
+        </div>
+      </div>
+
+      <p className="min-h-9 text-xs leading-5 text-zinc-600">
+        {diagnosticMessage(service, type)}
+      </p>
+    </section>
+  );
+}
+
+function SystemHealthView({
+  diagnostics,
+  loading,
+  error,
+  onRefresh,
+}) {
+  const services = diagnostics?.services || {};
+  const version = diagnostics?.version || {};
+  const statusMeta =
+    diagnostics?.status === "online"
+      ? {
+          label: "Sistema online",
+          className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        }
+      : diagnostics?.status === "offline"
+        ? {
+            label: "Sistema offline",
+            className: "border-red-200 bg-red-50 text-red-700",
+          }
+        : {
+            label: "Sistema instavel",
+            className: "border-amber-200 bg-amber-50 text-amber-800",
+          };
+
+  return (
+    <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4 text-red-600" />
+              Saúde do Sistema
+            </CardTitle>
+            <CardDescription>
+              Visao consolidada dos servicos usados pelo Dev Flow.
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={cn("rounded-full border", statusMeta.className)}>
+              {diagnostics ? statusMeta.label : "Aguardando diagnóstico"}
+            </Badge>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl border-zinc-200 bg-white"
+              onClick={onRefresh}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Atualizar diagnóstico
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="grid gap-5">
+        {error ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            <div className="flex gap-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{error}</p>
+            </div>
+          </div>
+        ) : null}
+
+        <section className="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 md:grid-cols-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-zinc-500">
+              Versao instalada
+            </p>
+            <p className="mt-1 text-sm font-semibold text-zinc-900">
+              {version.installed || "N/D"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase text-zinc-500">
+              Ambiente
+            </p>
+            <p className="mt-1 text-sm font-semibold text-zinc-900">
+              {version.environment || "development"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase text-zinc-500">
+              Node
+            </p>
+            <p className="mt-1 text-sm font-semibold text-zinc-900">
+              {version.node || "N/D"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase text-zinc-500">
+              Checado em
+            </p>
+            <p className="mt-1 text-sm font-semibold text-zinc-900">
+              {formatDateTime(diagnostics?.checkedAt, "Nao executado")}
+            </p>
+          </div>
+        </section>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <DiagnosticCard
+            title="API Dev Flow"
+            description="Servidor local e uptime da aplicacao."
+            icon={Server}
+            service={services.api}
+            type="api"
+          />
+          <DiagnosticCard
+            title="MongoDB"
+            description="Conexao principal de dados."
+            icon={Database}
+            service={services.mongo}
+            type="mongo"
+          />
+          <DiagnosticCard
+            title="Jira"
+            description="DNS, TCP e chamada autenticada Jira."
+            icon={ShieldCheck}
+            service={services.jira}
+            type="jira"
+          />
+          <DiagnosticCard
+            title="STT"
+            description="Servico Python de transcricao."
+            icon={Gauge}
+            service={services.stt}
+            type="stt"
+          />
+          <DiagnosticCard
+            title="Portal ICC"
+            description="Configuracao e sessao atual do portal."
+            icon={Wifi}
+            service={services.portalIcc}
+            type="portalIcc"
+          />
+          <DiagnosticCard
+            title="Automacao"
+            description="Job interno de sincronizacao operacional."
+            icon={RefreshCw}
+            service={services.automation}
+            type="automation"
+          />
+          <DiagnosticCard
+            title="Gemini"
+            description="Configuracao do recurso de IA."
+            icon={Bot}
+            service={services.gemini}
+            type="gemini"
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SystemSettingsTab({
   currentUser,
   calendarSettings,
@@ -185,6 +481,9 @@ export default function SystemSettingsTab({
     normalizePreferences(currentUser?.preferences)
   );
   const [preferencesSaving, setPreferencesSaving] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState("");
 
   useEffect(() => {
     if (dirty) return;
@@ -195,6 +494,12 @@ export default function SystemSettingsTab({
     setProfileName(currentUser?.name || "");
     setPreferencesDraft(normalizePreferences(currentUser?.preferences));
   }, [currentUser]);
+
+  useEffect(() => {
+    if (activeSection !== "diagnostics" || diagnostics || diagnosticsLoading)
+      return;
+    handleDiagnosticsRefresh();
+  }, [activeSection, diagnostics, diagnosticsLoading]);
 
   const debouncedJiraUserQuery = useDebouncedValue(jiraUserQuery, 250);
 
@@ -432,6 +737,21 @@ export default function SystemSettingsTab({
     }
   }
 
+  async function handleDiagnosticsRefresh() {
+    setDiagnosticsLoading(true);
+    setDiagnosticsError("");
+    try {
+      const payload = await fetchSystemDiagnostics();
+      setDiagnostics(payload);
+    } catch (err) {
+      setDiagnosticsError(
+        err?.message || "Nao foi possivel carregar o diagnostico."
+      );
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }
+
   const lastLoginLabel = formatDateTime(currentUser?.lastLoginAt);
   const tokenUpdatedLabel = formatDateTime(
     currentUser?.jiraTokenUpdatedAt,
@@ -497,6 +817,25 @@ export default function SystemSettingsTab({
                 <span className="text-sm font-semibold">Usuario</span>
                 <span className="text-xs text-zinc-500">
                   Senha e token Jira
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection("diagnostics")}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
+                activeSection === "diagnostics"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+              )}
+            >
+              <Activity className="h-4 w-4" />
+              <span className="grid">
+                <span className="text-sm font-semibold">Diagnóstico</span>
+                <span className="text-xs text-zinc-500">
+                  Saúde do sistema
                 </span>
               </span>
             </button>
@@ -695,6 +1034,13 @@ export default function SystemSettingsTab({
               </div>
             </CardContent>
           </Card>
+        ) : activeSection === "diagnostics" ? (
+          <SystemHealthView
+            diagnostics={diagnostics}
+            loading={diagnosticsLoading}
+            error={diagnosticsError}
+            onRefresh={handleDiagnosticsRefresh}
+          />
         ) : (
           <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
             <CardHeader className="gap-3">

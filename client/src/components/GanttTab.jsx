@@ -19,10 +19,13 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Download,
   GripVertical,
   HelpCircle,
   History,
   Loader2,
+  RotateCcw,
+  Save,
   Search,
   Link2,
   Link2Off,
@@ -37,6 +40,17 @@ import {
   nextWorkingDay,
   normalizeCalendarSettings,
 } from "@/utils/businessCalendar";
+import {
+  applySimulationDrafts,
+  buildSimulationBaseline,
+  buildStructuredFilterOptions,
+  detectDependencyViolations,
+  detectResourceConflicts,
+  getSimulationChanges,
+  hasSimulationChanges,
+  upsertDateDrafts,
+  upsertMetaDraft,
+} from "./gantt/ganttSimulation";
 
 /* =========================
    Helpers
@@ -263,6 +277,13 @@ function GanttTooltipContent({ task, fontSize, fontFamily }) {
         {fmtDateBR(getTaskOriginalStart(task))} —{" "}
         {fmtDateBR(getTaskOriginalEnd(task))}
       </div>
+
+      {!isProject && task?.isSimulationChanged ? (
+        <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800">
+          Baseline: {fmtDateBR(task.baselineStart)} -{" "}
+          {fmtDateBR(task.baselineEnd)}
+        </div>
+      ) : null}
 
       {!isProject && task?.area ? (
         <div className="mt-1 text-[11px] text-zinc-500">Área: {task.area}</div>
@@ -591,6 +612,8 @@ export function buildGanttTasksFromViewData({
   collapsedProjects,
   orderOverrides,
   metaOverrides, // ✅ NOVO
+  resourceFilter,
+  areaFilter,
 }) {
   const issues = Array.isArray(viewData?.calendarioIssues)
     ? viewData.calendarioIssues
@@ -793,14 +816,50 @@ export function buildGanttTasksFromViewData({
     ? outTasks
     : outTasks.filter((t) => {
         const hay = normalizeStr(
-          [t.issueKey, t.name, t.activityId, t.recurso, t.area, t.summary].join(
-            " "
-          )
+          [
+            t.issueKey,
+            t.name,
+            t.activityId,
+            t.recurso,
+            t.area,
+            t.summary,
+          ].join(" ")
         );
         return hay.includes(q);
       });
 
   let finalTasks = filteredByText;
+
+  const normalizedResourceFilter = String(resourceFilter || "").trim();
+  const normalizedAreaFilter = String(areaFilter || "").trim();
+  const hasStructuredFilters = Boolean(
+    normalizedResourceFilter || normalizedAreaFilter
+  );
+
+  if (hasStructuredFilters) {
+    const matchingIssueKeys = new Set();
+    const matchingTaskIds = new Set();
+
+    for (const t of filteredByText) {
+      if (t?.type !== "task") continue;
+      const matchesResource =
+        !normalizedResourceFilter ||
+        String(t.recurso || "").trim() === normalizedResourceFilter;
+      const matchesArea =
+        !normalizedAreaFilter ||
+        String(t.area || "").trim() === normalizedAreaFilter;
+
+      if (matchesResource && matchesArea) {
+        matchingTaskIds.add(t.id);
+        if (t.issueKey) matchingIssueKeys.add(t.issueKey);
+      }
+    }
+
+    finalTasks = filteredByText.filter((t) => {
+      if (t?.type === "project") return matchingIssueKeys.has(t.issueKey);
+      return matchingTaskIds.has(t?.id);
+    });
+  }
 
   const conflictSet = new Set();
   if (quickView === "risco") {
@@ -906,9 +965,88 @@ const MIN_COL_WIDTHS = {
   chain: 42,
 };
 
+const GANTT_COLUMN_ORDER = [
+  "ticket",
+  "atividade",
+  "recurso",
+  "area",
+  "dur",
+  "start",
+  "end",
+  "chain",
+];
+const GANTT_STICKY_COLUMNS = ["ticket", "atividade", "recurso"];
+const GANTT_MOBILE_STICKY_COLUMNS = ["ticket", "atividade"];
+const GANTT_GRID_GAP_PX = 8;
+const GANTT_GRID_PADDING_X_PX = 12;
+const GANTT_MAX_VISIBLE_LIST_WIDTH_PX = 560;
+
 function makeGridTemplate(w) {
   const x = w || DEFAULT_COL_WIDTHS;
   return `${x.ticket}px ${x.atividade}px ${x.recurso}px ${x.area}px ${x.dur}px ${x.start}px ${x.end}px ${x.chain}px`;
+}
+
+function getGanttTotalListWidth(colWidths) {
+  const widths = colWidths || DEFAULT_COL_WIDTHS;
+  const sum = GANTT_COLUMN_ORDER.reduce(
+    (acc, key) => acc + Number(widths?.[key] ?? DEFAULT_COL_WIDTHS[key] ?? 0),
+    0
+  );
+  return sum + (GANTT_COLUMN_ORDER.length - 1) * GANTT_GRID_GAP_PX + 24;
+}
+
+function getGanttStickyListWidth(colWidths) {
+  const widths = colWidths || DEFAULT_COL_WIDTHS;
+  const sum = GANTT_STICKY_COLUMNS.reduce(
+    (acc, key) => acc + Number(widths?.[key] ?? DEFAULT_COL_WIDTHS[key] ?? 0),
+    0
+  );
+  return sum + (GANTT_STICKY_COLUMNS.length - 1) * GANTT_GRID_GAP_PX + 24;
+}
+
+function getStickyColumnOffsets(colWidths) {
+  const widths = colWidths || DEFAULT_COL_WIDTHS;
+  const offsets = {};
+  let left = 0;
+
+  for (const key of GANTT_COLUMN_ORDER) {
+    offsets[key] = left;
+    left += Number(widths?.[key] ?? DEFAULT_COL_WIDTHS[key] ?? 0);
+    left += GANTT_GRID_GAP_PX;
+  }
+
+  return offsets;
+}
+
+function getColumnCellStyle(colKey, colWidths, stickyConfig = {}) {
+  const stickyColumns = stickyConfig.stickyColumns || GANTT_STICKY_COLUMNS;
+  if (!stickyColumns.includes(colKey)) return undefined;
+
+  const offsets = getStickyColumnOffsets(colWidths);
+  return {
+    position: "sticky",
+    left: `${GANTT_GRID_PADDING_X_PX + (offsets[colKey] || 0)}px`,
+    zIndex: stickyConfig.isHeader ? 32 : 22,
+  };
+}
+
+function getColumnCellClass(colKey, isHeader = false, rowBgClass = "bg-white") {
+  const isSticky = GANTT_STICKY_COLUMNS.includes(colKey);
+  const isMobileSticky = GANTT_MOBILE_STICKY_COLUMNS.includes(colKey);
+  const isDesktopStickyTail =
+    colKey === GANTT_STICKY_COLUMNS[GANTT_STICKY_COLUMNS.length - 1];
+  const isMobileStickyTail =
+    colKey ===
+    GANTT_MOBILE_STICKY_COLUMNS[GANTT_MOBILE_STICKY_COLUMNS.length - 1];
+
+  return cn(
+    "min-w-0",
+    isHeader ? "bg-zinc-50" : rowBgClass,
+    isSticky && "gantt-sticky-cell",
+    isSticky && !isMobileSticky && "gantt-sticky-desktop-only",
+    isDesktopStickyTail && "gantt-sticky-tail",
+    isMobileStickyTail && "gantt-sticky-mobile-tail"
+  );
 }
 
 /* =========================
@@ -916,10 +1054,19 @@ function makeGridTemplate(w) {
 ========================= */
 function TaskListHeaderFactory({ colWidthsRef, beginResize }) {
   return function TaskListHeader({ headerHeight, rowWidth }) {
-    const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
+    const currentColWidths = colWidthsRef.current;
+    const gridTemplateColumns = makeGridTemplate(currentColWidths);
 
     const HeaderCell = ({ label, colKey }) => (
-      <div className="relative min-w-0 select-none pr-2">
+      <div
+        style={getColumnCellStyle(colKey, currentColWidths, {
+          isHeader: true,
+        })}
+        className={cn(
+          getColumnCellClass(colKey, true),
+          "relative select-none pr-2"
+        )}
+      >
         <span className="truncate">{label}</span>
         <div
           className="absolute right-0 top-0 z-20 h-full w-2 cursor-col-resize"
@@ -932,7 +1079,7 @@ function TaskListHeaderFactory({ colWidthsRef, beginResize }) {
     return (
       <div
         style={{ height: headerHeight, width: rowWidth, gridTemplateColumns }}
-        className="grid gap-2 border-r border-zinc-200 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-700"
+        className="grid gap-2 overflow-hidden border-r border-zinc-200 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold text-zinc-700"
       >
         <HeaderCell label="Ticket" colKey="ticket" />
         <HeaderCell label="Atividade" colKey="atividade" />
@@ -963,6 +1110,9 @@ function TaskListTableFactory({
   onChangeDuration,
   onChangeDate,
   onChangeMeta, // ✅ NOVO
+  simulationBaseline,
+  dependencyViolationSet,
+  isSimulationMode,
   rowDragStateRef,
   onRowPointerDown,
   busy,
@@ -992,7 +1142,44 @@ function TaskListTableFactory({
       () => new Map(taskRows.map((t) => [String(t.id || ""), t])),
       [taskRows]
     );
-    const gridTemplateColumns = makeGridTemplate(colWidthsRef.current);
+    const [hoveredTaskId, setHoveredTaskId] = useState("");
+    const dependencyTrailSet = useMemo(() => {
+      const activeId = String(hoveredTaskId || selectedTaskId || "");
+      if (!activeId) return new Set();
+      const byId = new Map(
+        taskRows
+          .filter((task) => task?.type === "task")
+          .map((task) => [String(task.id || ""), task])
+      );
+      const next = new Set([activeId]);
+      const visitPredecessors = (taskId) => {
+        const task = byId.get(String(taskId || ""));
+        const deps = Array.isArray(task?.dependencies) ? task.dependencies : [];
+        for (const depId of deps) {
+          const id = String(depId || "");
+          if (!id || next.has(id)) continue;
+          next.add(id);
+          visitPredecessors(id);
+        }
+      };
+      const visitSuccessors = (taskId) => {
+        for (const task of byId.values()) {
+          const deps = Array.isArray(task?.dependencies)
+            ? task.dependencies.map((id) => String(id || ""))
+            : [];
+          if (!deps.includes(String(taskId || ""))) continue;
+          const id = String(task.id || "");
+          if (!id || next.has(id)) continue;
+          next.add(id);
+          visitSuccessors(id);
+        }
+      };
+      visitPredecessors(activeId);
+      visitSuccessors(activeId);
+      return next;
+    }, [hoveredTaskId, selectedTaskId, taskRows]);
+    const currentColWidths = colWidthsRef.current;
+    const gridTemplateColumns = makeGridTemplate(currentColWidths);
 
     function calcDurationDays(t) {
       return (
@@ -1098,12 +1285,26 @@ function TaskListTableFactory({
           const isProject = t.type === "project";
           const activeRowDragState = rowDragStateRef?.current || {};
           const isDragOver = activeRowDragState?.targetId === t.id;
+          const baseline = simulationBaseline?.get?.(String(t.id || ""));
+          const isSimulationChanged = Boolean(t.isSimulationChanged);
+          const isDependencyViolation = dependencyViolationSet?.has?.(t.id);
+          const isDependencyTrail =
+            !isProject && dependencyTrailSet.has(String(t.id || ""));
           const isDragging =
             activeRowDragState?.isDragging &&
             activeRowDragState?.sourceId === t.id;
           const dropPosition = activeRowDragState?.position || "after";
           const isPointerDragging = Boolean(activeRowDragState?.isDragging);
           const canDropHere = canDropOnTask(activeRowDragState?.sourceId, t);
+          const rowBgClass = isDragOver && canDropHere
+            ? "bg-red-50"
+            : selected
+            ? "bg-red-50"
+            : isDependencyTrail
+            ? "bg-sky-50"
+            : isSimulationChanged
+            ? "bg-amber-50"
+            : "bg-white";
 
           return (
             <div
@@ -1113,11 +1314,13 @@ function TaskListTableFactory({
               className={cn(
                 "relative grid gap-2 px-3 text-[12px]",
                 "border-b border-zinc-100",
-                selected ? "bg-red-50" : "bg-white",
+                rowBgClass,
                 isDragging && "opacity-50",
                 isDragOver && canDropHere && "bg-red-50",
                 "items-center"
               )}
+              onMouseEnter={() => setHoveredTaskId(String(t.id || ""))}
+              onMouseLeave={() => setHoveredTaskId("")}
               onClick={() => {
                 if (isPointerDragging) return;
                 const isEditingThisRow =
@@ -1141,7 +1344,13 @@ function TaskListTableFactory({
               ) : null}
 
               {/* Ticket */}
-              <div className="min-w-0 flex items-center gap-2">
+              <div
+                style={getColumnCellStyle("ticket", currentColWidths)}
+                className={cn(
+                  getColumnCellClass("ticket", false, rowBgClass),
+                  "flex items-center gap-2 overflow-hidden"
+                )}
+              >
                 <span
                   className="h-2.5 w-2.5 rounded-full"
                   style={{
@@ -1168,7 +1377,13 @@ function TaskListTableFactory({
               </div>
 
               {/* Atividade */}
-              <div className="min-w-0 flex items-center gap-2">
+              <div
+                style={getColumnCellStyle("atividade", currentColWidths)}
+                className={cn(
+                  getColumnCellClass("atividade", false, rowBgClass),
+                  "flex items-center gap-2 overflow-hidden"
+                )}
+              >
                 {isProject ? (
                   <button
                     type="button"
@@ -1210,27 +1425,66 @@ function TaskListTableFactory({
                 ) : null}
 
                 <span
-                  className={cn("truncate", isProject && "font-semibold")}
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    isProject && "font-semibold"
+                  )}
                   title={t.name}
                 >
                   {t.name}
                 </span>
 
                 {!isProject && t.risk ? (
-                  <Badge className="ml-auto rounded-full bg-orange-600 text-white">
-                    Risco
-                  </Badge>
+                  <span
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-600 text-white"
+                    title="Atividade com risco"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                  </span>
                 ) : null}
 
                 {!isProject && conflictSet?.has(t.id) ? (
-                  <Badge className="ml-2 rounded-full bg-orange-600 text-white">
-                    ⚠ conflito
-                  </Badge>
+                  <span
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-orange-600 text-white"
+                    title="Conflito de recurso"
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                  </span>
+                ) : null}
+
+                {!isProject && isDependencyViolation ? (
+                  <span
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-600 text-white"
+                    title="Dependência quebrada"
+                  >
+                    <Link2Off className="h-3 w-3" />
+                  </span>
+                ) : null}
+
+                {!isProject && isSimulationMode && isSimulationChanged ? (
+                  <span
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-[10px] font-bold text-amber-700"
+                    title={
+                      baseline
+                        ? `Baseline ${fmtDateBR(baseline.start)} - ${fmtDateBR(
+                            baseline.end
+                          )}`
+                        : "Alteração em simulação"
+                    }
+                  >
+                    S
+                  </span>
                 ) : null}
               </div>
 
               {/* ✅ Recurso (editável inline) */}
-              <div className="min-w-0">
+              <div
+                style={getColumnCellStyle("recurso", currentColWidths)}
+                className={cn(
+                  getColumnCellClass("recurso", false, rowBgClass),
+                  "overflow-hidden"
+                )}
+              >
                 {isProject ? (
                   <span
                     className="block truncate text-zinc-600"
@@ -1295,7 +1549,7 @@ function TaskListTableFactory({
               </div>
 
               {/* ✅ Área (editável inline) */}
-              <div className="min-w-0">
+              <div className={getColumnCellClass("area", false, rowBgClass)}>
                 {isProject ? (
                   <span className="text-zinc-300">—</span>
                 ) : editingMeta.id === t.id && editingMeta.field === "area" ? (
@@ -1342,7 +1596,12 @@ function TaskListTableFactory({
               </div>
 
               {/* ✅ Dias (editável) */}
-              <div className="flex items-center">
+              <div
+                className={cn(
+                  getColumnCellClass("dur", false, rowBgClass),
+                  "flex items-center"
+                )}
+              >
                 {isProject ? (
                   <span className="text-zinc-300">—</span>
                 ) : (
@@ -1429,7 +1688,12 @@ function TaskListTableFactory({
               </div>
 
               {/* Start / End */}
-              <div className="flex items-center">
+              <div
+                className={cn(
+                  getColumnCellClass("start", false, rowBgClass),
+                  "flex items-center"
+                )}
+              >
                 {isProject ? (
                   <span className="text-zinc-700">
                     {fmtDateBR(getTaskOriginalStart(t))}
@@ -1469,7 +1733,12 @@ function TaskListTableFactory({
                   />
                 )}
               </div>
-              <div className="flex items-center">
+              <div
+                className={cn(
+                  getColumnCellClass("end", false, rowBgClass),
+                  "flex items-center"
+                )}
+              >
                 {isProject ? (
                   <span className="text-zinc-700">
                     {fmtDateBR(getTaskOriginalEnd(t))}
@@ -1511,7 +1780,12 @@ function TaskListTableFactory({
               </div>
 
               {/* Encadear */}
-              <div className="flex items-center justify-center">
+              <div
+                className={cn(
+                  getColumnCellClass("chain", false, rowBgClass),
+                  "flex items-center justify-center"
+                )}
+              >
                 {isProject ? (
                   <span className="text-zinc-300">—</span>
                 ) : (
@@ -1582,6 +1856,16 @@ export function GanttTab({
   const [selectedIssueKey, setSelectedIssueKey] = useState("");
   const [quickView, setQuickView] = useState("po");
   const [collapsedProjects, setCollapsedProjects] = useState(() => new Set());
+  const [ganttMode, setGanttMode] = useState("live");
+  const [simulationBaseline, setSimulationBaseline] = useState(() => new Map());
+  const [simulationDrafts, setSimulationDrafts] = useState(() => new Map());
+  const [simulationOrderOverrides, setSimulationOrderOverrides] = useState(
+    () => new Map()
+  );
+  const [resourceFilter, setResourceFilter] = useState("");
+  const [areaFilter, setAreaFilter] = useState("");
+  const [exportingGantt, setExportingGantt] = useState("");
+  const isSimulationMode = ganttMode === "simulation";
 
   // ✅ drawer inspector
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -1621,11 +1905,13 @@ export function GanttTab({
   );
   const rowDragStateRef = useRef(rowDragState);
   const rowDragStyleRef = useRef(null);
-  const busy = Boolean(loading || persistingDates || persistingMeta);
+  const busy = Boolean(loading || persistingDates || persistingMeta || exportingGantt);
   const operationLabel = persistingDates
     ? "salvando cronograma no Jira"
     : persistingMeta
     ? "salvando dados no Jira"
+    : exportingGantt
+    ? `exportando ${String(exportingGantt).toUpperCase()}`
     : interactionLabel;
 
   const clearReorderDrag = useCallback(() => {
@@ -1754,14 +2040,12 @@ export function GanttTab({
   }, [colWidths]);
 
   const listCellWidth = useMemo(() => {
-    const sum = Object.values(colWidths || {}).reduce(
-      (acc, v) => acc + Number(v || 0),
-      0
-    );
-
-    // 8 colunas -> 7 gaps (gap-2 = 8px) = 56px
-    // px-3 (12px) em cada lado = 24px
-    return `${sum + 56 + 24}px`;
+    const totalWidth = getGanttTotalListWidth(colWidths);
+    const stickyWidth = getGanttStickyListWidth(colWidths);
+    return `${Math.min(
+      totalWidth,
+      Math.max(stickyWidth, GANTT_MAX_VISIBLE_LIST_WIDTH_PX)
+    )}px`;
   }, [colWidths]);
 
   const ganttWrapRef = useRef(null);
@@ -1907,6 +2191,47 @@ export function GanttTab({
     syncGanttScrollbars();
   }, [syncGanttScrollbars]);
 
+  const handleGanttWheel = useCallback(
+    (event) => {
+      const root = ganttWrapRef.current;
+      const horizontalTarget = getGanttHorizontalScrollTarget();
+      if (!root || !horizontalTarget) return;
+      if (!isGanttTimelinePanTarget(event.target)) return;
+
+      const dominantDelta =
+        Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+          ? event.deltaX
+          : event.deltaY;
+      if (!dominantDelta) return;
+
+      const maxScrollLeft =
+        horizontalTarget.scrollWidth - horizontalTarget.clientWidth;
+      if (maxScrollLeft <= 1) return;
+
+      const previous = horizontalTarget.scrollLeft;
+      const next = Math.max(
+        0,
+        Math.min(maxScrollLeft, previous + dominantDelta)
+      );
+      if (next === previous) return;
+
+      horizontalTarget.scrollLeft = next;
+      syncGanttScrollbars();
+      event.preventDefault();
+    },
+    [getGanttHorizontalScrollTarget, syncGanttScrollbars]
+  );
+
+  useEffect(() => {
+    const root = ganttWrapRef.current;
+    if (!root) return undefined;
+
+    root.addEventListener("wheel", handleGanttWheel, { passive: false });
+    return () => {
+      root.removeEventListener("wheel", handleGanttWheel);
+    };
+  }, [handleGanttWheel]);
+
   const handleGanttHorizontalBarScroll = useCallback(
     (event) => {
       const root = ganttWrapRef.current;
@@ -2011,6 +2336,10 @@ export function GanttTab({
     };
   }, [finishGanttPan, handleGanttPanPointerMove]);
 
+  const effectiveOrderOverrides = isSimulationMode
+    ? simulationOrderOverrides
+    : orderOverrides;
+
   const { tasks, conflictSet, ticketOptions } = useMemo(() => {
     return buildGanttTasksFromViewData({
       viewData,
@@ -2021,8 +2350,10 @@ export function GanttTab({
       groupByTicket,
       quickView,
       collapsedProjects,
-      orderOverrides,
+      orderOverrides: effectiveOrderOverrides,
       metaOverrides, // ✅ aplica overrides
+      resourceFilter,
+      areaFilter,
     });
   }, [
     viewData,
@@ -2033,8 +2364,10 @@ export function GanttTab({
     groupByTicket,
     quickView,
     collapsedProjects,
-    orderOverrides,
+    effectiveOrderOverrides,
     metaOverrides,
+    resourceFilter,
+    areaFilter,
   ]);
 
   const tasksWithMetaOverrides = useMemo(() => {
@@ -2054,7 +2387,7 @@ export function GanttTab({
     });
   }, [tasks, localOverridesMeta]);
 
-  const safeTasks = useMemo(() => {
+  const baseSafeTasks = useMemo(() => {
     const arr = Array.isArray(tasksWithMetaOverrides)
       ? tasksWithMetaOverrides
       : [];
@@ -2067,6 +2400,41 @@ export function GanttTab({
       return true;
     });
   }, [tasksWithMetaOverrides]);
+
+  const structuredFilterOptions = useMemo(
+    () => buildStructuredFilterOptions(baseSafeTasks),
+    [baseSafeTasks]
+  );
+
+  useEffect(() => {
+    if (!isSimulationMode) return;
+    setSimulationBaseline((current) =>
+      current instanceof Map && current.size
+        ? current
+        : buildSimulationBaseline(baseSafeTasks)
+    );
+  }, [baseSafeTasks, isSimulationMode]);
+
+  const safeTasks = useMemo(() => {
+    if (!isSimulationMode) return baseSafeTasks;
+    return applySimulationDrafts(baseSafeTasks, simulationDrafts).map((task) => {
+      if (!task?.isSimulationChanged) return task;
+      const baseline = simulationBaseline.get(String(task.id || ""));
+      if (!baseline) return task;
+      return {
+        ...task,
+        baselineStart: baseline.start,
+        baselineEnd: baseline.end,
+      };
+    });
+  }, [baseSafeTasks, isSimulationMode, simulationBaseline, simulationDrafts]);
+
+  const simulationChanges = useMemo(
+    () => getSimulationChanges(simulationDrafts, simulationBaseline),
+    [simulationDrafts, simulationBaseline]
+  );
+
+  const hasPendingSimulationChanges = hasSimulationChanges(simulationDrafts);
 
   const displayTasks = useMemo(() => {
     if (
@@ -2231,6 +2599,29 @@ export function GanttTab({
     return locked;
   }, [prevById, chainSet]);
 
+  const simulationResourceConflicts = useMemo(
+    () =>
+      isSimulationMode
+        ? detectResourceConflicts(safeTasks)
+        : { ids: new Set(), details: [] },
+    [isSimulationMode, safeTasks]
+  );
+
+  const dependencyViolations = useMemo(
+    () =>
+      detectDependencyViolations(safeTasks, (end) =>
+        nextStartAfterEnd(end, effectiveCalendarSettings)
+      ),
+    [effectiveCalendarSettings, safeTasks]
+  );
+
+  const visibleConflictSet = useMemo(() => {
+    const next = new Set(conflictSet || []);
+    for (const id of simulationResourceConflicts.ids || []) next.add(id);
+    for (const id of dependencyViolations.ids || []) next.add(id);
+    return next;
+  }, [conflictSet, dependencyViolations, simulationResourceConflicts]);
+
   const ganttTasks = useMemo(() => {
     const windowStart = ganttWindow?.start;
     const windowEnd = ganttWindow?.end;
@@ -2248,6 +2639,15 @@ export function GanttTab({
           originalStart < windowStart ? cloneDate(windowStart) : originalStart;
         const end = originalEnd > windowEnd ? cloneDate(windowEnd) : originalEnd;
 
+        const isConflict = visibleConflictSet.has(t.id);
+        const nextColor = dependencyViolations.ids.has(t.id)
+          ? "#DC2626"
+          : isConflict
+          ? "#F97316"
+          : t.isSimulationChanged
+          ? "#D97706"
+          : t.styles?.backgroundColor;
+
         return {
           ...t,
           originalStart,
@@ -2259,10 +2659,20 @@ export function GanttTab({
             end.getTime() !== originalEnd.getTime(),
           isDisabled:
             t.type === "task" ? Boolean(t.isDisabled || lockedSet.has(t.id)) : t.isDisabled,
+          styles:
+            t.type === "task" && nextColor
+              ? {
+                  ...(t.styles || {}),
+                  backgroundColor: nextColor,
+                  backgroundSelectedColor: nextColor,
+                  progressColor: nextColor,
+                  progressSelectedColor: nextColor,
+                }
+              : t.styles,
         };
       })
       .filter(Boolean);
-  }, [displayTasks, ganttWindow, lockedSet]);
+  }, [dependencyViolations, displayTasks, ganttWindow, lockedSet, visibleConflictSet]);
 
   const ganttRenderTasks = useMemo(() => {
     const windowStart = ganttWindow?.start;
@@ -2689,6 +3099,17 @@ export function GanttTab({
         cur = nextUpdate;
       }
 
+      if (isSimulationMode) {
+        setSimulationDrafts((prev) => upsertDateDrafts(prev, updates));
+        setInteractionLabel("alteração adicionada à simulação");
+        window.setTimeout(() => {
+          setInteractionLabel((label) =>
+            label === "alteração adicionada à simulação" ? "" : label
+          );
+        }, 1200);
+        return true;
+      }
+
       setPersistingDates(true);
       try {
         const ok = await onPersistDateChange?.(updates);
@@ -2709,6 +3130,7 @@ export function GanttTab({
       taskById,
       onPersistDateChange,
       effectiveCalendarSettings,
+      isSimulationMode,
     ]
   );
 
@@ -2894,7 +3316,7 @@ export function GanttTab({
       const nextActivityOrder = orderedTasks
         .map((t) => String(t.activityId || getActivityIdFromTaskId(t.id)).trim())
         .filter(Boolean);
-      const previousOrder = orderOverrides.get(issueKey) || null;
+      const previousOrder = effectiveOrderOverrides.get(issueKey) || null;
 
       const validStarts = orderedTasks
         .map((t) => safeDate(t.start))
@@ -2920,6 +3342,16 @@ export function GanttTab({
           end: nextEnd,
         };
       });
+
+      if (isSimulationMode) {
+        setSimulationOrderOverrides((prev) => {
+          const next = new Map(prev);
+          next.set(issueKey, nextActivityOrder);
+          return next;
+        });
+        setSimulationDrafts((prev) => upsertDateDrafts(prev, updates));
+        return true;
+      }
 
       setOrderOverrides((prev) => {
         const next = new Map(prev);
@@ -2950,9 +3382,10 @@ export function GanttTab({
       persistingDates,
       persistingMeta,
       safeTasks,
-      orderOverrides,
+      effectiveOrderOverrides,
       onPersistDateChange,
       effectiveCalendarSettings,
+      isSimulationMode,
     ]
   );
 
@@ -3153,6 +3586,23 @@ export function GanttTab({
 
       const mapKey = `${key}::${act}`;
 
+      if (isSimulationMode) {
+        const task = taskById.get(mapKey) || {
+          id: mapKey,
+          type: "task",
+          issueKey: key,
+          activityId: act,
+        };
+        setSimulationDrafts((prev) => upsertMetaDraft(prev, task, patch));
+        setInteractionLabel("alteração adicionada à simulação");
+        window.setTimeout(() => {
+          setInteractionLabel((label) =>
+            label === "alteração adicionada à simulação" ? "" : label
+          );
+        }, 1200);
+        return true;
+      }
+
       // snapshot p/ revert
       const prevOverride = metaOverrides.get(mapKey);
 
@@ -3202,7 +3652,7 @@ export function GanttTab({
         setPersistingMeta(false);
       }
     },
-    [metaOverrides, onPersistMetaChange]
+    [isSimulationMode, metaOverrides, onPersistMetaChange, taskById]
   );
 
   const handleMetaChangeFromGrid = useCallback(
@@ -3255,6 +3705,165 @@ export function GanttTab({
     toggleChain(selectedInspectorTask.id);
   }, [selectedInspectorTask, toggleChain]);
 
+  const enterSimulationMode = useCallback(() => {
+    setSimulationBaseline(buildSimulationBaseline(baseSafeTasks));
+    setSimulationDrafts(new Map());
+    setSimulationOrderOverrides(new Map(orderOverrides || []));
+    setGanttMode("simulation");
+  }, [baseSafeTasks, orderOverrides]);
+
+  const leaveSimulationMode = useCallback(() => {
+    setSimulationDrafts(new Map());
+    setSimulationOrderOverrides(new Map());
+    setSimulationBaseline(new Map());
+    setGanttMode("live");
+    setInteractionLabel("");
+  }, []);
+
+  const applySimulationChanges = useCallback(async () => {
+    if (!isSimulationMode || !hasPendingSimulationChanges) return;
+    if (persistingDates || persistingMeta) return;
+
+    const changes = simulationChanges;
+    const dateUpdates = [];
+    const metaUpdates = [];
+
+    for (const change of changes) {
+      const task = taskById.get(change.id) || change;
+      const original = change.original;
+      const start = safeDate(change.start);
+      const end = safeDate(change.end);
+      const originalStart = safeDate(original?.start);
+      const originalEnd = safeDate(original?.end);
+      const hasDateChange =
+        start &&
+        end &&
+        (!originalStart ||
+          !originalEnd ||
+          start.getTime() !== originalStart.getTime() ||
+          end.getTime() !== originalEnd.getTime());
+
+      if (hasDateChange) {
+        dateUpdates.push({
+          ...task,
+          type: "task",
+          issueKey: change.issueKey,
+          activityId: change.activityId,
+          start,
+          end,
+          visualEndAdjusted: false,
+        });
+      }
+
+      if (change.meta && Object.keys(change.meta).length) {
+        const normalizedPatch = { ...(change.meta || {}) };
+        if ("risk" in normalizedPatch && !("risco" in normalizedPatch)) {
+          normalizedPatch.risco = normalizedPatch.risk ? "Risco" : "";
+        }
+        metaUpdates.push({
+          issueKey: change.issueKey,
+          activityId: change.activityId,
+          patch: normalizedPatch,
+        });
+      }
+    }
+
+    setPersistingDates(Boolean(dateUpdates.length));
+    setPersistingMeta(Boolean(metaUpdates.length));
+    try {
+      if (dateUpdates.length) {
+        const ok = await onPersistDateChange?.(dateUpdates);
+        if (ok === false) throw new Error("Persist simulation dates returned false");
+      }
+
+      if (metaUpdates.length) {
+        if (typeof onPersistMetaChange !== "function") {
+          throw new Error("Missing onPersistMetaChange");
+        }
+        for (const update of metaUpdates) {
+          const ok = await onPersistMetaChange(
+            update.issueKey,
+            update.activityId,
+            update.patch
+          );
+          if (ok === false)
+            throw new Error("Persist simulation meta returned false");
+        }
+      }
+
+      if (simulationOrderOverrides.size) {
+        setOrderOverrides(new Map(simulationOrderOverrides));
+      }
+      leaveSimulationMode();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPersistingDates(false);
+      setPersistingMeta(false);
+    }
+  }, [
+    hasPendingSimulationChanges,
+    isSimulationMode,
+    leaveSimulationMode,
+    onPersistDateChange,
+    onPersistMetaChange,
+    persistingDates,
+    persistingMeta,
+    simulationChanges,
+    simulationOrderOverrides,
+    taskById,
+  ]);
+
+  const exportGantt = useCallback(
+    async (format) => {
+      const target = ganttWrapRef.current;
+      if (!target || exportingGantt) return;
+      const normalizedFormat = String(format || "").toLowerCase();
+      if (normalizedFormat !== "png" && normalizedFormat !== "pdf") return;
+
+      setExportingGantt(normalizedFormat);
+      try {
+        const [{ default: html2canvas }, jsPdfModule] = await Promise.all([
+          import("html2canvas"),
+          import("jspdf"),
+        ]);
+        const canvas = await html2canvas(target, {
+          backgroundColor: "#ffffff",
+          scale: Math.min(2, window.devicePixelRatio || 1.5),
+          useCORS: true,
+        });
+        const stamp = new Date().toISOString().slice(0, 10);
+        const suffix = isSimulationMode ? "simulacao" : "ao-vivo";
+
+        if (normalizedFormat === "png") {
+          const link = document.createElement("a");
+          link.download = `gantt-${suffix}-${stamp}.png`;
+          link.href = canvas.toDataURL("image/png");
+          link.click();
+          return;
+        }
+
+        const { jsPDF } = jsPdfModule;
+        const pdf = new jsPDF({
+          orientation: canvas.width >= canvas.height ? "landscape" : "portrait",
+          unit: "px",
+          format: [canvas.width, canvas.height + 48],
+        });
+        pdf.setFontSize(14);
+        pdf.text(`Gantt - ${isSimulationMode ? "Simulação" : "Ao vivo"}`, 24, 24);
+        pdf.setFontSize(10);
+        pdf.text(`Gerado em ${new Intl.DateTimeFormat("pt-BR").format(new Date())}`, 24, 40);
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 48, canvas.width, canvas.height);
+        pdf.save(`gantt-${suffix}-${stamp}.pdf`);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setExportingGantt("");
+      }
+    },
+    [exportingGantt, isSimulationMode]
+  );
+
   /* =========================
      Header / Table custom
   ========================= */
@@ -3269,7 +3878,7 @@ export function GanttTab({
   const TaskListTable = useMemo(() => {
     return TaskListTableFactory({
       onOpenDetails,
-      conflictSet,
+      conflictSet: visibleConflictSet,
       onToggleProject: handleToggleProject,
       colWidthsRef,
       chainSet,
@@ -3277,6 +3886,9 @@ export function GanttTab({
       onChangeDuration: handleDurationChange,
       onChangeDate: handleDateInputChange,
       onChangeMeta: handleMetaChangeFromGrid,
+      simulationBaseline,
+      dependencyViolationSet: dependencyViolations.ids,
+      isSimulationMode,
       rowDragStateRef,
       onRowPointerDown: handleRowPointerDown,
       busy,
@@ -3287,7 +3899,7 @@ export function GanttTab({
     });
   }, [
     onOpenDetails,
-    conflictSet,
+    visibleConflictSet,
     handleToggleProject,
     chainSet,
     lockedSet,
@@ -3299,6 +3911,9 @@ export function GanttTab({
     busy,
     getBusinessDurationDays,
     openInspectorByTaskId,
+    simulationBaseline,
+    dependencyViolations,
+    isSimulationMode,
   ]);
 
   return (
@@ -3320,13 +3935,9 @@ export function GanttTab({
           <div
             className={cn(busy && "pointer-events-none select-none opacity-70")}
           >
-            <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
+            <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-start">
+              <div className="shrink-0">
                 <h2 className="text-base font-semibold text-zinc-900">Gantt</h2>
-                <p className="text-xs text-zinc-500">
-                  Arraste/redimensione para alterar datas. Dependências são
-                  desenhadas por atividades do ticket.
-                </p>
                 {operationLabel ? (
                   <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
                     {busy ? (
@@ -3337,8 +3948,8 @@ export function GanttTab({
                 ) : null}
               </div>
 
-              <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:items-center">
-                <div className="relative w-full md:w-[360px]">
+              <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
+                <div className="relative w-full md:w-[300px]">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
                   <Input
                     value={filterText}
@@ -3374,8 +3985,71 @@ export function GanttTab({
                     Por Atividade
                   </Button>
                 </div>
+
+                <div className="inline-flex w-full items-center rounded-xl border border-zinc-200 bg-zinc-50 p-1 md:w-auto">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={leaveSimulationMode}
+                    className={toolbarButton(!isSimulationMode)}
+                    disabled={busy}
+                  >
+                    Ao vivo
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={enterSimulationMode}
+                    className={toolbarButton(isSimulationMode)}
+                    disabled={busy}
+                  >
+                    Simulação
+                  </Button>
+                </div>
               </div>
             </div>
+
+            {isSimulationMode ? (
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2">
+                <div className="text-xs font-semibold text-amber-900">
+                  Simulação ativa: {simulationChanges.length} alteração
+                  {simulationChanges.length === 1 ? "" : "ões"} pendente
+                  {simulationChanges.length === 1 ? "" : "s"}.
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-xl border-amber-300 bg-white px-3 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                  onClick={applySimulationChanges}
+                  disabled={busy || !hasPendingSimulationChanges}
+                >
+                  <Save className="mr-1.5 h-3.5 w-3.5" />
+                  Aplicar todas alterações
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-xl border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700"
+                  onClick={leaveSimulationMode}
+                  disabled={busy}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  Descartar simulação
+                </Button>
+                {simulationResourceConflicts.details.length ? (
+                  <Badge className="rounded-full bg-orange-600 text-white">
+                    <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                    recursos: {simulationResourceConflicts.details.length}
+                  </Badge>
+                ) : null}
+                {dependencyViolations.details.length ? (
+                  <Badge className="rounded-full bg-red-600 text-white">
+                    <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                    dependências: {dependencyViolations.details.length}
+                  </Badge>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <button
@@ -3533,6 +4207,28 @@ export function GanttTab({
                 >
                   {calendarOnlyMode ? "Mostrar tabela" : "Só calendário"}
                 </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-zinc-200 bg-white"
+                  onClick={() => exportGantt("png")}
+                  disabled={busy}
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  PNG
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-zinc-200 bg-white"
+                  onClick={() => exportGantt("pdf")}
+                  disabled={busy}
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  PDF
+                </Button>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -3551,6 +4247,35 @@ export function GanttTab({
                     </option>
                   ))}
                 </select>
+
+                <select
+                  value={resourceFilter}
+                  onChange={(e) => setResourceFilter(e.target.value)}
+                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                  aria-label="Filtrar por recurso"
+                >
+                  <option value="">Todos recursos</option>
+                  {structuredFilterOptions.resources.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={areaFilter}
+                  onChange={(e) => setAreaFilter(e.target.value)}
+                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                  aria-label="Filtrar por área"
+                >
+                  <option value="">Todas áreas</option>
+                  {structuredFilterOptions.areas.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+
               </div>
             </div>
 
@@ -3597,6 +4322,38 @@ export function GanttTab({
                 ) : null}
               </div>
             </div>
+
+            {isSimulationMode && simulationChanges.length ? (
+              <div className="mb-3 rounded-2xl border border-amber-200 bg-white p-3">
+                <div className="mb-2 text-xs font-semibold text-amber-800">
+                  Baseline do cronograma original
+                </div>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {simulationChanges.slice(0, 6).map((change) => (
+                    <div
+                      key={change.id}
+                      className="rounded-xl border border-zinc-200 bg-amber-50/50 px-3 py-2 text-xs"
+                    >
+                      <div className="truncate font-semibold text-zinc-900">
+                        {change.issueKey} · {change.name || change.activityId}
+                      </div>
+                      <div className="mt-1 text-zinc-600">
+                        {fmtDateBR(change.original?.start)} -{" "}
+                        {fmtDateBR(change.original?.end)} →{" "}
+                        <strong>
+                          {fmtDateBR(change.start)} - {fmtDateBR(change.end)}
+                        </strong>
+                      </div>
+                      {change.meta && Object.keys(change.meta).length ? (
+                        <div className="mt-1 truncate text-amber-700">
+                          Meta: {Object.keys(change.meta).join(", ")}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="rounded-2xl border border-zinc-200 bg-white">
               <div className="flex">

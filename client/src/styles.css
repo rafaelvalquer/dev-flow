@@ -284,14 +284,30 @@ button.pdf {
 }
 
 .gantt-scroll-shell {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+  -ms-overflow-style: auto;
+  touch-action: pan-x pan-y;
 }
 
 .gantt-scroll-shell::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.gantt-scroll-shell::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 999px;
+}
+
+.gantt-scroll-shell::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border: 3px solid #f1f5f9;
+  border-radius: 999px;
+}
+
+.gantt-scroll-shell::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 .gantt-range-clip {
@@ -311,6 +327,32 @@ button.pdf {
 
 .gantt-range-clip ._2k9Ys {
   display: none;
+}
+
+.gantt-sticky-cell {
+  background-clip: padding-box;
+  isolation: isolate;
+}
+
+.gantt-sticky-tail {
+  box-shadow: 10px 0 14px -14px rgba(15, 23, 42, 0.7);
+}
+
+.gantt-sticky-mobile-tail {
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .gantt-sticky-desktop-only {
+    position: static !important;
+    left: auto !important;
+    z-index: auto !important;
+    box-shadow: none !important;
+  }
+
+  .gantt-sticky-mobile-tail {
+    box-shadow: 10px 0 14px -14px rgba(15, 23, 42, 0.7);
+  }
 }
 
 .gantt-non-working-overlay {
