@@ -51,6 +51,8 @@ export default function DeveloperWorkspaceGrid({
   saveNote,
   saving,
   handleQuickAction,
+  contextTicketKey,
+  contextIssue,
   focusedStickyId,
   onUpdateStickyNote,
   onToggleStickyPinned,
@@ -181,7 +183,11 @@ export default function DeveloperWorkspaceGrid({
           {visibleWidgetSet.has("productivity") ? (
             <div key="productivity">
               <WidgetCard title="Atalhos rápidos" icon={Grid2X2}>
-                <QuickActionsWidget onAction={handleQuickAction} />
+                <QuickActionsWidget
+                  contextTicketKey={contextTicketKey}
+                  contextIssue={contextIssue}
+                  onAction={handleQuickAction}
+                />
               </WidgetCard>
             </div>
           ) : null}

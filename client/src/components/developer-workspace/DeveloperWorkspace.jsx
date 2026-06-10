@@ -139,8 +139,23 @@ export default function DeveloperWorkspace({
     [filteredRows, noteTicketKey, workspace.recentTickets],
   );
   const contextIssue = useMemo(
-    () => findTicketByKey(sortedRows, contextTicketKey),
-    [contextTicketKey, sortedRows],
+    () => {
+      const issue = findTicketByKey(sortedRows, contextTicketKey) || findTicketByKey(allRows, contextTicketKey);
+      if (issue) return issue;
+      const recent = (workspace.recentTickets || []).find(
+        (item) => normalizeTicketKey(item.ticketKey) === contextTicketKey,
+      );
+      return recent
+        ? {
+            key: recent.ticketKey,
+            summary: recent.summary,
+            status: recent.status,
+            priority: recent.priority,
+            progress: recent.progress,
+          }
+        : null;
+    },
+    [allRows, contextTicketKey, sortedRows, workspace.recentTickets],
   );
   const handleQuickAction = useDeveloperWorkspaceActions({
     contextTicketKey,
@@ -447,6 +462,8 @@ export default function DeveloperWorkspace({
         saveNote={saveNote}
         saving={saving}
         handleQuickAction={handleQuickAction}
+        contextTicketKey={contextTicketKey}
+        contextIssue={contextIssue}
         focusedStickyId={focusedStickyId}
         onUpdateStickyNote={updateStickyNote}
         onToggleStickyPinned={toggleStickyPinned}
