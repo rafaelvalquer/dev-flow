@@ -109,7 +109,7 @@ function normalizeUraPayload(body = {}) {
 
 function normalizeVersionPayload(body = {}) {
   const version = String(body.version || "").trim().slice(0, 80);
-  if (!version) throw badRequest("Versao e obrigatoria.");
+  if (!version) throw badRequest("Versão é obrigatória.");
 
   const rawDate = String(body.deploymentDate || body.date || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {

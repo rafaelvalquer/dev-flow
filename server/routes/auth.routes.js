@@ -18,10 +18,14 @@ const VALID_TABS = new Set([
   "settings",
 ]);
 const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
+const VALID_DENSITIES = new Set(["comfortable", "compact"]);
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 const SHORT_SESSION_MS = 60 * 60 * 1000;
 const REMEMBER_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_PREFERENCES = {
   theme: "claro",
+  primaryColor: "#cf0013",
+  density: "comfortable",
   defaultTab: "gmud",
   sidebarCollapsed: false,
 };
@@ -112,9 +116,21 @@ function normalizePreferences(rawPreferences = {}) {
   const defaultTab = String(
     rawPreferences.defaultTab || DEFAULT_PREFERENCES.defaultTab
   ).trim();
+  const primaryColor = String(
+    rawPreferences.primaryColor || DEFAULT_PREFERENCES.primaryColor
+  ).trim();
+  const density = String(
+    rawPreferences.density || DEFAULT_PREFERENCES.density
+  ).trim();
 
   return {
     theme: VALID_THEMES.has(theme) ? theme : DEFAULT_PREFERENCES.theme,
+    primaryColor: HEX_COLOR_RE.test(primaryColor)
+      ? primaryColor.toLowerCase()
+      : DEFAULT_PREFERENCES.primaryColor,
+    density: VALID_DENSITIES.has(density)
+      ? density
+      : DEFAULT_PREFERENCES.density,
     defaultTab: VALID_TABS.has(defaultTab)
       ? defaultTab
       : DEFAULT_PREFERENCES.defaultTab,
@@ -154,7 +170,7 @@ export default function authRoutes({ env }) {
         jiraUser = await validateJiraToken({ env, email, token: jiraApiToken });
       } catch (err) {
         return res.status(err.status === 401 || err.status === 403 ? err.status : 400).json({
-          error: err.message || "Nao foi possivel validar o token do Jira.",
+          error: err.message || "Não foi possível validar o token do Jira.",
         });
       }
 
@@ -240,7 +256,7 @@ export default function authRoutes({ env }) {
         .status(err.status === 401 || err.status === 403 ? err.status : 400)
         .json({
           ok: false,
-          error: err.message || "Nao foi possivel validar o token do Jira.",
+          error: err.message || "Não foi possível validar o token do Jira.",
         });
     }
   });
@@ -305,7 +321,7 @@ export default function authRoutes({ env }) {
         return res
           .status(err.status === 401 || err.status === 403 ? err.status : 400)
           .json({
-            error: err.message || "Nao foi possivel validar o token do Jira.",
+            error: err.message || "Não foi possível validar o token do Jira.",
           });
       }
 

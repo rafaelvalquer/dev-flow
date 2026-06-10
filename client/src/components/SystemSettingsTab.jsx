@@ -79,7 +79,7 @@ function makeHoliday() {
   };
 }
 
-function formatDateTime(value, fallback = "Nao informado") {
+function formatDateTime(value, fallback = "Não informado") {
   if (!value) return fallback;
   return new Date(value).toLocaleString("pt-BR");
 }
@@ -128,6 +128,8 @@ const TAB_OPTIONS = [
 
 const DEFAULT_PREFERENCES = {
   theme: "claro",
+  primaryColor: "#cf0013",
+  density: "comfortable",
   defaultTab: "gmud",
   sidebarCollapsed: false,
 };
@@ -139,14 +141,51 @@ const THEME_OPTIONS = [
   { value: "verde", label: "Verde", helper: "Verdes claros com contraste azul" },
 ];
 
+const PRIMARY_COLOR_OPTIONS = [
+  { value: "#cf0013", label: "Claro" },
+  { value: "#0f8aa6", label: "Oceano" },
+  { value: "#16803c", label: "Verde" },
+  { value: "#7c3aed", label: "Violeta" },
+  { value: "#e4572e", label: "Laranja" },
+  { value: "#334155", label: "Grafite" },
+];
+
+const DENSITY_OPTIONS = [
+  {
+    value: "comfortable",
+    label: "Confortável",
+    helper: "Mais respiro para leitura e operação diária.",
+  },
+  {
+    value: "compact",
+    label: "Compacta",
+    helper: "Mais informação visível em dashboards e tabelas.",
+  },
+];
+
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+function normalizePrimaryColor(value) {
+  const color = String(value || "").trim();
+  return HEX_COLOR_RE.test(color)
+    ? color.toLowerCase()
+    : DEFAULT_PREFERENCES.primaryColor;
+}
+
 function normalizePreferences(preferences = {}) {
   const validTabs = new Set(TAB_OPTIONS.map((tab) => tab.value));
   const validThemes = new Set(THEME_OPTIONS.map((theme) => theme.value));
+  const validDensities = new Set(DENSITY_OPTIONS.map((density) => density.value));
   const theme = preferences.theme === "light" ? "claro" : preferences.theme;
+  const density = preferences.density || DEFAULT_PREFERENCES.density;
   return {
     theme: validThemes.has(theme)
       ? theme
       : DEFAULT_PREFERENCES.theme,
+    primaryColor: normalizePrimaryColor(preferences.primaryColor),
+    density: validDensities.has(density)
+      ? density
+      : DEFAULT_PREFERENCES.density,
     defaultTab: validTabs.has(preferences.defaultTab)
       ? preferences.defaultTab
       : DEFAULT_PREFERENCES.defaultTab,
@@ -180,14 +219,14 @@ function serviceState(service, type) {
 
   if (service.configured === false) {
     return {
-      label: "Nao configurado",
+      label: "Não configurado",
       className: "border-amber-200 bg-amber-50 text-amber-800",
     };
   }
 
   if (type === "portalIcc" && service.authenticated === false) {
     return {
-      label: "Nao autenticado",
+      label: "Não autenticado",
       className: "border-amber-200 bg-amber-50 text-amber-800",
     };
   }
@@ -216,25 +255,25 @@ function diagnosticMessage(service, type) {
     const failed = (service.checks || []).find((check) => !check?.ok);
     if (failed?.error?.message) return failed.error.message;
     if (failed?.error) return String(failed.error);
-    return service.host ? `Host: ${service.host}` : "Diagnostico Jira executado.";
+    return service.host ? `Host: ${service.host}` : "Diagnóstico Jira executado.";
   }
   if (type === "stt") return service.status ? `HTTP ${service.status}` : "Health STT consultado.";
   if (type === "portalIcc") {
     return service.authenticated
-      ? `Sessao ativa para ${service.session?.username || "usuario atual"}.`
-      : "Sessao Portal ICC nao encontrada.";
+      ? `Sessão ativa para ${service.session?.username || "usuário atual"}.`
+      : "Sessão Portal ICC não encontrada.";
   }
   if (type === "automation") {
     return service.enabled === false
-      ? "Automacao desativada por configuracao."
-      : `Ultima execucao: ${formatDateTime(service.lastRunAt)}.`;
+      ? "Automação desativada por configuração."
+      : `Última execução: ${formatDateTime(service.lastRunAt)}.`;
   }
   if (type === "gemini") {
     return service.configured
       ? `Modelo: ${service.model || "configurado"}.`
       : "Chave Gemini nao configurada.";
   }
-  return "Diagnostico coletado.";
+  return "Diagnóstico coletado.";
 }
 
 function StatusBadge({ service, type }) {
@@ -264,13 +303,13 @@ function DiagnosticCard({ title, description, icon: Icon, service, type }) {
 
       <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
         <div className="flex items-center justify-between gap-3">
-          <span>Latencia</span>
+          <span>Latência</span>
           <strong className="text-zinc-900">{formatLatency(service?.latencyMs)}</strong>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <span>Ultima checagem</span>
+          <span>Última checagem</span>
           <strong className="text-right text-zinc-900">
-            {formatDateTime(service?.checkedAt, "Nao executado")}
+            {formatDateTime(service?.checkedAt, "Não executado")}
           </strong>
         </div>
       </div>
@@ -355,7 +394,7 @@ function SystemHealthView({
         <section className="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 md:grid-cols-4">
           <div>
             <p className="text-xs font-semibold uppercase text-zinc-500">
-              Versao instalada
+              Versão instalada
             </p>
             <p className="mt-1 text-sm font-semibold text-zinc-900">
               {version.installed || "N/D"}
@@ -382,7 +421,7 @@ function SystemHealthView({
               Checado em
             </p>
             <p className="mt-1 text-sm font-semibold text-zinc-900">
-              {formatDateTime(diagnostics?.checkedAt, "Nao executado")}
+              {formatDateTime(diagnostics?.checkedAt, "Não executado")}
             </p>
           </div>
         </section>
@@ -397,7 +436,7 @@ function SystemHealthView({
           />
           <DiagnosticCard
             title="MongoDB"
-            description="Conexao principal de dados."
+            description="Conexão principal de dados."
             icon={Database}
             service={services.mongo}
             type="mongo"
@@ -418,13 +457,13 @@ function SystemHealthView({
           />
           <DiagnosticCard
             title="Portal ICC"
-            description="Configuracao e sessao atual do portal."
+            description="Configuração e sessão atual do portal."
             icon={Wifi}
             service={services.portalIcc}
             type="portalIcc"
           />
           <DiagnosticCard
-            title="Automacao"
+            title="Automação"
             description="Job interno de sincronizacao operacional."
             icon={RefreshCw}
             service={services.automation}
@@ -432,12 +471,252 @@ function SystemHealthView({
           />
           <DiagnosticCard
             title="Gemini"
-            description="Configuracao do recurso de IA."
+            description="Configuração do recurso de IA."
             icon={Bot}
             service={services.gemini}
             type="gemini"
           />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AppearanceSettingsView({
+  preferencesDraft,
+  setPreferencesDraft,
+  preferencesSaving,
+  onSubmit,
+}) {
+  const selectedTheme = THEME_OPTIONS.find(
+    (theme) => theme.value === preferencesDraft.theme
+  );
+  const selectedDensity = DENSITY_OPTIONS.find(
+    (density) => density.value === preferencesDraft.density
+  );
+
+  return (
+    <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+      <CardHeader className="gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Palette className="h-4 w-4 text-red-600" />
+              Aparência
+            </CardTitle>
+            <CardDescription>
+              Personalize tema, cor, densidade e comportamento inicial da interface.
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
+              {selectedTheme?.label || "Claro"}
+            </Badge>
+            <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
+              {selectedDensity?.label || "Confortável"}
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        <form className="grid gap-5" onSubmit={onSubmit}>
+          <section className="grid gap-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-900">
+                Tema e cor primária
+              </h3>
+              <p className="text-xs text-zinc-500">
+                O tema define a base visual; a cor primária ajusta ações e destaques.
+              </p>
+            </div>
+
+            <div className="grid items-start gap-3 lg:grid-cols-[1fr_1.4fr]">
+              <label className="grid gap-2 text-xs font-semibold text-zinc-700">
+                <span>Tema</span>
+                <select
+                  value={preferencesDraft.theme}
+                  onChange={(event) =>
+                    setPreferencesDraft((current) => ({
+                      ...current,
+                      theme: event.target.value,
+                    }))
+                  }
+                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                >
+                  {THEME_OPTIONS.map((theme) => (
+                    <option key={theme.value} value={theme.value}>
+                      {theme.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                  {selectedTheme?.helper}
+                </span>
+              </label>
+
+              <div className="grid gap-2 text-xs font-semibold text-zinc-700">
+                <span>Cor primária</span>
+                <div className="flex flex-wrap gap-2">
+                  {PRIMARY_COLOR_OPTIONS.map((color) => {
+                    const selected =
+                      normalizePrimaryColor(preferencesDraft.primaryColor) ===
+                      color.value;
+                    return (
+                      <button
+                        key={color.value}
+                        type="button"
+                        className={cn(
+                          "h-10 w-10 rounded-full border-2 shadow-sm transition",
+                          selected
+                            ? "border-zinc-900 ring-2 ring-zinc-300"
+                            : "border-white hover:border-zinc-300"
+                        )}
+                        style={{ backgroundColor: color.value }}
+                        title={color.label}
+                        aria-label={`Selecionar cor ${color.label}`}
+                        onClick={() =>
+                          setPreferencesDraft((current) => ({
+                            ...current,
+                            primaryColor: color.value,
+                          }))
+                        }
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[64px_1fr]">
+                  <Input
+                    type="color"
+                    value={normalizePrimaryColor(preferencesDraft.primaryColor)}
+                    onChange={(event) =>
+                      setPreferencesDraft((current) => ({
+                        ...current,
+                        primaryColor: event.target.value,
+                      }))
+                    }
+                    className="h-10 rounded-xl border-zinc-200 bg-white p-1"
+                    aria-label="Escolher cor primária"
+                  />
+                  <Input
+                    value={preferencesDraft.primaryColor}
+                    onChange={(event) =>
+                      setPreferencesDraft((current) => ({
+                        ...current,
+                        primaryColor: event.target.value,
+                      }))
+                    }
+                    placeholder="#cf0013"
+                    maxLength={7}
+                    className="h-10 rounded-xl border-zinc-200 bg-white font-mono text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-900">
+                Layout e início
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Controle a quantidade de informação em tela e o estado inicial do app.
+              </p>
+            </div>
+
+            <div className="grid items-start gap-3 md:grid-cols-3">
+              <label className="grid gap-2 text-xs font-semibold text-zinc-700">
+                <span>Densidade</span>
+                <div className="grid grid-cols-2 rounded-xl border border-zinc-200 bg-white p-1">
+                  {DENSITY_OPTIONS.map((density) => (
+                    <button
+                      key={density.value}
+                      type="button"
+                      className={cn(
+                        "rounded-lg px-3 py-2 text-xs font-semibold transition",
+                        preferencesDraft.density === density.value
+                          ? "bg-red-600 text-white"
+                          : "text-zinc-600 hover:bg-zinc-50"
+                      )}
+                      onClick={() =>
+                        setPreferencesDraft((current) => ({
+                          ...current,
+                          density: density.value,
+                        }))
+                      }
+                    >
+                      {density.label}
+                    </button>
+                  ))}
+                </div>
+                <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                  {selectedDensity?.helper}
+                </span>
+              </label>
+
+              <label className="grid gap-2 text-xs font-semibold text-zinc-700">
+                <span>Aba inicial</span>
+                <select
+                  value={preferencesDraft.defaultTab}
+                  onChange={(event) =>
+                    setPreferencesDraft((current) => ({
+                      ...current,
+                      defaultTab: event.target.value,
+                    }))
+                  }
+                  className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                >
+                  {TAB_OPTIONS.map((tab) => (
+                    <option key={tab.value} value={tab.value}>
+                      {tab.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                  Módulo aberto ao iniciar a plataforma.
+                </span>
+              </label>
+
+              <div className="grid gap-2 text-xs font-semibold text-zinc-700">
+                <span>Sidebar</span>
+                <label className="flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700">
+                  <input
+                    type="checkbox"
+                    checked={preferencesDraft.sidebarCollapsed}
+                    onChange={(event) =>
+                      setPreferencesDraft((current) => ({
+                        ...current,
+                        sidebarCollapsed: event.target.checked,
+                      }))
+                    }
+                  />
+                  Recolhida por padrão
+                </label>
+                <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
+                  Controla o estado inicial do menu lateral.
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              disabled={preferencesSaving}
+            >
+              {preferencesSaving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Salvar aparência
+            </Button>
+          </div>
+        </form>
       </CardContent>
     </Card>
   );
@@ -529,7 +808,7 @@ export default function SystemSettingsTab({
       } catch (err) {
         if (!alive) return;
         setJiraUserOptions([]);
-        setJiraUserErr(err?.message || "Nao foi possivel buscar usuarios Jira.");
+        setJiraUserErr(err?.message || "Não foi possível buscar usuários Jira.");
       } finally {
         if (alive) setJiraUserLoading(false);
       }
@@ -590,7 +869,7 @@ export default function SystemSettingsTab({
       setDirty(false);
       toast.success("Calendario global salvo.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel salvar o calendario.");
+      toast.error(err?.message || "Não foi possível salvar o calendário.");
     } finally {
       setSaving(false);
     }
@@ -623,7 +902,7 @@ export default function SystemSettingsTab({
       });
       toast.success("Senha atualizada.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel alterar a senha.");
+      toast.error(err?.message || "Não foi possível alterar a senha.");
     } finally {
       setPasswordSaving(false);
     }
@@ -647,7 +926,7 @@ export default function SystemSettingsTab({
       setTokenForm({ currentPassword: "", jiraApiToken: "" });
       toast.success("Token Jira atualizado.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel atualizar o token Jira.");
+      toast.error(err?.message || "Não foi possível atualizar o token Jira.");
     } finally {
       setTokenSaving(false);
     }
@@ -662,7 +941,7 @@ export default function SystemSettingsTab({
       onUserUpdated?.(user);
       toast.success("Perfil atualizado.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel atualizar o perfil.");
+      toast.error(err?.message || "Não foi possível atualizar o perfil.");
     } finally {
       setProfileSaving(false);
     }
@@ -674,13 +953,13 @@ export default function SystemSettingsTab({
     try {
       const status = await testJiraStatus();
       setJiraStatus(status);
-      toast.success("Conexao Jira validada.");
+      toast.success("Conexão Jira validada.");
     } catch (err) {
       setJiraStatus({
         ok: false,
-        error: err?.message || "Nao foi possivel testar a conexao Jira.",
+        error: err?.message || "Não foi possível testar a conexão Jira.",
       });
-      toast.error(err?.message || "Nao foi possivel testar a conexao Jira.");
+      toast.error(err?.message || "Não foi possível testar a conexão Jira.");
     } finally {
       setJiraStatusLoading(false);
     }
@@ -693,7 +972,7 @@ export default function SystemSettingsTab({
       onUserUpdated?.(saved);
       toast.success(successMessage);
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel salvar o usuario Jira.");
+      toast.error(err?.message || "Não foi possível salvar o usuário Jira.");
     } finally {
       setJiraUserSaving(false);
     }
@@ -714,9 +993,9 @@ export default function SystemSettingsTab({
     } catch (err) {
       setJiraStatus({
         ok: false,
-        error: err?.message || "Nao foi possivel testar a conexao Jira.",
+        error: err?.message || "Não foi possível testar a conexão Jira.",
       });
-      toast.error(err?.message || "Nao foi possivel usar o usuario do token.");
+      toast.error(err?.message || "Não foi possível usar o usuário do token.");
     } finally {
       setJiraStatusLoading(false);
     }
@@ -727,11 +1006,11 @@ export default function SystemSettingsTab({
 
     setPreferencesSaving(true);
     try {
-      const user = await updatePreferences(preferencesDraft);
+      const user = await updatePreferences(normalizePreferences(preferencesDraft));
       onUserUpdated?.(user);
-      toast.success("Preferencias salvas.");
+      toast.success("Preferências salvas.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel salvar as preferencias.");
+      toast.error(err?.message || "Não foi possível salvar as preferências.");
     } finally {
       setPreferencesSaving(false);
     }
@@ -745,7 +1024,7 @@ export default function SystemSettingsTab({
       setDiagnostics(payload);
     } catch (err) {
       setDiagnosticsError(
-        err?.message || "Nao foi possivel carregar o diagnostico."
+        err?.message || "Não foi possível carregar o diagnóstico."
       );
     } finally {
       setDiagnosticsLoading(false);
@@ -798,6 +1077,25 @@ export default function SystemSettingsTab({
                 <span className="text-sm font-semibold">Calendario</span>
                 <span className="text-xs text-zinc-500">
                   Dias uteis e feriados
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection("appearance")}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
+                activeSection === "appearance"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+              )}
+            >
+              <Palette className="h-4 w-4" />
+              <span className="grid">
+                <span className="text-sm font-semibold">Aparência</span>
+                <span className="text-xs text-zinc-500">
+                  Tema, cor e densidade
                 </span>
               </span>
             </button>
@@ -1034,6 +1332,13 @@ export default function SystemSettingsTab({
               </div>
             </CardContent>
           </Card>
+        ) : activeSection === "appearance" ? (
+          <AppearanceSettingsView
+            preferencesDraft={preferencesDraft}
+            setPreferencesDraft={setPreferencesDraft}
+            preferencesSaving={preferencesSaving}
+            onSubmit={handlePreferencesSave}
+          />
         ) : activeSection === "diagnostics" ? (
           <SystemHealthView
             diagnostics={diagnostics}
@@ -1048,7 +1353,7 @@ export default function SystemSettingsTab({
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <User className="h-4 w-4 text-red-600" />
-                    Configuracao do usuario
+                    Configuração do usuário
                   </CardTitle>
                   <CardDescription>
                     Atualize sua senha e o token usado nas requisicoes com o
@@ -1074,7 +1379,7 @@ export default function SystemSettingsTab({
                     Nome
                   </p>
                   <p className="mt-1 text-sm font-semibold text-zinc-900">
-                    {currentUser?.name || "Nao informado"}
+                    {currentUser?.name || "Não informado"}
                   </p>
                 </div>
                 <div>
@@ -1082,7 +1387,7 @@ export default function SystemSettingsTab({
                     E-mail
                   </p>
                   <p className="mt-1 break-all text-sm font-semibold text-zinc-900">
-                    {currentUser?.email || "Nao informado"}
+                    {currentUser?.email || "Não informado"}
                   </p>
                 </div>
                 <div>
@@ -1306,7 +1611,7 @@ export default function SystemSettingsTab({
                   <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
                     E-mail:{" "}
                     <strong className="break-all text-zinc-900">
-                      {currentUser?.email || "Nao informado"}
+                      {currentUser?.email || "Não informado"}
                     </strong>
                   </div>
 
@@ -1346,7 +1651,7 @@ export default function SystemSettingsTab({
                     >
                       {jiraStatus.ok ? (
                         <div className="grid gap-1">
-                          <strong>Conexao Jira validada.</strong>
+                          <strong>Conexão Jira validada.</strong>
                           <span>
                             {jiraStatus.jiraUser?.displayName ||
                               "Usuario Jira"}{" "}
@@ -1363,7 +1668,7 @@ export default function SystemSettingsTab({
                       ) : (
                         <strong>
                           {jiraStatus.error ||
-                            "Nao foi possivel validar o token Jira."}
+                            "Não foi possível validar o token Jira."}
                         </strong>
                       )}
                     </div>
@@ -1474,7 +1779,7 @@ export default function SystemSettingsTab({
                       Atualizar token Jira
                     </h3>
                     <p className="text-xs text-zinc-500">
-                      Ultima atualizacao: {tokenUpdatedLabel}
+                      Última atualização: {tokenUpdatedLabel}
                     </p>
                   </div>
 
@@ -1533,108 +1838,6 @@ export default function SystemSettingsTab({
                 </form>
               </div>
 
-              <form
-                className="grid gap-4 rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4"
-                onSubmit={handlePreferencesSave}
-              >
-                <div>
-                  <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                    <Palette className="h-4 w-4 text-red-600" />
-                    Preferencias pessoais
-                  </h3>
-                  <p className="text-xs text-zinc-500">
-                    Estas escolhas ficam salvas no seu usuario e valem no
-                    proximo login.
-                  </p>
-                </div>
-
-                <div className="grid items-start gap-3 md:grid-cols-3">
-                  <label className="grid gap-2 text-xs font-semibold text-zinc-700">
-                    <span>Tema</span>
-                    <select
-                      value={preferencesDraft.theme}
-                      onChange={(event) =>
-                        setPreferencesDraft((current) => ({
-                          ...current,
-                          theme: event.target.value,
-                        }))
-                      }
-                      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                    >
-                      {THEME_OPTIONS.map((theme) => (
-                        <option key={theme.value} value={theme.value}>
-                          {theme.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
-                      {
-                        THEME_OPTIONS.find(
-                          (theme) => theme.value === preferencesDraft.theme
-                        )?.helper
-                      }
-                    </span>
-                  </label>
-
-                  <label className="grid gap-2 text-xs font-semibold text-zinc-700">
-                    <span>Aba inicial</span>
-                    <select
-                      value={preferencesDraft.defaultTab}
-                      onChange={(event) =>
-                        setPreferencesDraft((current) => ({
-                          ...current,
-                          defaultTab: event.target.value,
-                        }))
-                      }
-                      className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                    >
-                      {TAB_OPTIONS.map((tab) => (
-                        <option key={tab.value} value={tab.value}>
-                          {tab.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
-                      Modulo aberto ao iniciar a plataforma.
-                    </span>
-                  </label>
-
-                  <div className="grid gap-2 text-xs font-semibold text-zinc-700">
-                    <span>Layout</span>
-                    <label className="flex h-10 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-xs font-semibold text-zinc-700">
-                      <input
-                        type="checkbox"
-                        checked={preferencesDraft.sidebarCollapsed}
-                        onChange={(event) =>
-                          setPreferencesDraft((current) => ({
-                            ...current,
-                            sidebarCollapsed: event.target.checked,
-                          }))
-                        }
-                      />
-                      Iniciar menu lateral recolhido
-                    </label>
-                    <span className="min-h-4 text-[11px] font-normal leading-4 text-zinc-500">
-                      Controla o estado inicial do menu.
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button
-                    type="submit"
-                    className="rounded-xl bg-red-600 text-white hover:bg-red-700"
-                    disabled={preferencesSaving}
-                  >
-                    {preferencesSaving ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    Salvar preferencias
-                  </Button>
-                </div>
-              </form>
             </CardContent>
           </Card>
         )}

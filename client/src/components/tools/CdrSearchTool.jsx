@@ -404,7 +404,7 @@ function CdrEvidenceDialog({ open, onOpenChange, columns, rows }) {
       if (!status || status === 401 || status === 403 || /jira/i.test(err?.message || "")) {
         toast.error(jiraConnectionMessage());
       } else {
-        toast.error(err?.message || "Nao foi possivel anexar a evidencia no Jira.");
+        toast.error(err?.message || "Não foi possível anexar a evidência no Jira.");
       }
     } finally {
       setSaving(false);
@@ -685,7 +685,7 @@ export default function CdrSearchTool() {
         if (active && data?.authenticated) setSession(data.session || null);
       })
       .catch((err) => {
-        if (active) setError(err?.message || "Nao foi possivel verificar a sessao Portal ICC.");
+        if (active) setError(err?.message || "Não foi possível verificar a sessão Portal ICC.");
       })
       .finally(() => {
         if (active) setBooting(false);
@@ -734,7 +734,7 @@ export default function CdrSearchTool() {
         err?.code === "PORTAL_SESSION_EXPIRED"
       ) {
         setSession(null);
-        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
+        toast.warning("Sessão Portal ICC expirada. Faça login novamente.");
       }
     } finally {
       setSearching(false);
@@ -752,7 +752,7 @@ export default function CdrSearchTool() {
       setLoginForm((current) => ({ ...current, password: "" }));
       toast.success("Login Portal ICC realizado.");
     } catch (err) {
-      setError(err?.message || "Nao foi possivel autenticar no Portal ICC.");
+      setError(err?.message || "Não foi possível autenticar no Portal ICC.");
     } finally {
       setLoggingIn(false);
     }
@@ -809,7 +809,7 @@ export default function CdrSearchTool() {
                     : "border-zinc-200 bg-white text-zinc-600",
                 )}
               >
-                {authenticated ? "Sessao ativa" : "Login necessario"}
+                {authenticated ? "Sessão ativa" : "Login necessário"}
               </Badge>
             </div>
             <p className="truncate text-xs text-zinc-500">

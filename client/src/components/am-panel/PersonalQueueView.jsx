@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   DndContext,
@@ -111,7 +111,7 @@ function getQueuePriority(issue) {
     issue?.priorityName ||
     issue?.priority ||
     issue?.fields?.priority?.name ||
-    "Nao informado"
+    "Não informado"
   );
 }
 

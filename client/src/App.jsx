@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Blocks,
   Briefcase,
@@ -171,7 +171,7 @@ const MAIN_TABS = [
   {
     id: "versioning",
     title: "Versionamentos",
-    eyebrow: "Historico de URAs",
+    eyebrow: "Histórico de URAs",
     subtitle:
       "Controle versões implantadas, mudanças realizadas, responsáveis e tickets relacionados.",
     badge: "URA",
@@ -206,11 +206,93 @@ function normalizeDefaultTab(tabId) {
   return MAIN_TAB_IDS.has(tabId) ? tabId : "gmud";
 }
 
+const DEFAULT_PRIMARY_COLOR = "#cf0013";
+const VALID_DENSITIES = new Set(["comfortable", "compact"]);
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+function normalizePrimaryColor(value) {
+  const color = String(value || "").trim();
+  return HEX_COLOR_RE.test(color) ? color.toLowerCase() : DEFAULT_PRIMARY_COLOR;
+}
+
+function hexToRgb(hex) {
+  const normalized = normalizePrimaryColor(hex).slice(1);
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function rgbToHsl({ r, g, b }) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case rn:
+        h = (gn - bn) / d + (gn < bn ? 6 : 0);
+        break;
+      case gn:
+        h = (bn - rn) / d + 2;
+        break;
+      default:
+        h = (rn - gn) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
+
+function mixRgb(left, right, amount) {
+  return {
+    r: Math.round(left.r + (right.r - left.r) * amount),
+    g: Math.round(left.g + (right.g - left.g) * amount),
+    b: Math.round(left.b + (right.b - left.b) * amount),
+  };
+}
+
+function rgbToHex({ r, g, b }) {
+  return `#${[r, g, b]
+    .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function buildPrimaryColorVars(primaryColor) {
+  const base = normalizePrimaryColor(primaryColor);
+  const rgb = hexToRgb(base);
+  const dark = rgbToHex(mixRgb(rgb, { r: 0, g: 0, b: 0 }, 0.18));
+  const soft = rgbToHex(mixRgb(rgb, { r: 255, g: 255, b: 255 }, 0.88));
+
+  return {
+    "--primary": rgbToHsl(rgb),
+    "--ring": rgbToHsl(rgb),
+    "--chart-1": rgbToHsl(rgb),
+    "--claro-red": base,
+    "--claro-red-strong": dark,
+    "--claro-red-soft": soft,
+    "--claro-red-glow": `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.18)`,
+    "--theme-glow-primary": `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`,
+    "--theme-primary-color": base,
+  };
+}
+
 function AppShell({ currentUser, onLogout, onUserUpdated }) {
-  const preferredTab = normalizeDefaultTab(currentUser?.preferences?.defaultTab);
+  const preferences = currentUser?.preferences || {};
+  const preferredTab = normalizeDefaultTab(preferences.defaultTab);
   const [mainTab, setMainTab] = useState(preferredTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    Boolean(currentUser?.preferences?.sidebarCollapsed)
+    Boolean(preferences.sidebarCollapsed)
   );
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([preferredTab]));
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
@@ -256,6 +338,14 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
     setSidebarCollapsed(Boolean(currentUser?.preferences?.sidebarCollapsed));
   }, [currentUser?.preferences?.sidebarCollapsed]);
 
+  const shellStyle = useMemo(
+    () => buildPrimaryColorVars(currentUser?.preferences?.primaryColor),
+    [currentUser?.preferences?.primaryColor]
+  );
+  const density = VALID_DENSITIES.has(currentUser?.preferences?.density)
+    ? currentUser.preferences.density
+    : "comfortable";
+
   async function handleSaveCalendarSettings(nextSettings) {
     const saved = await saveCalendarSettings(nextSettings);
     setCalendarSettings(normalizeCalendarSettings(saved));
@@ -294,7 +384,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
         helper: currentUser?.jiraDisplayName || "Selecione seu usuário Jira.",
       },
       versioning: {
-        status: "Historico de URAs",
+        status: "Histórico de URAs",
         helper: "Consulte e registre versões implantadas.",
       },
       tools: {
@@ -342,6 +432,8 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
     <>
       <div
         data-theme={currentUser?.preferences?.theme || "claro"}
+        data-density={density}
+        style={shellStyle}
         className={`app-shell app-shell--${mainTab} ${
           sidebarCollapsed ? "app-shell--sidebar-collapsed" : ""
         }`}
@@ -624,7 +716,7 @@ function AuthScreen({ onAuthenticated }) {
       }
       onAuthenticated(user);
     } catch (err) {
-      setError(err?.message || "Nao foi possivel autenticar.");
+      setError(err?.message || "Não foi possível autenticar.");
     } finally {
       setSubmitting(false);
     }
@@ -835,7 +927,7 @@ export default function App() {
   useEffect(() => {
     function handleSessionExpired() {
       setCurrentUser((user) => {
-        if (user) toast.error("Sessao expirada. Entre novamente.");
+        if (user) toast.error("Sessão expirada. Entre novamente.");
         return null;
       });
     }

@@ -1,4 +1,4 @@
-﻿// src/components/AMPanelTab.jsx
+// src/components/AMPanelTab.jsx
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -7025,7 +7025,7 @@ function AttachmentPreviewModal({ attachment, onClose }) {
       } catch (e) {
         if (cancelled) return;
         setStatus("");
-        setErr(e?.message || "Nao foi possivel renderizar o preview.");
+        setErr(e?.message || "Não foi possível renderizar o preview.");
       }
     }
 

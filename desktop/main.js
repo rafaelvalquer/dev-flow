@@ -485,14 +485,14 @@ function installAppMenu() {
       label: "Dev Flow",
       submenu: [
         {
-          label: "Diagnostico Jira",
+          label: "Diagnóstico Jira",
           click: () => {
             if (!backendBaseUrl) return;
             shell.openExternal(`${backendBaseUrl}/health/jira`);
           },
         },
         {
-          label: "Diagnostico STT",
+          label: "Diagnóstico STT",
           click: () => {
             if (!backendBaseUrl) return;
             shell.openExternal(`${backendBaseUrl}/api/stt/health`);

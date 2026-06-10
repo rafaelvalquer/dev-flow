@@ -290,7 +290,7 @@ async function buildPortalIccDiagnostics(req, env) {
         base,
         latencyMs: Date.now() - startedAt,
         checkedAt: new Date().toISOString(),
-        message: "Sessao Portal ICC nao autenticada.",
+        message: "Sessão Portal ICC não autenticada.",
       };
     }
 

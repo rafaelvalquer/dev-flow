@@ -111,7 +111,7 @@ function statusMeta(options, value) {
 }
 
 function formatDateBR(ymd) {
-  if (!ymd) return "Nao informado";
+  if (!ymd) return "Não informado";
   const [y, m, d] = String(ymd).slice(0, 10).split("-");
   if (!y || !m || !d) return String(ymd);
   return `${d}/${m}/${y}`;
@@ -171,7 +171,7 @@ async function fetchJiraSnapshot(ticketKey) {
 }
 
 function formatDateTimeBR(value) {
-  if (!value) return "Nao informado";
+  if (!value) return "Não informado";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat("pt-BR", {
@@ -263,7 +263,7 @@ export default function URAVersioningTab() {
         setSelectedUraId(data[0]?.id || "");
       }
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel carregar URAs.");
+      toast.error(err?.message || "Não foi possível carregar URAs.");
     } finally {
       setLoadingUras(false);
     }
@@ -284,7 +284,7 @@ export default function URAVersioningTab() {
       );
     } catch (err) {
       setVersions([]);
-      toast.error(err?.message || "Nao foi possivel carregar versionamentos.");
+      toast.error(err?.message || "Não foi possível carregar versionamentos.");
     } finally {
       setLoadingVersions(false);
     }
@@ -385,7 +385,7 @@ export default function URAVersioningTab() {
       setUraModalOpen(false);
       toast.success(editingUra ? "URA atualizada." : "URA cadastrada.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel salvar a URA.");
+      toast.error(err?.message || "Não foi possível salvar a URA.");
     } finally {
       setSaving(false);
     }
@@ -420,7 +420,7 @@ export default function URAVersioningTab() {
       setVersionModalOpen(false);
       toast.success(editingVersion ? "Versionamento atualizado." : "Versionamento cadastrado.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel salvar o versionamento.");
+      toast.error(err?.message || "Não foi possível salvar o versionamento.");
     } finally {
       setSaving(false);
     }
@@ -441,7 +441,7 @@ export default function URAVersioningTab() {
       setSelectedVersionId(saved.id);
       toast.success("Dados do Jira sincronizados.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel sincronizar o ticket Jira.");
+      toast.error(err?.message || "Não foi possível sincronizar o ticket Jira.");
     } finally {
       setSyncingVersionId("");
     }
@@ -476,7 +476,7 @@ export default function URAVersioningTab() {
       setSelectedVersionId(saved.id);
       toast.success("Evidencia anexada ao Jira.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel anexar a evidencia no Jira.");
+      toast.error(err?.message || "Não foi possível anexar a evidência no Jira.");
     } finally {
       setUploadingEvidenceId("");
     }
@@ -499,7 +499,7 @@ export default function URAVersioningTab() {
       setSelectedVersionId("");
       toast.success("URA excluida.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel excluir a URA.");
+      toast.error(err?.message || "Não foi possível excluir a URA.");
     } finally {
       setSaving(false);
     }
@@ -517,7 +517,7 @@ export default function URAVersioningTab() {
       setSelectedVersionId("");
       toast.success("Versionamento excluido.");
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel excluir o versionamento.");
+      toast.error(err?.message || "Não foi possível excluir o versionamento.");
     } finally {
       setSaving(false);
     }
@@ -813,8 +813,8 @@ export default function URAVersioningTab() {
               <CardDescription>Contexto rápido do histórico selecionado.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">
-              <InfoRow label="Projeto" value={selectedUra.project || "Nao informado"} />
-              <InfoRow label="Responsavel" value={selectedUra.owner || "Nao informado"} />
+              <InfoRow label="Projeto" value={selectedUra.project || "Não informado"} />
+              <InfoRow label="Responsável" value={selectedUra.owner || "Não informado"} />
               <InfoRow label="Status" value={selectedUraStatus.label} />
               <InfoRow label="Versões" value={String(versions.length)} />
               <Separator />
@@ -920,10 +920,10 @@ function VersionDetailsSheet({
             </div>
 
             <div className="grid gap-2 text-sm">
-              <InfoRow label="URA" value={ura?.name || "Nao informado"} />
+              <InfoRow label="URA" value={ura?.name || "Não informado"} />
               <InfoRow label="Data de implantação" value={formatDateBR(version.deploymentDate)} />
-              <InfoRow label="Desenvolvedor" value={version.developer || "Nao informado"} />
-              <InfoRow label="Ticket" value={version.ticket || "Nao informado"} />
+              <InfoRow label="Desenvolvedor" value={version.developer || "Não informado"} />
+              <InfoRow label="Ticket" value={version.ticket || "Não informado"} />
             </div>
 
             <section className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -954,7 +954,7 @@ function VersionDetailsSheet({
                         {jira.summary || "Resumo ainda nao sincronizado."}
                       </p>
                       <div className="grid gap-1 text-xs text-zinc-500">
-                        <span>Responsavel: {jira.assignee || "Nao informado"}</span>
+                        <span>Responsável: {jira.assignee || "Não informado"}</span>
                         <span>Atualizado no Jira: {formatDateTimeBR(jira.updatedAt)}</span>
                         <span>Sincronizado: {formatDateTimeBR(jira.syncedAt)}</span>
                       </div>
@@ -1217,7 +1217,7 @@ function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, savin
         jiraSnapshot,
       }));
     } catch (err) {
-      toast.error(err?.message || "Nao foi possivel consultar o ticket Jira.");
+      toast.error(err?.message || "Não foi possível consultar o ticket Jira.");
       setForm((current) => ({
         ...current,
         ticket,
@@ -1336,7 +1336,7 @@ function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, savin
                   {form.jiraSnapshot?.summary || "Resumo Jira ainda nao carregado."}
                 </p>
                 <p className="mt-1 text-xs text-zinc-500">
-                  Responsavel: {form.jiraSnapshot?.assignee || "Nao informado"}
+                  Responsável: {form.jiraSnapshot?.assignee || "Não informado"}
                 </p>
               </div>
             ) : null}

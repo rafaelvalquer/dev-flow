@@ -274,7 +274,7 @@ export class PortalIccClient {
     const loginPage = await this.loadLoginPage();
     if (!loginPage.csrf) {
       const error = new Error(
-        "Nao foi possivel localizar o token _csrf na pagina de login.",
+        "Não foi possível localizar o token _csrf na página de login.",
       );
       error.status = 502;
       throw error;
@@ -388,7 +388,7 @@ export class PortalIccClient {
     const html = String(response.data || "");
     ensureAuthenticatedHtml(html);
     if (!hasAuthenticatedSignals(html)) {
-      const error = new Error("Sessao Portal ICC nao confirmada.");
+      const error = new Error("Sessão Portal ICC não confirmada.");
       error.code = "PORTAL_SESSION_EXPIRED";
       error.status = 401;
       throw error;
@@ -447,7 +447,7 @@ export class PortalIccClient {
       logPortalError("portal-cdr", "GET search", error);
       if (Number(error?.response?.status) === 417) {
         const sessionError = new Error(
-          "Sessao Portal ICC expirada. Faca login novamente.",
+          "Sessão Portal ICC expirada. Faça login novamente.",
         );
         sessionError.code = "PORTAL_SESSION_EXPIRED";
         sessionError.status = 401;
@@ -476,7 +476,7 @@ export class PortalIccClient {
 
     if (response.status >= 300 && response.status < 400) {
       if (String(location || "").includes("/portalicc/login")) {
-        const error = new Error("Sessao Portal ICC expirada.");
+        const error = new Error("Sessão Portal ICC expirada.");
         error.code = "PORTAL_SESSION_EXPIRED";
         error.status = 401;
         throw error;
@@ -541,7 +541,7 @@ export class PortalIccClient {
       logPortalError("portal-cdr", "GET export", error);
       if (Number(error?.response?.status) === 417) {
         const sessionError = new Error(
-          "Sessao Portal ICC expirada. Faca login novamente.",
+          "Sessão Portal ICC expirada. Faça login novamente.",
         );
         sessionError.code = "PORTAL_SESSION_EXPIRED";
         sessionError.status = 401;
@@ -561,7 +561,7 @@ export class PortalIccClient {
 
     if (response.status >= 300 && response.status < 400) {
       if (String(location || "").includes("/portalicc/login")) {
-        const error = new Error("Sessao Portal ICC expirada.");
+        const error = new Error("Sessão Portal ICC expirada.");
         error.code = "PORTAL_SESSION_EXPIRED";
         error.status = 401;
         throw error;

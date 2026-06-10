@@ -156,7 +156,7 @@ function getIssueStatus(issue) {
 }
 
 function getIssuePriority(issue) {
-  return issue?.priorityName || issue?.priority || issue?.fields?.priority?.name || "Nao informado";
+  return issue?.priorityName || issue?.priority || issue?.fields?.priority?.name || "Não informado";
 }
 
 function getIssueOwner(issue) {

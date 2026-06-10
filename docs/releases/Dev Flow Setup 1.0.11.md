@@ -22,5 +22,5 @@ Release focado em melhorias operacionais do Dev Flow, novos recursos de analise 
 
 ## Build
 
-- Versao do desktop atualizada de `1.0.10` para `1.0.11`.
+- Versão do desktop atualizada de `1.0.10` para `1.0.11`.
 - Instalador esperado: `desktop/release/Dev Flow Setup 1.0.11.exe`.

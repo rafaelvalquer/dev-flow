@@ -9,7 +9,7 @@ async function readJsonResponse(response) {
       payload?.error?.message ||
         payload?.message ||
         payload?.error ||
-        "Nao foi possivel processar a solicitacao.",
+        "Não foi possível processar a solicitação.",
     );
   }
   return payload;

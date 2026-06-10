@@ -4,6 +4,8 @@ import mongoose from "mongoose";
 const UserPreferencesSchema = new mongoose.Schema(
   {
     theme: { type: String, trim: true, default: "claro" },
+    primaryColor: { type: String, trim: true, default: "#cf0013" },
+    density: { type: String, trim: true, default: "comfortable" },
     defaultTab: { type: String, trim: true, default: "gmud" },
     sidebarCollapsed: { type: Boolean, default: false },
   },
@@ -34,6 +36,8 @@ const UserSchema = new mongoose.Schema(
       type: UserPreferencesSchema,
       default: () => ({
         theme: "claro",
+        primaryColor: "#cf0013",
+        density: "comfortable",
         defaultTab: "gmud",
         sidebarCollapsed: false,
       }),

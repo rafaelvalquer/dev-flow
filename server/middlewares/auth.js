@@ -2,18 +2,32 @@ import User from "../models/User.js";
 
 const DEFAULT_PREFERENCES = {
   theme: "claro",
+  primaryColor: "#cf0013",
+  density: "comfortable",
   defaultTab: "gmud",
   sidebarCollapsed: false,
 };
 
 const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
+const VALID_DENSITIES = new Set(["comfortable", "compact"]);
+const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 function publicPreferences(preferences = {}) {
   const theme = preferences.theme === "light" ? "claro" : preferences.theme;
+  const primaryColor = String(
+    preferences.primaryColor || DEFAULT_PREFERENCES.primaryColor
+  ).trim();
+  const density = String(preferences.density || DEFAULT_PREFERENCES.density).trim();
   return {
     theme: VALID_THEMES.has(theme)
       ? theme
       : DEFAULT_PREFERENCES.theme,
+    primaryColor: HEX_COLOR_RE.test(primaryColor)
+      ? primaryColor.toLowerCase()
+      : DEFAULT_PREFERENCES.primaryColor,
+    density: VALID_DENSITIES.has(density)
+      ? density
+      : DEFAULT_PREFERENCES.density,
     defaultTab: preferences.defaultTab || DEFAULT_PREFERENCES.defaultTab,
     sidebarCollapsed: Boolean(preferences.sidebarCollapsed),
   };

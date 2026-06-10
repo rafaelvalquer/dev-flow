@@ -2683,7 +2683,7 @@ function OperationalTrendsView({ data, loading, periodDays }) {
 
         <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Saude operacional</CardTitle>
+            <CardTitle className="text-base">Saúde operacional</CardTitle>
             <div className="text-sm text-zinc-500">
               Componentes do score atual do recorte.
             </div>

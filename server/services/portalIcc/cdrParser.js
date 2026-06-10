@@ -260,7 +260,7 @@ function parseCdrPagination(html, { page = 1, rowCount = 0 } = {}) {
 }
 
 export function createPortalSessionExpiredError(
-  message = "Sessao invalida ou expirada no Portal ICC.",
+  message = "Sessão inválida ou expirada no Portal ICC.",
 ) {
   const error = new Error(message);
   error.code = "PORTAL_SESSION_EXPIRED";
@@ -320,6 +320,6 @@ export function parseCdrResponse(html, options = {}) {
     total: pagination.totalItems || 0,
     pagination,
     source: "not-detected",
-    message: "Nao foi possivel localizar uma tabela de CDR no HTML retornado.",
+    message: "Não foi possível localizar uma tabela de CDR no HTML retornado.",
   };
 }

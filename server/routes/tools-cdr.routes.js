@@ -37,7 +37,7 @@ function toPublicError(err) {
         ? "PORTAL_ICC_NETWORK_ERROR"
         : err?.code || "PORTAL_ICC_ERROR",
     message: isPortalSessionExpired
-      ? "Sessao Portal ICC expirada. Faca login novamente."
+      ? "Sessão Portal ICC expirada. Faça login novamente."
       : err?.message || "Falha ao acessar Portal ICC.",
     details: err?.details || {
       code: err?.code,
@@ -253,7 +253,7 @@ export default function toolsCdrRoutes({ env }) {
       res.json({
         ok: true,
         authenticated: false,
-        message: "Sessao Portal ICC encerrada.",
+        message: "Sessão Portal ICC encerrada.",
       }),
     );
   });

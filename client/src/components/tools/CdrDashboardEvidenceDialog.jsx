@@ -102,7 +102,7 @@ export default function CdrDashboardEvidenceDialog({
       ) {
         toast.error(jiraConnectionMessage());
       } else {
-        toast.error(err?.message || "Nao foi possivel anexar a evidencia no Jira.");
+        toast.error(err?.message || "Não foi possível anexar a evidência no Jira.");
       }
     } finally {
       setSaving(false);

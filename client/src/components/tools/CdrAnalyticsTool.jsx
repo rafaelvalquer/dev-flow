@@ -281,7 +281,7 @@ function PortalLoginPanel({
                     : "border-zinc-200 bg-white text-zinc-600",
                 )}
               >
-                {authenticated ? "Sessao ativa" : "Login necessario"}
+                {authenticated ? "Sessão ativa" : "Login necessário"}
               </Badge>
             </div>
             <p className="truncate text-xs text-zinc-500">
@@ -392,7 +392,7 @@ export default function CdrAnalyticsTool() {
         if (active && data?.authenticated) setSession(data.session || null);
       })
       .catch((err) => {
-        if (active) setError(err?.message || "Nao foi possivel verificar a sessao Portal ICC.");
+        if (active) setError(err?.message || "Não foi possível verificar a sessão Portal ICC.");
       })
       .finally(() => {
         if (active) setBooting(false);
@@ -487,7 +487,7 @@ export default function CdrAnalyticsTool() {
       setLoginForm((current) => ({ ...current, password: "" }));
       toast.success("Login Portal ICC realizado.");
     } catch (err) {
-      setError(err?.message || "Nao foi possivel autenticar no Portal ICC.");
+      setError(err?.message || "Não foi possível autenticar no Portal ICC.");
     } finally {
       setLoggingIn(false);
     }
@@ -523,14 +523,14 @@ export default function CdrAnalyticsTool() {
         toast.success("CSV CDR analisado com sucesso.");
       }
     } catch (err) {
-      setError(err?.message || "Nao foi possivel analisar o CDR.");
+      setError(err?.message || "Não foi possível analisar o CDR.");
       if (
         err?.status === 401 ||
         err?.status === 417 ||
         err?.code === "PORTAL_SESSION_EXPIRED"
       ) {
         setSession(null);
-        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
+        toast.warning("Sessão Portal ICC expirada. Faça login novamente.");
       }
     } finally {
       setAnalyzing(false);

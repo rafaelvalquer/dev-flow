@@ -1,4 +1,4 @@
-﻿// src/components/RDMTab.jsx
+// src/components/RDMTab.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import catalogo from "../data/rdmCatalogo.json";
 import pessoasDb from "../data/pessoas.json";
@@ -391,7 +391,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           </button>
         ))}
       </div>
-      {/* ===== 1. IDENTIFICA??O DA RDM ===== */}
+      {/* ===== 1. IDENTIFICAÇÃO DA RDM ===== */}
       <div id="rdm-identificacao" className="section-header">
         <i className="fas fa-id-card"></i>
         <h2>Identificação da RDM</h2>
@@ -440,7 +440,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card">
-          <label>CLASSIFICA??O</label>
+          <label>CLASSIFICAÇÃO</label>
           <input
             list="lista-classificacoes"
             value={rdm.classificacao ?? ""}
@@ -529,7 +529,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
       </div>
 
-      {/* ===== 3. EXECU??O E ESCOPO ===== */}
+      {/* ===== 3. EXECUÇÃO E ESCOPO ===== */}
       <div id="rdm-execucao" className="section-header">
         <i className="fas fa-tools"></i>
         <h2>Execução e Escopo</h2>
@@ -795,7 +795,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
         </div>
 
         <div className="rdm-card span-2">
-          <label>DESCRI??O DETALHADA DA ATIVIDADE</label>
+          <label>DESCRIÇÃO DETALHADA DA ATIVIDADE</label>
 
           {rdm.atividades.map((row, idx) => (
             <div key={`atv-${idx}`} className="table-row wide">

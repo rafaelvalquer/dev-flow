@@ -154,7 +154,7 @@ export async function fetchPoIssueDetail(key) {
     resolutionDateRaw: issue?.fields?.resolutiondate || "",
     customfield_11520: issue?.fields?.customfield_11520 || [],
     components: issue?.fields?.components || [],
-    reporterName: pickText(issue?.fields?.customfield_11993) || "â€”",
+    reporterName: pickText(issue?.fields?.customfield_11993) || "—",
   };
 }
 

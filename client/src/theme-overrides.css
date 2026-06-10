@@ -99,6 +99,56 @@ textarea {
   color: var(--ink-900);
 }
 
+.app-shell[data-density="compact"] {
+  padding: 10px;
+}
+
+.app-shell[data-density="compact"] .app-frame {
+  gap: 12px;
+}
+
+.app-shell[data-density="compact"] .app-sidebar {
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+}
+
+.app-shell[data-density="compact"] .app-nav {
+  gap: 6px;
+}
+
+.app-shell[data-density="compact"] .app-nav__item {
+  min-height: 42px;
+  padding: 8px 10px;
+  border-radius: 14px;
+}
+
+.app-shell[data-density="compact"] .app-hero {
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.app-shell[data-density="compact"] .app-module {
+  padding: 12px;
+}
+
+.app-shell[data-density="compact"] .app-module--flush {
+  padding: 0;
+}
+
+.app-shell[data-density="compact"] .h-10 {
+  height: 2.25rem !important;
+}
+
+.app-shell[data-density="compact"] .p-4 {
+  padding: 0.875rem !important;
+}
+
+.app-shell[data-density="compact"] .gap-5 {
+  gap: 1rem !important;
+}
+
 .app-shell[data-theme="claro"],
 .app-shell:not([data-theme]),
 .app-shell[data-theme=""] {

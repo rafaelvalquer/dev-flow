@@ -104,7 +104,7 @@ export function requirePortalIccClient(env) {
       return res.status(401).json({
         error: {
           code: "PORTAL_SESSION_EXPIRED",
-          message: "Sessao Portal ICC nao encontrada. Faca login novamente.",
+          message: "Sessão Portal ICC não encontrada. Faça login novamente.",
         },
       });
     }

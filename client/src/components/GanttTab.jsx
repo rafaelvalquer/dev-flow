@@ -78,9 +78,9 @@ function fmtDateBR(d) {
 }
 
 function fmtDateTimeBR(d) {
-  if (!d) return "â€”";
+  if (!d) return "—";
   const date = d instanceof Date ? d : new Date(d);
-  if (Number.isNaN(date.getTime())) return "â€”";
+  if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("pt-BR", {
     day: "2-digit",
     month: "2-digit",
