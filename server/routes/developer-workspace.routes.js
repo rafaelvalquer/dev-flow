@@ -2,11 +2,14 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import DeveloperWorkspace from "../models/DeveloperWorkspace.js";
 import { requireAuth } from "../middlewares/auth.js";
+import { createJiraClient } from "./jira.routes.js";
 
 const router = Router();
 const MAX_RECENT_TICKETS = 12;
 const VALID_WIDGETS = new Set([
   "queue",
+  "statusQueue",
+  "daily",
   "nextActions",
   "risk",
   "calendar",
@@ -81,6 +84,8 @@ function normalizeStickyNotePayload(raw = {}) {
     title: String(raw.title || "").trim().slice(0, 180),
     text: String(raw.text || "").trim().slice(0, 12000),
     color: String(raw.color || "yellow").trim().slice(0, 32) || "yellow",
+    pinned: Boolean(raw.pinned),
+    resolved: Boolean(raw.resolved),
   };
 }
 
@@ -204,9 +209,6 @@ router.post("/sticky-notes", async (req, res, next) => {
   try {
     const doc = await getOrCreateWorkspace(req);
     const payload = normalizeStickyNotePayload(req.body || {});
-    if (!payload.ticketKey) {
-      return res.status(400).json({ error: "Ticket invalido." });
-    }
     if (!payload.text) {
       return res.status(400).json({ error: "Nota vazia." });
     }
@@ -214,10 +216,15 @@ router.post("/sticky-notes", async (req, res, next) => {
     const now = new Date();
     const note = {
       id: new mongoose.Types.ObjectId().toString(),
-      ticketKey: payload.ticketKey,
-      title: payload.title || payload.ticketKey,
+      ticketKey: payload.ticketKey || "",
+      title: payload.title || payload.ticketKey || "Nota livre",
       text: payload.text,
       color: payload.color,
+      pinned: payload.pinned,
+      resolved: payload.resolved,
+      resolvedAt: payload.resolved ? now : null,
+      jiraCommentedAt: null,
+      jiraCommentId: "",
       createdAt: now,
       updatedAt: now,
     };
@@ -225,9 +232,11 @@ router.post("/sticky-notes", async (req, res, next) => {
     const previous = Array.isArray(doc.stickyNotes) ? doc.stickyNotes : [];
     doc.stickyNotes = [note, ...previous].slice(0, MAX_STICKY_NOTES);
 
-    if (!doc.notesByTicket) doc.notesByTicket = new Map();
-    doc.notesByTicket.set(payload.ticketKey, { text: payload.text, updatedAt: now });
-    doc.markModified("notesByTicket");
+    if (payload.ticketKey) {
+      if (!doc.notesByTicket) doc.notesByTicket = new Map();
+      doc.notesByTicket.set(payload.ticketKey, { text: payload.text, updatedAt: now });
+      doc.markModified("notesByTicket");
+    }
 
     await doc.save();
     res.json({ ok: true, note, workspace: publicWorkspace(doc) });
@@ -249,10 +258,13 @@ router.put("/sticky-notes/:noteId", async (req, res, next) => {
     const body = req.body || {};
     if (Object.prototype.hasOwnProperty.call(body, "ticketKey")) {
       const ticketKey = normKey(body.ticketKey);
-      if (ticketKey) note.ticketKey = ticketKey;
+      note.ticketKey = ticketKey || "";
     }
     if (Object.prototype.hasOwnProperty.call(body, "title")) {
-      note.title = String(body.title || "").trim().slice(0, 180) || note.ticketKey;
+      note.title =
+        String(body.title || "").trim().slice(0, 180) ||
+        note.ticketKey ||
+        "Nota livre";
     }
     if (Object.prototype.hasOwnProperty.call(body, "text")) {
       note.text = String(body.text || "").trim().slice(0, 12000);
@@ -260,11 +272,55 @@ router.put("/sticky-notes/:noteId", async (req, res, next) => {
     if (Object.prototype.hasOwnProperty.call(body, "color")) {
       note.color = String(body.color || "yellow").trim().slice(0, 32) || "yellow";
     }
+    if (Object.prototype.hasOwnProperty.call(body, "pinned")) {
+      note.pinned = Boolean(body.pinned);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "resolved")) {
+      const resolved = Boolean(body.resolved);
+      note.resolved = resolved;
+      note.resolvedAt = resolved ? new Date() : null;
+    }
     note.updatedAt = new Date();
 
     doc.markModified("stickyNotes");
     await doc.save();
     res.json({ ok: true, note, workspace: publicWorkspace(doc) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/sticky-notes/:noteId/jira-comment", async (req, res, next) => {
+  try {
+    const noteId = String(req.params.noteId || "").trim();
+    if (!noteId) return res.status(400).json({ error: "Nota invalida." });
+
+    const doc = await getOrCreateWorkspace(req);
+    const notes = Array.isArray(doc.stickyNotes) ? doc.stickyNotes : [];
+    const note = notes.find((item) => String(item?.id || "") === noteId);
+    if (!note) return res.status(404).json({ error: "Nota nao encontrada." });
+    const ticketKey = normKey(note.ticketKey);
+    if (!ticketKey) {
+      return res.status(400).json({ error: "Nota sem ticket Jira vinculado." });
+    }
+    const text = String(note.text || "").trim();
+    if (!text) return res.status(400).json({ error: "Nota vazia." });
+
+    const title = String(note.title || "").trim();
+    const commentText = [
+      title ? `Nota pessoal - ${title}` : "Nota pessoal",
+      "",
+      text,
+    ].join("\n");
+    const jira = createJiraClient();
+    const comment = await jira.addCommentText(ticketKey, commentText);
+    note.jiraCommentedAt = new Date();
+    note.jiraCommentId = String(comment?.id || "");
+    note.updatedAt = new Date();
+
+    doc.markModified("stickyNotes");
+    await doc.save();
+    res.json({ ok: true, comment, workspace: publicWorkspace(doc) });
   } catch (err) {
     next(err);
   }

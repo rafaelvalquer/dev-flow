@@ -16,10 +16,15 @@ const DeveloperRecentTicketSchema = new mongoose.Schema(
 const DeveloperStickyNoteSchema = new mongoose.Schema(
   {
     id: { type: String, trim: true, required: true },
-    ticketKey: { type: String, trim: true, uppercase: true, required: true },
+    ticketKey: { type: String, trim: true, uppercase: true, default: "" },
     title: { type: String, trim: true, default: "" },
     text: { type: String, default: "" },
     color: { type: String, trim: true, default: "yellow" },
+    pinned: { type: Boolean, default: false },
+    resolved: { type: Boolean, default: false },
+    resolvedAt: { type: Date, default: null },
+    jiraCommentedAt: { type: Date, default: null },
+    jiraCommentId: { type: String, trim: true, default: "" },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },
@@ -40,6 +45,8 @@ const DeveloperWorkspaceSchema = new mongoose.Schema(
         type: [String],
         default: () => [
           "queue",
+          "statusQueue",
+          "daily",
           "nextActions",
           "risk",
           "calendar",

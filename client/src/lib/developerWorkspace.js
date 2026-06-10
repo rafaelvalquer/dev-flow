@@ -109,6 +109,22 @@ export async function updateDeveloperStickyNote(noteId, payload = {}) {
   return body.workspace || {};
 }
 
+export async function convertDeveloperStickyNoteToJiraComment(noteId) {
+  const id = String(noteId || "").trim();
+  if (!id) return null;
+
+  const res = await fetch(
+    `/api/developer-workspace/sticky-notes/${encodeURIComponent(id)}/jira-comment`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+  const body = await readWorkspaceResponse(res);
+  return body.workspace || {};
+}
+
 export async function deleteDeveloperStickyNote(noteId) {
   const id = String(noteId || "").trim();
   if (!id) return null;
