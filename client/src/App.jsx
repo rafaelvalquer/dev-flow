@@ -23,7 +23,7 @@ import { Toaster, toast } from "sonner";
 import "./App.css";
 import "./module-primitives.css";
 import "./theme-overrides.css";
-import ChecklistGMUDTab from "./components/ChecklistGMUDTab";
+import DeveloperCenterTab from "./components/DeveloperCenterTab";
 import RDMTab from "./components/RDMTab";
 import AMPanelTab from "./components/AMPanelTab";
 import ToolsTab from "./components/ToolsTab";
@@ -595,7 +595,10 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
               ) : null}
 
               {mainTab === "gmud" ? (
-                <ChecklistGMUDTab
+                <DeveloperCenterTab
+                  currentUser={currentUser}
+                  poData={poData}
+                  onConfigureUser={() => selectMainTab("settings")}
                   onProgressChange={setGmudProgressPct}
                   onRdmTitleChange={setRdmTitle}
                   onRdmDueDateChange={setRdmDueDate}

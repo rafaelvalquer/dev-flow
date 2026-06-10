@@ -104,6 +104,11 @@ function jiraCacheKey(ticket) {
 }
 
 function ChecklistGMUDTab({
+  initialTicketJira = "",
+  initialActiveTab = "",
+  autoSyncOnOpen = false,
+  onBackToWorkspace,
+  onExecutionContextChange,
   onProgressChange,
   onRdmTitleChange,
   onRdmDueDateChange,
@@ -210,6 +215,7 @@ function ChecklistGMUDTab({
   const [postingJiraComment, setPostingJiraComment] = useState(false);
 
   const jiraCtxRef = useRef(null);
+  const autoSyncTicketRef = useRef("");
   useEffect(() => {
     jiraCtxRef.current = jiraCtx;
   }, [jiraCtx]);
@@ -427,10 +433,41 @@ function ChecklistGMUDTab({
     return out;
   }
 
+  function applyTicketCache(cache) {
+    if (!cache) return;
+
+    if (cache?.jiraCtx) setJiraCtx(cache.jiraCtx);
+    if (cache?.ticketSideInfo) setTicketSideInfo(cache.ticketSideInfo);
+
+    if (cache?.kanbanCfg) setKanbanCfg(cache.kanbanCfg);
+    if (cache?.kanbanComment) setKanbanComment(cache.kanbanComment);
+    if (typeof cache?.unlockedStepIdx === "number")
+      setUnlockedStepIdx(cache.unlockedStepIdx);
+
+    setDescricaoProjeto(cache?.descricaoProjeto || "");
+    setCriteriosAceite(cache?.criteriosAceite || "");
+
+    if (cache?.scriptsComment) setScriptsComment(cache.scriptsComment);
+    if (cache?.varsComment) {
+      setVarsComment(cache.varsComment);
+      varsBaselineRef.current = new Set(
+        (cache.varsComment.originalText || "").split("\n").filter(Boolean),
+      );
+    }
+
+    if (cache?.evidenceByStep) setEvidenceByStep(cache.evidenceByStep);
+    if (cache?.evidenceCountsByStep)
+      setEvidenceCountsByStep(cache.evidenceCountsByStep);
+    if (cache?.evidenceStepKey) setEvidenceStepKey(cache.evidenceStepKey);
+  }
+
   /* ---------- Load localStorage (GMUD) ---------- */
   useEffect(() => {
+    const initialTk = String(initialTicketJira || "")
+      .trim()
+      .toUpperCase();
     const s = localStorage.getItem(STORAGE_KEY);
-    if (s) {
+    if (s && !initialTk) {
       try {
         const d = JSON.parse(s);
 
@@ -455,33 +492,7 @@ function ChecklistGMUDTab({
           const cacheRaw = localStorage.getItem(jiraCacheKey(tk));
           if (cacheRaw) {
             const cache = JSON.parse(cacheRaw);
-
-            if (cache?.jiraCtx) setJiraCtx(cache.jiraCtx);
-            if (cache?.ticketSideInfo) setTicketSideInfo(cache.ticketSideInfo);
-
-            if (cache?.kanbanCfg) setKanbanCfg(cache.kanbanCfg);
-            if (cache?.kanbanComment) setKanbanComment(cache.kanbanComment);
-            if (typeof cache?.unlockedStepIdx === "number")
-              setUnlockedStepIdx(cache.unlockedStepIdx);
-
-            setDescricaoProjeto(cache?.descricaoProjeto || "");
-            setCriteriosAceite(cache?.criteriosAceite || "");
-
-            if (cache?.scriptsComment) setScriptsComment(cache.scriptsComment);
-            if (cache?.varsComment) {
-              setVarsComment(cache.varsComment);
-              varsBaselineRef.current = new Set(
-                (cache.varsComment.originalText || "")
-                  .split("\n")
-                  .filter(Boolean),
-              );
-            }
-
-            if (cache?.evidenceByStep) setEvidenceByStep(cache.evidenceByStep);
-            if (cache?.evidenceCountsByStep)
-              setEvidenceCountsByStep(cache.evidenceCountsByStep);
-            if (cache?.evidenceStepKey)
-              setEvidenceStepKey(cache.evidenceStepKey);
+            applyTicketCache(cache);
           }
         }
       } catch {
@@ -489,9 +500,21 @@ function ChecklistGMUDTab({
       }
     }
 
-    const t = localStorage.getItem(TAB_KEY);
+    if (initialTk) {
+      setTicketJira(initialTk);
+      const cacheRaw = localStorage.getItem(jiraCacheKey(initialTk));
+      if (cacheRaw) {
+        try {
+          applyTicketCache(JSON.parse(cacheRaw));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const t = String(initialActiveTab || "").trim() || localStorage.getItem(TAB_KEY);
     if (t) setActiveTab(t);
-  }, []);
+  }, [initialActiveTab, initialTicketJira]);
 
   /* ---------- Persist localStorage (GMUD) ---------- */
   useEffect(() => {
@@ -564,7 +587,8 @@ function ChecklistGMUDTab({
 
   useEffect(() => {
     localStorage.setItem(TAB_KEY, activeTab);
-  }, [activeTab]);
+    onExecutionContextChange?.({ activeTab });
+  }, [activeTab, onExecutionContextChange]);
 
   /* ---------- Progresso (para o App) ---------- */
   const geralPct = useMemo(() => {
@@ -618,7 +642,26 @@ function ChecklistGMUDTab({
 
   useEffect(() => {
     if (typeof onProgressChange === "function") onProgressChange(geralPct);
-  }, [geralPct, onProgressChange]);
+    onExecutionContextChange?.({ progress: geralPct });
+  }, [geralPct, onExecutionContextChange, onProgressChange]);
+
+  useEffect(() => {
+    const initialTk = String(initialTicketJira || "")
+      .trim()
+      .toUpperCase();
+    const currentTk = String(ticketJira || "")
+      .trim()
+      .toUpperCase();
+
+    if (!autoSyncOnOpen || !initialTk || currentTk !== initialTk) return;
+    if (autoSyncTicketRef.current === initialTk) return;
+
+    autoSyncTicketRef.current = initialTk;
+    sincronizarJira({
+      openDetailsOnSync: false,
+      openKanbanBuilderWhenMissing: false,
+    });
+  }, [autoSyncOnOpen, initialTicketJira, ticketJira]);
 
   // ao mudar ticket no input, se tiver outro cache, zera estados do ticket anterior
   useEffect(() => {
@@ -1316,7 +1359,11 @@ function ChecklistGMUDTab({
   }
 
   /* ---------- Jira: sincronização ---------- */
-  async function sincronizarJira() {
+  async function sincronizarJira(options = {}) {
+    const {
+      openDetailsOnSync = true,
+      openKanbanBuilderWhenMissing = true,
+    } = options || {};
     const tk = String(ticketJira || "")
       .trim()
       .toUpperCase();
@@ -1335,7 +1382,7 @@ function ChecklistGMUDTab({
       setScriptsAlterados("");
       setChaves([]);
       setTicketSideInfo(null);
-      setSideOpen(true);
+      if (openDetailsOnSync) setSideOpen(true);
 
       const issue = await getIssue(
         tk,
@@ -1598,12 +1645,12 @@ function ChecklistGMUDTab({
       } else {
         setKanbanCfg(null);
         setUnlockedStepIdx(0);
-        setBuilderOpen(true);
+        if (openKanbanBuilderWhenMissing) setBuilderOpen(true);
 
         showSyncOverlay({
           title: "Estrutura não encontrada",
           message:
-            "Este ticket ainda não possui estrutura do Kanban. Monte a estrutura no modal para continuar.",
+            "Este ticket ainda não possui estrutura de Kanban criada.",
           done: true,
         });
       }
@@ -2388,6 +2435,17 @@ function ChecklistGMUDTab({
             </div>
 
             <div className="gmud-topbar__actions">
+              {onBackToWorkspace ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onBackToWorkspace}
+                  className="rounded-xl"
+                >
+                  Voltar ao Workspace
+                </Button>
+              ) : null}
+
               <Button
                 onClick={sincronizarJira}
                 disabled={syncing}
@@ -2575,12 +2633,12 @@ function ChecklistGMUDTab({
                 <strong className="gmud-execution-metric__value">
                   {kanbanCfg
                     ? activeStep?.title || "Fluxo concluído"
-                    : "Estrutura pendente"}
+                    : "Estrutura não encontrada"}
                 </strong>
                 <span className="gmud-execution-metric__helper">
                   {kanbanCfg
                     ? `${totalKanbanSubtasks} subtarefas mapeadas no fluxo`
-                    : "Monte o Kanban para orientar a execução"}
+                    : "Configure o Kanban manualmente quando estiver pronto."}
                 </span>
               </div>
               <div className="gmud-execution-metric">
@@ -2634,8 +2692,8 @@ function ChecklistGMUDTab({
               <div className="gmud-kanban-board">
                 {!kanbanCfg ? (
                   <EmptyState
-                    title="Sem estrutura de Kanban"
-                    description="Sincronize com o Jira ou monte a estrutura para orientar a execução por etapas."
+                    title="Estrutura não encontrada"
+                    description="Este ticket ainda não possui estrutura de Kanban criada."
                     action={
                       <Button
                         type="button"
@@ -2643,7 +2701,7 @@ function ChecklistGMUDTab({
                         className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                       >
                         <Layers3 className="mr-2 h-4 w-4" />
-                        Montar estrutura
+                        Configurar Kanban
                       </Button>
                     }
                   />

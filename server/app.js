@@ -15,6 +15,7 @@ import sttRoutes from "./routes/stt.routes.js";
 import jiraRoutes from "./routes/jira.routes.js";
 import dbRoutes from "./routes/db.routes.js";
 import ticketsRouter from "./routes/tickets.js";
+import developerWorkspaceRoutes from "./routes/developer-workspace.routes.js";
 import automationRouter from "./routes/automation.js";
 import healthRoutes from "./routes/health.routes.js";
 import settingsRouter from "./routes/settings.routes.js";
@@ -75,6 +76,7 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   app.use("/api/jira", jiraRoutes({ upload, env }));
   app.use("/api/db", dbRoutes);
   app.use("/api/tickets", ticketsRouter);
+  app.use("/api/developer-workspace", developerWorkspaceRoutes);
   app.use("/api/settings", settingsRouter);
   app.use("/api/automation", automationRouter);
   app.use("/api/ura-versioning", uraVersioningRouter);
