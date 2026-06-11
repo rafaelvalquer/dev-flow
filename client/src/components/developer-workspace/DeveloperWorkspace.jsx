@@ -442,7 +442,7 @@ export default function DeveloperWorkspace({
   }
 
   async function handleScheduleSaved(ticketKey) {
-    if (onRefreshIssue) {
+    if (typeof onRefreshIssue === "function") {
       await onRefreshIssue(ticketKey).catch(() => null);
       return;
     }
@@ -551,6 +551,7 @@ export default function DeveloperWorkspace({
         saving={saving}
         handleQuickAction={handleQuickAction}
         onStartTicket={handleStartTicketAction}
+        onOpenDetails={openDetailsAction}
         contextTicketKey={contextTicketKey}
         contextIssue={contextIssue}
         focusedStickyId={focusedStickyId}
@@ -580,6 +581,7 @@ export default function DeveloperWorkspace({
         }}
         onOpenExecution={onOpenExecution}
         onStartTicket={handleStartTicketAction}
+        onOpenDetails={openDetailsAction}
       />
 
       <DeveloperTicketDetailsDialog

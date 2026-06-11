@@ -859,13 +859,12 @@
 }
 
 .developer-calendar-day__slots {
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent 25px,
-      #e5e7eb 26px
-    );
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 25px,
+    #e5e7eb 26px
+  );
   min-height: 156px;
   padding: 18px 6px 0;
 }
@@ -984,8 +983,11 @@
 }
 
 .developer-sticky-note::after {
-  background:
-    linear-gradient(135deg, rgba(120, 53, 15, 0.18), rgba(255, 255, 255, 0.48));
+  background: linear-gradient(
+    135deg,
+    rgba(120, 53, 15, 0.18),
+    rgba(255, 255, 255, 0.48)
+  );
   border-radius: 0 0 12px 0;
   bottom: 0;
   box-shadow: -4px -4px 10px rgba(120, 53, 15, 0.12);
@@ -1135,7 +1137,12 @@
 }
 
 .developer-sticky-note__pin {
-  background: radial-gradient(circle at 35% 35%, #fff 0 7%, #ef4444 9% 55%, #991b1b 58% 100%);
+  background: radial-gradient(
+    circle at 35% 35%,
+    #fff 0 7%,
+    #ef4444 9% 55%,
+    #991b1b 58% 100%
+  );
   border-radius: 999px;
   box-shadow: 0 6px 10px rgba(127, 29, 29, 0.25);
   height: 16px;
@@ -1273,8 +1280,18 @@
 
 .developer-sticky-grid-item.react-resizable .react-resizable-handle {
   background:
-    linear-gradient(135deg, transparent 0 46%, rgba(120, 53, 15, 0.32) 48% 56%, transparent 58%),
-    linear-gradient(135deg, transparent 0 62%, rgba(120, 53, 15, 0.42) 64% 72%, transparent 74%);
+    linear-gradient(
+      135deg,
+      transparent 0 46%,
+      rgba(120, 53, 15, 0.32) 48% 56%,
+      transparent 58%
+    ),
+    linear-gradient(
+      135deg,
+      transparent 0 62%,
+      rgba(120, 53, 15, 0.42) 64% 72%,
+      transparent 74%
+    );
   bottom: 4px;
   cursor: se-resize;
   height: 28px;
@@ -1552,7 +1569,10 @@
   border-radius: 10px;
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(260px, 1.8fr) minmax(210px, 1.15fr) minmax(112px, 0.7fr) minmax(130px, 0.8fr) auto;
+  grid-template-columns: minmax(260px, 1.8fr) minmax(210px, 1.15fr) minmax(
+      112px,
+      0.7fr
+    ) minmax(130px, 0.8fr) auto;
   min-height: 82px;
   padding: 14px 16px;
 }
@@ -1775,4 +1795,84 @@
   .developer-expanded-ticket-row .developer-open-button {
     justify-self: stretch;
   }
+}
+.developer-checklist-actions--grouped {
+  gap: 12px;
+}
+
+.developer-action-group {
+  display: grid;
+  gap: 8px;
+}
+
+.developer-action-group__header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.developer-action-group__header strong {
+  color: #111827;
+  font-size: 0.76rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.developer-action-group__header small {
+  align-items: center;
+  background: #f3f4f6;
+  border-radius: 999px;
+  color: #4b5563;
+  display: inline-flex;
+  font-size: 0.68rem;
+  font-weight: 850;
+  height: 20px;
+  justify-content: center;
+  min-width: 20px;
+  padding: 0 7px;
+}
+
+.developer-action-group__list {
+  display: grid;
+  gap: 9px;
+}
+
+.developer-action-item__content {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.developer-action-item__content strong {
+  color: #111827;
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.developer-action-item__content small {
+  color: #6b7280;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.developer-action-item--expanded {
+  align-items: flex-start;
+  border: 1px solid #edf0f4;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.developer-action-item--expanded:hover {
+  background: #f9fafb;
+  border-color: #fecaca;
+}
+
+.developer-list--grouped-actions {
+  gap: 18px;
 }

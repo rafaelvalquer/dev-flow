@@ -86,7 +86,9 @@ export default function DeveloperTicketDetailsDialog({
   const [scheduleDraft, setScheduleDraft] = useState(() =>
     buildDefaultSchedule(),
   );
+  const [dueDateDraft, setDueDateDraft] = useState("");
   const [savingSchedule, setSavingSchedule] = useState(false);
+  const [savingDueDate, setSavingDueDate] = useState(false);
 
   const issueKey = getIssueKey(issue) || action?.key || "";
   const title = getSummary(issue);
@@ -103,6 +105,7 @@ export default function DeveloperTicketDetailsDialog({
   useEffect(() => {
     if (!open) return;
     setScheduleDraft(normalizeSchedule(issue));
+    setDueDateDraft(getDueYmd(issue) || "");
   }, [issue, open]);
 
   function updateActivity(activityId, patch) {
@@ -111,6 +114,37 @@ export default function DeveloperTicketDetailsDialog({
         activity.id === activityId ? { ...activity, ...patch } : activity,
       ),
     );
+  }
+
+  async function handleSaveDueDate() {
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
+
+    if (!key) {
+      toast.error("Ticket inválido para salvar data limite.");
+      return;
+    }
+
+    setSavingDueDate(true);
+
+    try {
+      await jiraEditIssue(key, {
+        fields: {
+          customfield_11519: dueDateDraft || null,
+        },
+      });
+
+      await onScheduleSaved?.(key);
+
+      toast.success("Data limite salva no Jira.");
+    } catch (err) {
+      toast.error("Não foi possível salvar a data limite.", {
+        description: err?.message || String(err),
+      });
+    } finally {
+      setSavingDueDate(false);
+    }
   }
 
   async function handleSaveSchedule() {
@@ -214,6 +248,59 @@ export default function DeveloperTicketDetailsDialog({
                 {action.description}
               </div>
             ) : null}
+          </section>
+
+          <section className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-950">
+                  <CalendarDays className="h-4 w-4 text-red-600" />
+                  Data limite do ticket
+                </h3>
+                <p className="text-xs text-zinc-500">
+                  Atualize a data limite usada nos alertas, calendário e fila do
+                  Workspace.
+                </p>
+              </div>
+
+              <Badge
+                className={
+                  dueDateDraft
+                    ? "rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "rounded-full border border-amber-200 bg-amber-50 text-amber-800"
+                }
+              >
+                {dueDateDraft ? "Data informada" : "Sem data limite"}
+              </Badge>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[minmax(180px,260px)_auto] md:items-end">
+              <label className="grid gap-1">
+                <span className="text-xs font-bold uppercase text-zinc-500">
+                  Data limite
+                </span>
+                <Input
+                  type="date"
+                  value={dueDateDraft}
+                  onChange={(event) => setDueDateDraft(event.target.value)}
+                  className="h-10 rounded-xl border-zinc-200 bg-white"
+                />
+              </label>
+
+              <Button
+                type="button"
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                onClick={handleSaveDueDate}
+                disabled={savingDueDate || !issueKey}
+              >
+                {savingDueDate ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Salvar data limite
+              </Button>
+            </div>
           </section>
 
           <section className="grid gap-4 rounded-2xl border border-zinc-200 bg-white p-4">

@@ -1,4 +1,5 @@
 import { TriangleAlert } from "lucide-react";
+import { groupNextActions } from "./utils/developerRiskRules";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -35,6 +36,7 @@ export function ExpandedWorkspaceDialog({
   onOpenChange,
   onOpenExecution,
   onStartTicket,
+  onOpenDetails,
 }) {
   const titles = {
     queue: ["Todos os tickets", "Fila filtrada do Workspace."],
@@ -48,7 +50,27 @@ export function ExpandedWorkspaceDialog({
     notes: ["Todas as notas", "Notas privadas salvas no Dev Flow."],
   };
   const [title, description] = titles[widget] || ["Workspace", ""];
+
+  const groupedActions = groupNextActions(actions || []);
+  const detailsActionTypes = new Set([
+    "startTicket",
+    "setDueDate",
+    "missingSchedule",
+  ]);
+
   function handleActionClick(action) {
+    if (detailsActionTypes.has(action.type)) {
+      if (onOpenDetails) {
+        onOpenDetails(action);
+        return;
+      }
+
+      if (action.type === "startTicket") {
+        onStartTicket?.(action);
+        return;
+      }
+    }
+
     if (action.type === "startTicket") {
       onStartTicket?.(action);
       return;
@@ -118,19 +140,37 @@ export function ExpandedWorkspaceDialog({
         ) : null}
 
         {widget === "actions" ? (
-          <div className="developer-list developer-list--expanded">
-            {actions.map((action) => (
-              <button
-                type="button"
-                key={`${action.key}:${action.label}`}
-                className="developer-action-item"
-                onClick={() => handleActionClick(action)}
-              >
-                <span className="developer-checkbox" />
-                <span>
-                  {action.label} - {action.key}
-                </span>
-              </button>
+          <div className="developer-list developer-list--expanded developer-list--grouped-actions">
+            {groupedActions.map((group) => (
+              <section key={group.id} className="developer-action-group">
+                <div className="developer-action-group__header">
+                  <strong>{group.title}</strong>
+                  <small>{group.actions.length}</small>
+                </div>
+
+                <div className="developer-action-group__list">
+                  {group.actions.map((action) => (
+                    <button
+                      type="button"
+                      key={`${action.key}:${action.type}`}
+                      className="developer-action-item developer-action-item--expanded"
+                      onClick={() => handleActionClick(action)}
+                      title={action.description || action.label}
+                    >
+                      <span className="developer-checkbox" />
+
+                      <span className="developer-action-item__content">
+                        <strong>
+                          {action.label} - {action.key}
+                        </strong>
+                        <small>
+                          {action.description || "Abrir ação do ticket."}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         ) : null}

@@ -1,3 +1,4 @@
+import { parseCronogramaADF } from "../../../utils/cronograma";
 import {
   diffDaysFromToday,
   dueLabel,
@@ -10,6 +11,66 @@ import {
   isAwaitingGmud,
   isDone,
 } from "./developerTicketUtils";
+
+export const NEXT_ACTION_GROUPS = [
+  { id: "urgent", title: "Urgente" },
+  { id: "documentation", title: "Documentação" },
+  { id: "execution", title: "Execução" },
+];
+
+function getIssueScheduleAdf(issue) {
+  return (
+    issue?.cronogramaAdf ||
+    issue?.customfield_14017 ||
+    issue?.fields?.customfield_14017 ||
+    null
+  );
+}
+
+function hasScheduleData(issue) {
+  const parsed = parseCronogramaADF(getIssueScheduleAdf(issue));
+
+  if (!parsed.length) return false;
+
+  return parsed.some((activity) => {
+    const values = [
+      activity?.data,
+      activity?.recurso,
+      activity?.area,
+      activity?.risco,
+    ];
+
+    return values.some((value) => {
+      const text = String(value || "").trim();
+
+      if (!text) return false;
+      if (text === "—") return false;
+      if (/^sem recurso$/i.test(text)) return false;
+
+      return true;
+    });
+  });
+}
+
+export function groupNextActions(actions = []) {
+  const groups = NEXT_ACTION_GROUPS.map((group) => ({
+    ...group,
+    actions: actions.filter((action) => action.category === group.id),
+  })).filter((group) => group.actions.length > 0);
+
+  const groupedIds = new Set(NEXT_ACTION_GROUPS.map((group) => group.id));
+  const others = actions.filter((action) => !groupedIds.has(action.category));
+
+  if (others.length) {
+    groups.push({
+      id: "others",
+      title: "Outras ações",
+      actions: others,
+    });
+  }
+
+  return groups;
+}
 
 export function buildRiskRows(rows, limit = 6) {
   return (rows || [])
@@ -27,41 +88,63 @@ export function buildRiskRows(rows, limit = 6) {
 
 export function buildNextActions(rows, limit = 6) {
   return (rows || [])
-    .map((issue) => {
+    .flatMap((issue) => {
       const key = getIssueKey(issue);
+      const actions = [];
+
+      if (!key) return actions;
 
       if (isAwaitingGmud(issue)) {
-        return {
+        actions.push({
           key,
           type: "startTicket",
+          category: "execution",
           label: "Iniciar ticket",
           description: "Ticket ainda sem início operacional.",
           issue,
-        };
+          openDetails: true,
+        });
+
+        return actions;
       }
 
       if (!hasEvidence(issue)) {
-        return {
+        actions.push({
           key,
           type: "uploadEvidence",
+          category: "urgent",
           label: "Subir evidência",
           description: "Ticket ainda não possui anexos/evidências.",
           issue,
           activeTab: "evidencias",
-        };
+        });
       }
 
       if (!getDueYmd(issue)) {
-        return {
+        actions.push({
           key,
           type: "setDueDate",
+          category: "urgent",
           label: "Definir data limite",
           description: "Ticket ainda não possui data limite.",
           issue,
-        };
+          openDetails: true,
+        });
       }
 
-      return null;
+      if (!hasScheduleData(issue)) {
+        actions.push({
+          key,
+          type: "missingSchedule",
+          category: "documentation",
+          label: "Criar cronograma",
+          description: "Ticket ainda está sem cronograma de implantação.",
+          issue,
+          openDetails: true,
+        });
+      }
+
+      return actions;
     })
     .filter(Boolean)
     .slice(0, limit);

@@ -53,6 +53,7 @@ export default function DeveloperWorkspaceGrid({
   saving,
   handleQuickAction,
   onStartTicket,
+  onOpenDetails,
   contextTicketKey,
   contextIssue,
   focusedStickyId,
@@ -134,6 +135,7 @@ export default function DeveloperWorkspaceGrid({
                   rows={sortedRows}
                   onOpenExecution={onOpenExecution}
                   onStartTicket={onStartTicket}
+                  onOpenDetails={onOpenDetails}
                   onShowAll={() => openExpandedWidget("actions")}
                 />
               </WidgetCard>
