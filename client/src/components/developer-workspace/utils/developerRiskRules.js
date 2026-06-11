@@ -15,7 +15,12 @@ export function buildRiskRows(rows, limit = 6) {
   return (rows || [])
     .filter((issue) => {
       const days = diffDaysFromToday(getDueYmd(issue));
-      return days === null || days <= 2 || !hasEvidence(issue) || isAwaitingGmud(issue);
+      return (
+        days === null ||
+        days <= 2 ||
+        !hasEvidence(issue) ||
+        isAwaitingGmud(issue)
+      );
     })
     .slice(0, limit);
 }
@@ -24,16 +29,45 @@ export function buildNextActions(rows, limit = 6) {
   return (rows || [])
     .map((issue) => {
       const key = getIssueKey(issue);
+
       if (isAwaitingGmud(issue)) {
-        return { key, label: "Criar estrutura GMUD", issue };
+        return {
+          key,
+          type: "startTicket",
+          label: "Iniciar ticket",
+          description: "Ticket ainda sem início operacional.",
+          issue,
+        };
       }
+
       if (!hasEvidence(issue)) {
-        return { key, label: "Subir evidência", issue };
+        return {
+          key,
+          type: "uploadEvidence",
+          label: "Subir evidência",
+          description: "Ticket ainda não possui anexos/evidências.",
+          issue,
+          activeTab: "evidencias",
+        };
       }
+
       if (!getDueYmd(issue)) {
-        return { key, label: "Definir data limite", issue };
+        return {
+          key,
+          type: "setDueDate",
+          label: "Definir data limite",
+          description: "Ticket ainda não possui data limite.",
+          issue,
+        };
       }
-      return { key, label: "Atualizar execução", issue };
+
+      return {
+        key,
+        type: "updateExecution",
+        label: "Atualizar execução",
+        description: "Continuar o acompanhamento operacional do ticket.",
+        issue,
+      };
     })
     .slice(0, limit);
 }
@@ -84,10 +118,14 @@ export function buildDailySummary(rows, riskRows, actions) {
     `Em risco: ${risks.length}`,
     "",
     "Estou atuando em:",
-    ...(active.length ? active.map((item) => `- ${item.text}`) : ["- Sem itens ativos."]),
+    ...(active.length
+      ? active.map((item) => `- ${item.text}`)
+      : ["- Sem itens ativos."]),
     "",
     "Pendências:",
-    ...(pending.length ? pending.map((item) => `- ${item.text}`) : ["- Sem pendências imediatas."]),
+    ...(pending.length
+      ? pending.map((item) => `- ${item.text}`)
+      : ["- Sem pendências imediatas."]),
     "",
     "Riscos:",
     ...(risks.length

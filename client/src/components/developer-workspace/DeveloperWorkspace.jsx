@@ -28,6 +28,7 @@ import { MetricCard } from "./components/MetricCard";
 import DeveloperWorkspaceFilters from "./DeveloperWorkspaceFilters";
 import DeveloperWorkspaceGrid from "./DeveloperWorkspaceGrid";
 import DeveloperWorkspaceHeader from "./DeveloperWorkspaceHeader";
+import DeveloperTicketDetailsDialog from "./DeveloperTicketDetailsDialog";
 import ExpandedWorkspaceDialog from "./ExpandedWorkspaceDialog";
 import { useDeveloperWorkspaceActions } from "./hooks/useDeveloperWorkspaceActions";
 import { useDeveloperWorkspaceFilters } from "./hooks/useDeveloperWorkspaceFilters";
@@ -66,6 +67,7 @@ export default function DeveloperWorkspace({
   onReload,
   onConfigureUser,
   onOpenExecution,
+  onStartTicket,
   onWorkspaceSaved,
 }) {
   const { width, containerRef, mounted } = useMeasuredWidth();
@@ -79,6 +81,7 @@ export default function DeveloperWorkspace({
   const [expandedWidget, setExpandedWidget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [focusedStickyId, setFocusedStickyId] = useState("");
+  const [detailsAction, setDetailsAction] = useState(null);
   const stickyRefs = useRef({});
   const preferences = workspace.preferences || EMPTY_WORKSPACE.preferences;
   const {
@@ -178,6 +181,19 @@ export default function DeveloperWorkspace({
         }
       : null;
   }, [allRows, contextTicketKey, sortedRows, workspace.recentTickets]);
+
+  const detailsIssue = useMemo(() => {
+    const key = normalizeTicketKey(detailsAction?.key);
+    if (!key) return null;
+
+    return (
+      detailsAction?.issue ||
+      findTicketByKey(sortedRows, key) ||
+      findTicketByKey(allRows, key) ||
+      null
+    );
+  }, [allRows, detailsAction, sortedRows]);
+
   const handleQuickAction = useDeveloperWorkspaceActions({
     contextTicketKey,
     contextIssue,
@@ -412,6 +428,39 @@ export default function DeveloperWorkspace({
         ? "Atualizando"
         : "Atualizar Jira";
 
+  function openDetailsAction(action) {
+    setDetailsAction(action || null);
+  }
+
+  function closeDetailsAction() {
+    setDetailsAction(null);
+  }
+
+  function openExecutionFromDetails(ticketKey, opts = {}) {
+    closeDetailsAction();
+    onOpenExecution?.(ticketKey, opts);
+  }
+
+  async function handleScheduleSaved(ticketKey) {
+    if (onRefreshIssue) {
+      await onRefreshIssue(ticketKey).catch(() => null);
+      return;
+    }
+
+    await onReload?.();
+  }
+
+  function handleStartTicketAction(action) {
+    const key = normalizeTicketKey(action?.key || action?.issue?.key);
+    if (!key) return;
+
+    onStartTicket?.({
+      id: `${key}:${Date.now()}`,
+      ticketKey: key,
+      issue: action?.issue || findTicketByKey(allRows, key) || null,
+      source: "developer-next-actions",
+    });
+  }
   return (
     <section
       className={cn(
@@ -501,6 +550,7 @@ export default function DeveloperWorkspace({
         saveNote={saveNote}
         saving={saving}
         handleQuickAction={handleQuickAction}
+        onStartTicket={handleStartTicketAction}
         contextTicketKey={contextTicketKey}
         contextIssue={contextIssue}
         focusedStickyId={focusedStickyId}
@@ -529,6 +579,16 @@ export default function DeveloperWorkspace({
           if (!open) setExpandedWidget(null);
         }}
         onOpenExecution={onOpenExecution}
+        onStartTicket={handleStartTicketAction}
+      />
+
+      <DeveloperTicketDetailsDialog
+        open={Boolean(detailsAction)}
+        action={detailsAction}
+        issue={detailsIssue}
+        onClose={closeDetailsAction}
+        onOpenExecution={openExecutionFromDetails}
+        onScheduleSaved={handleScheduleSaved}
       />
     </section>
   );

@@ -1,7 +1,13 @@
 import { TriangleAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 import { ExpandedTicketRow } from "./widgets";
@@ -28,20 +34,36 @@ export function ExpandedWorkspaceDialog({
   notesByTicket,
   onOpenChange,
   onOpenExecution,
+  onStartTicket,
 }) {
   const titles = {
     queue: ["Todos os tickets", "Fila filtrada do Workspace."],
     recent: ["Últimos acessados", "Histórico recente de execução."],
-    risk: ["Tickets em risco", "Itens com vencimento, evidência ou GMUD pendente."],
+    risk: [
+      "Tickets em risco",
+      "Itens com vencimento, evidência ou GMUD pendente.",
+    ],
     actions: ["Todas as ações", "Próximos passos sugeridos para sua fila."],
     calendar: ["Calendário completo", "Tickets organizados por data limite."],
     notes: ["Todas as notas", "Notas privadas salvas no Dev Flow."],
   };
   const [title, description] = titles[widget] || ["Workspace", ""];
-  const notesEntries = Object.entries(notesByTicket || {}).filter(([, value]) => {
-    const text = typeof value === "string" ? value : value?.text || "";
-    return String(text || "").trim();
-  });
+  function handleActionClick(action) {
+    if (action.type === "startTicket") {
+      onStartTicket?.(action);
+      return;
+    }
+
+    onOpenExecution(action.key, {
+      activeTab: action.activeTab || "",
+    });
+  }
+  const notesEntries = Object.entries(notesByTicket || {}).filter(
+    ([, value]) => {
+      const text = typeof value === "string" ? value : value?.text || "";
+      return String(text || "").trim();
+    },
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,15 +91,25 @@ export function ExpandedWorkspaceDialog({
               <button
                 type="button"
                 key={getIssueKey(issue)}
-                className={cn("developer-risk-item", `developer-risk-item--${dueTone(issue)}`)}
+                className={cn(
+                  "developer-risk-item",
+                  `developer-risk-item--${dueTone(issue)}`,
+                )}
                 onClick={() => onOpenExecution(getIssueKey(issue))}
               >
                 <TriangleAlert className="h-4 w-4" />
                 <span>
                   <strong>{getIssueKey(issue)}</strong>
-                  <small>{getSummary(issue)} - {dueLabel(issue)}</small>
+                  <small>
+                    {getSummary(issue)} - {dueLabel(issue)}
+                  </small>
                 </span>
-                <Badge className={cn("developer-badge", `developer-badge--${priorityTone(getPriority(issue))}`)}>
+                <Badge
+                  className={cn(
+                    "developer-badge",
+                    `developer-badge--${priorityTone(getPriority(issue))}`,
+                  )}
+                >
                   {getPriority(issue)}
                 </Badge>
               </button>
@@ -92,10 +124,12 @@ export function ExpandedWorkspaceDialog({
                 type="button"
                 key={`${action.key}:${action.label}`}
                 className="developer-action-item"
-                onClick={() => onOpenExecution(action.key)}
+                onClick={() => handleActionClick(action)}
               >
                 <span className="developer-checkbox" />
-                <span>{action.label} - {action.key}</span>
+                <span>
+                  {action.label} - {action.key}
+                </span>
               </button>
             ))}
           </div>
@@ -110,7 +144,9 @@ export function ExpandedWorkspaceDialog({
                 onClick={() => onOpenExecution(getIssueKey(issue))}
               >
                 <strong>{fmtDateBr(getDueYmd(issue))}</strong>
-                <span>{getIssueKey(issue)} - {getSummary(issue)}</span>
+                <span>
+                  {getIssueKey(issue)} - {getSummary(issue)}
+                </span>
                 <em>{getStatus(issue) || "Sem status"}</em>
               </button>
             ))}
@@ -124,7 +160,9 @@ export function ExpandedWorkspaceDialog({
                 type="button"
                 key={item.ticketKey}
                 className="developer-recent-item"
-                onClick={() => onOpenExecution(item.ticketKey, { activeTab: item.activeTab })}
+                onClick={() =>
+                  onOpenExecution(item.ticketKey, { activeTab: item.activeTab })
+                }
               >
                 <span>
                   <strong>{item.ticketKey}</strong>
@@ -139,7 +177,8 @@ export function ExpandedWorkspaceDialog({
         {widget === "notes" ? (
           <div className="developer-expanded-notes">
             {notesEntries.map(([ticketKey, value]) => {
-              const text = typeof value === "string" ? value : value?.text || "";
+              const text =
+                typeof value === "string" ? value : value?.text || "";
               return (
                 <article key={ticketKey}>
                   <strong>{ticketKey}</strong>

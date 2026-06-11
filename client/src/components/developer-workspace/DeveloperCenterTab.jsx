@@ -21,6 +21,7 @@ export default function DeveloperCenterTab({
   currentUser,
   poData,
   onConfigureUser,
+  onStartTicket,
   onProgressChange,
   onRdmTitleChange,
   onRdmDueDateChange,
@@ -137,7 +138,11 @@ export default function DeveloperCenterTab({
           </Button>
           <div className="developer-execution-return__copy">
             <strong>{selectedTicketKey || "Ticket"}</strong>
-            <span>{selectedTicket ? getSummary(selectedTicket) : "Execução operacional"}</span>
+            <span>
+              {selectedTicket
+                ? getSummary(selectedTicket)
+                : "Execução operacional"}
+            </span>
           </div>
         </div>
         <ChecklistGMUDTab
@@ -167,6 +172,7 @@ export default function DeveloperCenterTab({
       onReload={() => poData?.reload?.()}
       onConfigureUser={onConfigureUser}
       onOpenExecution={openExecution}
+      onStartTicket={onStartTicket}
       onWorkspaceSaved={updateWorkspaceFromSave}
     />
   );

@@ -145,9 +145,7 @@ import {
   normalizeCalendarSettings,
   toLocalDate,
 } from "../utils/businessCalendar";
-import {
-  applyEventChangeToAtividades,
-} from "../lib/jiraPoView";
+import { applyEventChangeToAtividades } from "../lib/jiraPoView";
 
 // NOVO: buscar detalhes do ticket + comentar
 import {
@@ -414,13 +412,9 @@ function getIssueTypeInfo(ticket) {
     ticket?.type ||
     "";
   const iconUrl =
-    ticket?.issueTypeIconUrl ||
-    ticket?.issueTypeIcon ||
-    raw?.iconUrl ||
-    "";
+    ticket?.issueTypeIconUrl || ticket?.issueTypeIcon || raw?.iconUrl || "";
   const id = ticket?.issueTypeId || raw?.id || "";
-  const description =
-    ticket?.issueTypeDescription || raw?.description || "";
+  const description = ticket?.issueTypeDescription || raw?.description || "";
   return { id, name, iconUrl, description };
 }
 
@@ -428,7 +422,11 @@ function IssueTypeIcon({ ticket, className = "" }) {
   const [failed, setFailed] = useState(false);
   const info = getIssueTypeInfo(ticket);
   const label = info.name ? `Tipo do ticket: ${info.name}` : "Tipo do ticket";
-  const fallback = String(info.name || "?").trim().charAt(0).toUpperCase() || "?";
+  const fallback =
+    String(info.name || "?")
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "?";
 
   if (info.iconUrl && !failed) {
     return (
@@ -524,7 +522,10 @@ function formatJiraActionableError(error, context = {}) {
     return `Token Jira expirado ou sem permissão. Revise o token em Configurações e confirme acesso ao ticket.${ticketSuffix}`;
   }
 
-  if (status === 429 || /rate limit|too many requests|limite/.test(normalized)) {
+  if (
+    status === 429 ||
+    /rate limit|too many requests|limite/.test(normalized)
+  ) {
     return "Jira limitou as requisições. Aguarde alguns segundos e tente novamente.";
   }
 
@@ -631,10 +632,7 @@ function getAttachmentPreviewKind(attachment) {
     .toLowerCase();
 
   if (ext === "pdf" || mime.includes("pdf")) return "pdf";
-  if (
-    ext === "docx" ||
-    mime.includes("wordprocessingml.document")
-  ) {
+  if (ext === "docx" || mime.includes("wordprocessingml.document")) {
     return "docx";
   }
   if (
@@ -1277,13 +1275,22 @@ function PersonalPortfolioView({
   const kpis = [
     { label: "Meus tickets", value: portfolio.total || 0, tone: "zinc" },
     { label: "Atrasados", value: portfolio.overdue || 0, tone: "red" },
-    { label: "Próximos 7 dias", value: portfolio.dueThisWeek || 0, tone: "amber" },
-    { label: "Sem cronograma", value: portfolio.noSchedule || 0, tone: "slate" },
+    {
+      label: "Próximos 7 dias",
+      value: portfolio.dueThisWeek || 0,
+      tone: "amber",
+    },
+    {
+      label: "Sem cronograma",
+      value: portfolio.noSchedule || 0,
+      tone: "slate",
+    },
     { label: "Com risco", value: portfolio.atRisk || 0, tone: "red" },
     {
       label: "Sem avanço",
-      value: (insights?.filteredItems || []).filter((item) => item.noRecentUpdate)
-        .length,
+      value: (insights?.filteredItems || []).filter(
+        (item) => item.noRecentUpdate,
+      ).length,
       tone: "amber",
     },
   ];
@@ -1320,7 +1327,7 @@ function PersonalPortfolioView({
               key={kpi.label}
               className={cn(
                 "rounded-2xl border p-3",
-                toneClasses[kpi.tone] || toneClasses.zinc
+                toneClasses[kpi.tone] || toneClasses.zinc,
               )}
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide opacity-75">
@@ -1337,7 +1344,9 @@ function PersonalPortfolioView({
           <CardTitle className="text-base text-zinc-900">
             Vencimentos da semana
           </CardTitle>
-          <CardDescription>Tickets e atividades com data próxima.</CardDescription>
+          <CardDescription>
+            Tickets e atividades com data próxima.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid max-h-[420px] gap-2 overflow-auto md:grid-cols-2 xl:grid-cols-3">
           {(alerts.dueNext7 || []).length ? (
@@ -1389,13 +1398,13 @@ function PersonalPortfolioView({
   );
 }
 
-
 export default function AMPanelTab({
   calendarSettings,
   currentUser,
   poData,
   personalMode = false,
   onConfigureUser,
+  startTicketRequest = null,
 }) {
   const effectiveCalendarSettings = useMemo(
     () => normalizeCalendarSettings(calendarSettings),
@@ -1499,6 +1508,7 @@ export default function AMPanelTab({
   const [startLoading, setStartLoading] = useState(false);
   const [startErr, setStartErr] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(STATUS_OPTIONS[0]);
+  const lastExternalStartRequestRef = useRef("");
 
   // trava durante persistência de mudança de datas (drag/resize)
   const [persisting, setPersisting] = useState(false);
@@ -1722,6 +1732,34 @@ export default function AMPanelTab({
     setStartLoading(false);
     setSelectedStatus(STATUS_OPTIONS[0]);
   }
+
+  useEffect(() => {
+    const requestId = String(
+      startTicketRequest?.id || startTicketRequest?.ticketKey || "",
+    ).trim();
+
+    if (!requestId || lastExternalStartRequestRef.current === requestId) {
+      return;
+    }
+
+    const ticketKey = String(
+      startTicketRequest?.ticketKey || startTicketRequest?.issue?.key || "",
+    )
+      .trim()
+      .toUpperCase();
+
+    if (!ticketKey) return;
+
+    lastExternalStartRequestRef.current = requestId;
+
+    setSubView("acoes");
+    setDashTab("andamento");
+
+    openStartModal({
+      ...(startTicketRequest?.issue || {}),
+      key: ticketKey,
+    });
+  }, [startTicketRequest]);
 
   async function applyStatusOnly(ctx = {}) {
     if (!startIssueKey) return;
@@ -2085,7 +2123,10 @@ export default function AMPanelTab({
               applyCronogramaPatchLocal(issueKey, issue.atividades || []);
           }
         } catch (cacheErr) {
-          console.warn("Falha ao atualizar cache local do cronograma.", cacheErr);
+          console.warn(
+            "Falha ao atualizar cache local do cronograma.",
+            cacheErr,
+          );
         }
 
         updateChangeHistoryStatus(
@@ -2289,60 +2330,60 @@ export default function AMPanelTab({
               <div className="flex flex-wrap items-center gap-2">
                 {!personalMode ? (
                   <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={topNavButtonClasses(subView === "acoes")}
-                  onClick={() => setSubView("acoes")}
-                  aria-pressed={subView === "acoes"}
-                >
-                  <ListChecks className="mr-2 h-4 w-4" />
-                  Ações
-                </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topNavButtonClasses(subView === "acoes")}
+                      onClick={() => setSubView("acoes")}
+                      aria-pressed={subView === "acoes"}
+                    >
+                      <ListChecks className="mr-2 h-4 w-4" />
+                      Ações
+                    </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={topNavButtonClasses(subView === "portfolio")}
-                  onClick={() => setSubView("portfolio")}
-                  aria-pressed={subView === "portfolio"}
-                >
-                  <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Portfólio
-                </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topNavButtonClasses(subView === "portfolio")}
+                      onClick={() => setSubView("portfolio")}
+                      aria-pressed={subView === "portfolio"}
+                    >
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Portfólio
+                    </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={topNavButtonClasses(subView === "calendario")}
-                  onClick={() => setSubView("calendario")}
-                  aria-pressed={subView === "calendario"}
-                >
-                  <CalendarDays className="mr-2 h-4 w-4" />
-                  Calendário
-                </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topNavButtonClasses(subView === "calendario")}
+                      onClick={() => setSubView("calendario")}
+                      aria-pressed={subView === "calendario"}
+                    >
+                      <CalendarDays className="mr-2 h-4 w-4" />
+                      Calendário
+                    </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={topNavButtonClasses(subView === "gantt")}
-                  onClick={() => setSubView("gantt")}
-                  aria-pressed={subView === "gantt"}
-                >
-                  <Clock className="mr-2 h-4 w-4" />
-                  Gantt
-                </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topNavButtonClasses(subView === "gantt")}
+                      onClick={() => setSubView("gantt")}
+                      aria-pressed={subView === "gantt"}
+                    >
+                      <Clock className="mr-2 h-4 w-4" />
+                      Gantt
+                    </Button>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={topNavButtonClasses(subView === "dashboard")}
-                  onClick={() => setSubView("dashboard")}
-                  aria-pressed={subView === "dashboard"}
-                >
-                  <LayoutDashboard className="mr-2 h-4 w-4" />
-                  Dashboard
-                </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={topNavButtonClasses(subView === "dashboard")}
+                      onClick={() => setSubView("dashboard")}
+                      aria-pressed={subView === "dashboard"}
+                    >
+                      <LayoutDashboard className="mr-2 h-4 w-4" />
+                      Dashboard
+                    </Button>
                   </>
                 ) : null}
 
@@ -2397,16 +2438,16 @@ export default function AMPanelTab({
           )}
 
           {!personalMode ? (
-          <div className="mb-4">
-            <POPresetBar
-              activePreset={activePreset}
-              setActivePreset={setActivePreset}
-              presetCounts={poInsights?.presetCounts}
-              ownerFocus={ownerFocus}
-              setOwnerFocus={setOwnerFocus}
-              showMinePreset={false}
-            />
-          </div>
+            <div className="mb-4">
+              <POPresetBar
+                activePreset={activePreset}
+                setActivePreset={setActivePreset}
+                presetCounts={poInsights?.presetCounts}
+                ownerFocus={ownerFocus}
+                setOwnerFocus={setOwnerFocus}
+                showMinePreset={false}
+              />
+            </div>
           ) : null}
 
           {personalMode && !ownerAccountId ? (
@@ -2570,12 +2611,12 @@ export default function AMPanelTab({
 
           {!personalMode && subView === "portfolio" && (
             <AMPortfolioView
-                insights={poInsights}
-                onOpenDetails={(key) => {
-                  setDetailsKey(key);
-                  setDetailsOpen(true);
-                }}
-              />
+              insights={poInsights}
+              onOpenDetails={(key) => {
+                setDetailsKey(key);
+                setDetailsOpen(true);
+              }}
+            />
           )}
 
           {/* =========================
@@ -2817,7 +2858,8 @@ function ResolutionActionDialog({
               Acao recomendada
             </div>
             <div className="mt-1 text-sm font-medium text-zinc-900">
-              {problem?.recommendedAction || "Registrar acao e acompanhar o ticket."}
+              {problem?.recommendedAction ||
+                "Registrar acao e acompanhar o ticket."}
             </div>
           </div>
 
@@ -2837,9 +2879,9 @@ function ResolutionActionDialog({
 
           {isCapacity ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              A correcao do conflito de recurso deve ser feita ajustando datas ou
-              recurso no Gantt/cronograma. O botao abaixo leva o ticket para a
-              visao de Gantt filtrada.
+              A correcao do conflito de recurso deve ser feita ajustando datas
+              ou recurso no Gantt/cronograma. O botao abaixo leva o ticket para
+              a visao de Gantt filtrada.
             </div>
           ) : (
             <div className="grid gap-2">
@@ -4540,7 +4582,12 @@ function normalizeHistoryComment(comment = {}, issueKey = "") {
   };
 }
 
-function normalizeHistoryChange(history = {}, item = {}, issueKey = "", index = 0) {
+function normalizeHistoryChange(
+  history = {},
+  item = {},
+  issueKey = "",
+  index = 0,
+) {
   const createdAt = parseHistoryDate(history.created);
   if (!createdAt) return null;
   const type = classifyHistoryField(item);
@@ -4606,7 +4653,9 @@ function escapeHistoryHtml(value) {
 }
 
 function truncateHistoryText(value, max = 90) {
-  const text = String(value || "").trim().replace(/\s+/g, " ");
+  const text = String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
   if (!text) return "";
   return text.length > max ? `${text.slice(0, max - 3)}...` : text;
 }
@@ -4675,9 +4724,10 @@ function historyGraphItemContent(event) {
   }
 
   const meta = HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
-  const detail = event.type === "attachment_changed"
-    ? event.to || event.bodyText
-    : event.to || event.bodyText || event.from || "";
+  const detail =
+    event.type === "attachment_changed"
+      ? event.to || event.bodyText
+      : event.to || event.bodyText || event.from || "";
   return `
     <div class="ticket-history-graph-item ticket-history-graph-activity">
       <strong>${escapeHistoryHtml(meta.label)}</strong>
@@ -4998,7 +5048,12 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
           if (Array.isArray(histories)) {
             histories.forEach((history) => {
               (history?.items || []).forEach((item, index) => {
-                const event = normalizeHistoryChange(history, item, issueKey, index);
+                const event = normalizeHistoryChange(
+                  history,
+                  item,
+                  issueKey,
+                  index,
+                );
                 if (event) nextEvents.push(event);
               });
             });
@@ -5015,7 +5070,9 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
           if (event) nextEvents.push(event);
         });
 
-        nextEvents.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        nextEvents.sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+        );
         setEvents(nextEvents);
         setFailures(nextFailures);
         setLoadedKey(issueKey);
@@ -5064,13 +5121,15 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
               </Badge>
               {latestEvent ? (
                 <Badge className="rounded-full border border-sky-200 bg-sky-50 text-sky-700">
-                  Última movimentação: {formatHistoryDateTime(latestEvent.createdAt)}
+                  Última movimentação:{" "}
+                  {formatHistoryDateTime(latestEvent.createdAt)}
                 </Badge>
               ) : null}
             </div>
             {failures.length ? (
               <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Leitura parcial: não foi possível carregar {failures.join(" e ")}.
+                Leitura parcial: não foi possível carregar{" "}
+                {failures.join(" e ")}.
               </div>
             ) : null}
           </div>
@@ -5153,7 +5212,8 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
               </div>
               <div className="relative ml-4 grid gap-3 border-l border-zinc-200 pl-5">
                 {group.items.map((event) => {
-                  const meta = HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
+                  const meta =
+                    HISTORY_EVENT_META[event.type] || HISTORY_EVENT_META.other;
                   const Icon = meta.icon || History;
                   const isExpanded = Boolean(expanded[event.id]);
                   const commentLong = String(event.bodyText || "").length > 220;
@@ -5173,7 +5233,12 @@ function TicketOperationalHistory({ active, issueKey, issue }) {
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge className={cn("rounded-full border", meta.className)}>
+                            <Badge
+                              className={cn(
+                                "rounded-full border",
+                                meta.className,
+                              )}
+                            >
                               {meta.label}
                             </Badge>
                             <span className="text-xs font-medium text-zinc-500">
@@ -5636,704 +5701,718 @@ function TicketDetailsDialog({
     : "Sem comentário de início";
   const isTicketStarted = Boolean(
     meta?.hasStarted ||
-      ticketHasIniciadoTag(issue) ||
-      comments.some((comment) => /\[INICIADO\]/i.test(safeText(comment?.body))),
+    ticketHasIniciadoTag(issue) ||
+    comments.some((comment) => /\[INICIADO\]/i.test(safeText(comment?.body))),
   );
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-start gap-2 min-w-0">
-            <span className="inline-flex shrink-0 items-center gap-1.5">
-              <IssueTypeIcon ticket={issue} />
-              <code className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold">
-                {issueKey || "—"}
-              </code>
-            </span>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-start gap-2 min-w-0">
+              <span className="inline-flex shrink-0 items-center gap-1.5">
+                <IssueTypeIcon ticket={issue} />
+                <code className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold">
+                  {issueKey || "—"}
+                </code>
+              </span>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="min-w-0 text-base leading-snug text-zinc-900"
-                  style={CLAMP_2}
-                >
-                  {f?.summary || "Detalhes do ticket"}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[520px]">
-                {f?.summary || "Detalhes do ticket"}
-              </TooltipContent>
-            </Tooltip>
-          </DialogTitle>
-          <DialogDescription className="text-sm text-zinc-600">
-            Visualização rápida com contexto decisório, cronograma e
-            comentários.
-          </DialogDescription>
-        </DialogHeader>
-
-        {err ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {err}
-          </div>
-        ) : null}
-
-        <div className="inline-flex w-full rounded-2xl bg-zinc-100 p-1 sm:w-auto">
-          <button
-            type="button"
-            className={cn(
-              "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
-              detailsView === "summary"
-                ? "bg-white text-zinc-950 shadow-sm"
-                : "text-zinc-600 hover:text-zinc-950",
-            )}
-            onClick={() => setDetailsView("summary")}
-          >
-            Resumo
-          </button>
-          <button
-            type="button"
-            className={cn(
-              "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
-              detailsView === "history"
-                ? "bg-white text-zinc-950 shadow-sm"
-                : "text-zinc-600 hover:text-zinc-950",
-            )}
-            onClick={() => setDetailsView("history")}
-          >
-            Histórico
-          </button>
-        </div>
-
-        {detailsView === "summary" ? (
-        <div className="grid gap-3">
-          {/* resumo */}
-          <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-            {loading ? (
-              <div className="grid gap-2">
-                <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Carregando detalhes...
-                </div>
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-4 w-1/3" />
-              </div>
-            ) : (
-              <div className="grid gap-2 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={f?.status?.name || "—"} />
-                  <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
-                    Projeto: {f?.project?.key || f?.project?.name || "—"}
-                  </Badge>
-                  {directorateLabels.slice(0, 2).map((label) => (
-                    <Badge
-                      key={`dir-${label}`}
-                      className="rounded-full border border-zinc-200 bg-white text-zinc-700"
-                    >
-                      Diretoria: {label}
-                    </Badge>
-                  ))}
-                  {componentLabels.slice(0, 2).map((label) => (
-                    <Badge
-                      key={`component-${label}`}
-                      className="rounded-full border border-zinc-200 bg-white text-zinc-700"
-                    >
-                      Componente: {label}
-                    </Badge>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap gap-2 text-zinc-700">
-                  <span className="font-medium text-zinc-900">
-                    Responsável:
-                  </span>{" "}
-                  {f?.assignee?.displayName || "Sem responsável"}
-                  <span className="mx-2 text-zinc-300">•</span>
-                  <span className="font-medium text-zinc-900">
-                    Updated:
-                  </span>{" "}
-                  {fmtUpdatedBR(f?.updated)}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Próximo marco
-              </div>
-              <div className="mt-2 text-sm font-semibold text-zinc-900">
-                {meta?.nextMilestone?.label || "Sem marco planejado"}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Prazo
-              </div>
-              <label className="mt-2 grid gap-1">
-                <span className="sr-only">Data limite</span>
-                <Input
-                  type="date"
-                  value={dueDateDraft}
-                  onChange={handleDueDateChange}
-                  disabled={loading || savingDueDate || !issue}
-                  className="h-9 rounded-xl border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900"
-                />
-              </label>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
-                {savingDueDate ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Salvando no Jira...
-                  </>
-                ) : dueDateSaveState === "saved" ? (
-                  <>
-                    <Check className="h-3.5 w-3.5 text-emerald-600" />
-                    Prazo salvo no Jira.
-                  </>
-                ) : dueDateSaveState === "error" ? (
-                  <>
-                    <AlertCircle className="h-3.5 w-3.5 text-red-600" />
-                    Falha ao salvar prazo.
-                  </>
-                ) : meta?.dueSoon ? (
-                  "Vence nos próximos 7 dias"
-                ) : (
-                  dueLabel
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Alocação
-              </div>
-              <div className="mt-2 text-sm font-semibold text-zinc-900">
-                {allocatedResources.length
-                  ? allocatedResources.slice(0, 2).join(", ")
-                  : "Sem recurso definido"}
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                {meta?.hasCapacityConflict
-                  ? "Conflito de agenda detectado"
-                  : `${allocatedResources.length || 0} recurso(s) mapeado(s)`}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Último avanço
-              </div>
-              <div className="mt-2 text-sm font-semibold text-zinc-900">
-                {latestCommentDate}
-              </div>
-              <div className="mt-1 line-clamp-2 text-xs text-zinc-500">
-                {progressLabel}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 sm:grid-cols-2">
-            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-              <div className="text-sm font-semibold text-zinc-900">
-                Status do ticket
-              </div>
-              <select
-                value={statusDraft || f?.status?.name || ""}
-                onChange={(event) => setStatusDraft(event.target.value)}
-                disabled={loading || savingStatus || !issue}
-                className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
-              >
-                {statusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 w-full rounded-xl border-zinc-200 bg-white"
-                onClick={applyDetailsStatus}
-                disabled={
-                  loading ||
-                  savingStatus ||
-                  !issue ||
-                  !statusDraft ||
-                  statusDraft === f?.status?.name
-                }
-              >
-                {savingStatus ? "Salvando..." : "Aplicar status"}
-              </Button>
-            </div>
-
-            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-              <div className="text-sm font-semibold text-zinc-900">
-                Prioridade
-              </div>
-              <select
-                value={priorityDraft || f?.priority?.name || ""}
-                onChange={(event) => setPriorityDraft(event.target.value)}
-                disabled={loading || savingPriority || !issue}
-                className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
-                style={{
-                  borderColor: priorityColor(
-                    priorityDraft || f?.priority?.name,
-                  ),
-                }}
-              >
-                <option value="">Selecionar prioridade</option>
-                {priorityOptions.map((priority) => (
-                  <option key={priority.name} value={priority.name}>
-                    {priority.name}
-                  </option>
-                ))}
-              </select>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 w-full rounded-xl border-zinc-200 bg-white"
-                onClick={applyDetailsPriority}
-                disabled={
-                  loading ||
-                  savingPriority ||
-                  !issue ||
-                  !priorityDraft ||
-                  normalizePlain(priorityDraft) ===
-                    normalizePlain(f?.priority?.name)
-                }
-              >
-                {savingPriority ? "Salvando..." : "Aplicar prioridade"}
-              </Button>
-            </div>
-
-            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-              <div className="text-sm font-semibold text-zinc-900">
-                Documentação
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={folderCreated}
-                onClick={toggleDocumentationFolderFlag}
-                disabled={loading || savingFolderFlag || !issue}
-                className={cn(
-                  "flex h-10 w-full items-center justify-between rounded-xl border px-3 text-sm font-semibold transition",
-                  folderCreated
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-zinc-200 bg-zinc-50 text-zinc-700",
-                  (loading || savingFolderFlag || !issue) && "opacity-60",
-                )}
-              >
-                <span>Pasta criada</span>
-                <span
-                  className={cn(
-                    "relative h-5 w-9 rounded-full transition",
-                    folderCreated ? "bg-emerald-600" : "bg-zinc-300",
-                  )}
-                >
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <span
-                    className={cn(
-                      "absolute top-0.5 h-4 w-4 rounded-full bg-white transition",
-                      folderCreated ? "left-4" : "left-0.5",
-                    )}
-                  />
-                </span>
-              </button>
+                    className="min-w-0 text-base leading-snug text-zinc-900"
+                    style={CLAMP_2}
+                  >
+                    {f?.summary || "Detalhes do ticket"}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[520px]">
+                  {f?.summary || "Detalhes do ticket"}
+                </TooltipContent>
+              </Tooltip>
+            </DialogTitle>
+            <DialogDescription className="text-sm text-zinc-600">
+              Visualização rápida com contexto decisório, cronograma e
+              comentários.
+            </DialogDescription>
+          </DialogHeader>
 
-              {canOrganizeDocumentation ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 w-full rounded-xl border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
-                  onClick={() => onOpenDocumentation?.(issue)}
-                  disabled={loading || !issue}
-                >
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  Organizar Documentação
-                </Button>
-              ) : (
-                <div className="text-xs text-zinc-500">
-                  {attachmentsCount} anexo(s) no Jira.
-                </div>
+          {err ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
+          ) : null}
+
+          <div className="inline-flex w-full rounded-2xl bg-zinc-100 p-1 sm:w-auto">
+            <button
+              type="button"
+              className={cn(
+                "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+                detailsView === "summary"
+                  ? "bg-white text-zinc-950 shadow-sm"
+                  : "text-zinc-600 hover:text-zinc-950",
               )}
-            </div>
-
-            <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
-              <div className="text-sm font-semibold text-zinc-900">
-                Cronograma
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 w-full rounded-xl border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                onClick={() => onOpenSchedule?.(issue)}
-                disabled={loading || !issue}
-              >
-                <CalendarDays className="mr-2 h-4 w-4" />
-                Criar cronograma
-              </Button>
-              <div className="text-xs text-zinc-500">
-                {cronogramaActivities.length
-                  ? `${cronogramaActivities.length} atividade(s) cadastrada(s).`
-                  : "Abrir editor de cronograma."}
-              </div>
-            </div>
+              onClick={() => setDetailsView("summary")}
+            >
+              Resumo
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
+                detailsView === "history"
+                  ? "bg-white text-zinc-950 shadow-sm"
+                  : "text-zinc-600 hover:text-zinc-950",
+              )}
+              onClick={() => setDetailsView("history")}
+            >
+              Histórico
+            </button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="mb-2 text-sm font-semibold text-zinc-900">
-                Riscos e bloqueios
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
-                  {riskActivities.length} atividade(s) com risco
-                </Badge>
-                {meta?.isBlocked ? (
-                  <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
-                    Bloqueado
-                  </Badge>
-                ) : null}
-                {meta?.isAtRisk ? (
-                  <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
-                    Em risco
-                  </Badge>
-                ) : null}
-                {meta?.hasCapacityConflict ? (
-                  <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
-                    Conflito de recurso
-                  </Badge>
-                ) : null}
-              </div>
-              <div className="mt-3 text-xs text-zinc-500">
-                {(meta?.actionReasons || []).length
-                  ? meta.actionReasons.join(" • ")
-                  : "Sem alertas operacionais adicionais."}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-zinc-200 bg-white p-3">
-              <div className="mb-2 text-sm font-semibold text-zinc-900">
-                Histórico resumido
-              </div>
-              <div className="text-sm font-semibold text-zinc-900">
-                {latestCommentDate}
-              </div>
-              <div className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-700">
-                {latestCommentText}
-              </div>
-            </div>
-          </div>
-
-          {/* descrição */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-3">
-            <div className="mb-2 text-sm font-semibold text-zinc-900">
-              Descrição
-            </div>
-            {loading ? (
-              <div className="grid gap-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-4 w-1/2" />
-              </div>
-            ) : (
-              <div className="min-h-32 max-h-[70vh] resize-y overflow-y-auto rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
-                <div className="whitespace-pre-wrap break-words">
-                  {descText || "—"}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 bg-white p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-zinc-900">
-                Anexos
-              </div>
-              <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
-                {attachmentsCount} arquivo(s)
-              </Badge>
-            </div>
-
-            {loading ? (
-              <div className="grid gap-2">
-                <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Carregando anexos...
-                </div>
-                <Skeleton className="h-12 w-full rounded-xl" />
-                <Skeleton className="h-12 w-full rounded-xl" />
-              </div>
-            ) : attachments.length ? (
-              <div className="grid gap-2">
-                {attachments.map((attachment) => {
-                  const links = buildDownloadLinks(attachment);
-                  const previewable = isPreviewableAttachment(attachment);
-                  const filename = attachment?.filename || "arquivo";
-                  const sizeKb = Number(attachment?.size || 0) / 1024;
-                  return (
-                    <div
-                      key={attachment?.id || filename}
-                      className="flex min-w-0 items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
-                    >
-                      <FileText className="h-4 w-4 shrink-0 text-zinc-500" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-zinc-900">
-                          {filename}
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {sizeKb ? `${sizeKb.toFixed(1)} KB` : "Tamanho nao informado"}
-                        </div>
-                      </div>
-
-                      {previewable ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => setPreviewAttachment(attachment)}
-                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
-                              aria-label={`Preview de ${filename}`}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>Visualizar arquivo</TooltipContent>
-                        </Tooltip>
-                      ) : null}
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <a
-                            href={links.download}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"
-                            aria-label={`Baixar ${filename}`}
-                          >
-                            <Download className="h-4 w-4" />
-                          </a>
-                        </TooltipTrigger>
-                        <TooltipContent>Baixar arquivo</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-center text-sm text-zinc-500">
-                Nenhum anexo encontrado.
-              </div>
-            )}
-          </div>
-
-          {/* cronograma */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-3">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-zinc-900">
-                Informações Adicionais
-              </div>
-
-              {!loading && !hasCronograma ? (
-                <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
-                  Sem cronograma
-                </Badge>
-              ) : null}
-            </div>
-
-            {loading ? (
-              <div className="grid gap-2">
-                <Skeleton className="h-4 w-4/5" />
-                <Skeleton className="h-4 w-3/5" />
-                <Skeleton className="h-4 w-2/5" />
-              </div>
-            ) : (
-              <div className="grid gap-3">
-                {cronogramaActivities.length ? (
+          {detailsView === "summary" ? (
+            <div className="grid gap-3">
+              {/* resumo */}
+              <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                {loading ? (
                   <div className="grid gap-2">
-                    {cronogramaActivities.slice(0, 6).map((activity) => (
-                      <div
-                        key={`${issueKey}-${activity.id}`}
-                        className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-semibold text-zinc-900">
-                            {activity.name}
+                    <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando detalhes...
+                    </div>
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-4 w-1/3" />
+                  </div>
+                ) : (
+                  <div className="grid gap-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge status={f?.status?.name || "—"} />
+                      <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
+                        Projeto: {f?.project?.key || f?.project?.name || "—"}
+                      </Badge>
+                      {directorateLabels.slice(0, 2).map((label) => (
+                        <Badge
+                          key={`dir-${label}`}
+                          className="rounded-full border border-zinc-200 bg-white text-zinc-700"
+                        >
+                          Diretoria: {label}
+                        </Badge>
+                      ))}
+                      {componentLabels.slice(0, 2).map((label) => (
+                        <Badge
+                          key={`component-${label}`}
+                          className="rounded-full border border-zinc-200 bg-white text-zinc-700"
+                        >
+                          Componente: {label}
+                        </Badge>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 text-zinc-700">
+                      <span className="font-medium text-zinc-900">
+                        Responsável:
+                      </span>{" "}
+                      {f?.assignee?.displayName || "Sem responsável"}
+                      <span className="mx-2 text-zinc-300">•</span>
+                      <span className="font-medium text-zinc-900">
+                        Updated:
+                      </span>{" "}
+                      {fmtUpdatedBR(f?.updated)}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Próximo marco
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">
+                    {meta?.nextMilestone?.label || "Sem marco planejado"}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Prazo
+                  </div>
+                  <label className="mt-2 grid gap-1">
+                    <span className="sr-only">Data limite</span>
+                    <Input
+                      type="date"
+                      value={dueDateDraft}
+                      onChange={handleDueDateChange}
+                      disabled={loading || savingDueDate || !issue}
+                      className="h-9 rounded-xl border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900"
+                    />
+                  </label>
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
+                    {savingDueDate ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Salvando no Jira...
+                      </>
+                    ) : dueDateSaveState === "saved" ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        Prazo salvo no Jira.
+                      </>
+                    ) : dueDateSaveState === "error" ? (
+                      <>
+                        <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                        Falha ao salvar prazo.
+                      </>
+                    ) : meta?.dueSoon ? (
+                      "Vence nos próximos 7 dias"
+                    ) : (
+                      dueLabel
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Alocação
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">
+                    {allocatedResources.length
+                      ? allocatedResources.slice(0, 2).join(", ")
+                      : "Sem recurso definido"}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {meta?.hasCapacityConflict
+                      ? "Conflito de agenda detectado"
+                      : `${allocatedResources.length || 0} recurso(s) mapeado(s)`}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                    Último avanço
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">
+                    {latestCommentDate}
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-xs text-zinc-500">
+                    {progressLabel}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 rounded-xl border border-zinc-200 bg-white p-3 sm:grid-cols-2">
+                <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Status do ticket
+                  </div>
+                  <select
+                    value={statusDraft || f?.status?.name || ""}
+                    onChange={(event) => setStatusDraft(event.target.value)}
+                    disabled={loading || savingStatus || !issue}
+                    className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    {statusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 w-full rounded-xl border-zinc-200 bg-white"
+                    onClick={applyDetailsStatus}
+                    disabled={
+                      loading ||
+                      savingStatus ||
+                      !issue ||
+                      !statusDraft ||
+                      statusDraft === f?.status?.name
+                    }
+                  >
+                    {savingStatus ? "Salvando..." : "Aplicar status"}
+                  </Button>
+                </div>
+
+                <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Prioridade
+                  </div>
+                  <select
+                    value={priorityDraft || f?.priority?.name || ""}
+                    onChange={(event) => setPriorityDraft(event.target.value)}
+                    disabled={loading || savingPriority || !issue}
+                    className="h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
+                    style={{
+                      borderColor: priorityColor(
+                        priorityDraft || f?.priority?.name,
+                      ),
+                    }}
+                  >
+                    <option value="">Selecionar prioridade</option>
+                    {priorityOptions.map((priority) => (
+                      <option key={priority.name} value={priority.name}>
+                        {priority.name}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 w-full rounded-xl border-zinc-200 bg-white"
+                    onClick={applyDetailsPriority}
+                    disabled={
+                      loading ||
+                      savingPriority ||
+                      !issue ||
+                      !priorityDraft ||
+                      normalizePlain(priorityDraft) ===
+                        normalizePlain(f?.priority?.name)
+                    }
+                  >
+                    {savingPriority ? "Salvando..." : "Aplicar prioridade"}
+                  </Button>
+                </div>
+
+                <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Documentação
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={folderCreated}
+                    onClick={toggleDocumentationFolderFlag}
+                    disabled={loading || savingFolderFlag || !issue}
+                    className={cn(
+                      "flex h-10 w-full items-center justify-between rounded-xl border px-3 text-sm font-semibold transition",
+                      folderCreated
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-zinc-200 bg-zinc-50 text-zinc-700",
+                      (loading || savingFolderFlag || !issue) && "opacity-60",
+                    )}
+                  >
+                    <span>Pasta criada</span>
+                    <span
+                      className={cn(
+                        "relative h-5 w-9 rounded-full transition",
+                        folderCreated ? "bg-emerald-600" : "bg-zinc-300",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-0.5 h-4 w-4 rounded-full bg-white transition",
+                          folderCreated ? "left-4" : "left-0.5",
+                        )}
+                      />
+                    </span>
+                  </button>
+
+                  {canOrganizeDocumentation ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 w-full rounded-xl border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                      onClick={() => onOpenDocumentation?.(issue)}
+                      disabled={loading || !issue}
+                    >
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      Organizar Documentação
+                    </Button>
+                  ) : (
+                    <div className="text-xs text-zinc-500">
+                      {attachmentsCount} anexo(s) no Jira.
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid min-w-0 gap-2 rounded-xl border border-zinc-100 bg-zinc-50 p-3">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Cronograma
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 w-full rounded-xl border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                    onClick={() => onOpenSchedule?.(issue)}
+                    disabled={loading || !issue}
+                  >
+                    <CalendarDays className="mr-2 h-4 w-4" />
+                    Criar cronograma
+                  </Button>
+                  <div className="text-xs text-zinc-500">
+                    {cronogramaActivities.length
+                      ? `${cronogramaActivities.length} atividade(s) cadastrada(s).`
+                      : "Abrir editor de cronograma."}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="mb-2 text-sm font-semibold text-zinc-900">
+                    Riscos e bloqueios
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                      {riskActivities.length} atividade(s) com risco
+                    </Badge>
+                    {meta?.isBlocked ? (
+                      <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                        Bloqueado
+                      </Badge>
+                    ) : null}
+                    {meta?.isAtRisk ? (
+                      <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
+                        Em risco
+                      </Badge>
+                    ) : null}
+                    {meta?.hasCapacityConflict ? (
+                      <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                        Conflito de recurso
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 text-xs text-zinc-500">
+                    {(meta?.actionReasons || []).length
+                      ? meta.actionReasons.join(" • ")
+                      : "Sem alertas operacionais adicionais."}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                  <div className="mb-2 text-sm font-semibold text-zinc-900">
+                    Histórico resumido
+                  </div>
+                  <div className="text-sm font-semibold text-zinc-900">
+                    {latestCommentDate}
+                  </div>
+                  <div className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-700">
+                    {latestCommentText}
+                  </div>
+                </div>
+              </div>
+
+              {/* descrição */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="mb-2 text-sm font-semibold text-zinc-900">
+                  Descrição
+                </div>
+                {loading ? (
+                  <div className="grid gap-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                ) : (
+                  <div className="min-h-32 max-h-[70vh] resize-y overflow-y-auto rounded-lg border border-zinc-100 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-800">
+                    <div className="whitespace-pre-wrap break-words">
+                      {descText || "—"}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Anexos
+                  </div>
+                  <Badge className="rounded-full border border-zinc-200 bg-zinc-50 text-zinc-700">
+                    {attachmentsCount} arquivo(s)
+                  </Badge>
+                </div>
+
+                {loading ? (
+                  <div className="grid gap-2">
+                    <div className="inline-flex items-center gap-2 text-sm font-medium text-zinc-600">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Carregando anexos...
+                    </div>
+                    <Skeleton className="h-12 w-full rounded-xl" />
+                    <Skeleton className="h-12 w-full rounded-xl" />
+                  </div>
+                ) : attachments.length ? (
+                  <div className="grid gap-2">
+                    {attachments.map((attachment) => {
+                      const links = buildDownloadLinks(attachment);
+                      const previewable = isPreviewableAttachment(attachment);
+                      const filename = attachment?.filename || "arquivo";
+                      const sizeKb = Number(attachment?.size || 0) / 1024;
+                      return (
+                        <div
+                          key={attachment?.id || filename}
+                          className="flex min-w-0 items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                        >
+                          <FileText className="h-4 w-4 shrink-0 text-zinc-500" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-zinc-900">
+                              {filename}
+                            </div>
+                            <div className="text-xs text-zinc-500">
+                              {sizeKb
+                                ? `${sizeKb.toFixed(1)} KB`
+                                : "Tamanho nao informado"}
+                            </div>
                           </div>
-                          {activity.risk ? (
-                            <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
-                              Risco
-                            </Badge>
+
+                          {previewable ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPreviewAttachment(attachment)
+                                  }
+                                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                                  aria-label={`Preview de ${filename}`}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Visualizar arquivo
+                              </TooltipContent>
+                            </Tooltip>
                           ) : null}
+
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <a
+                                href={links.download}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"
+                                aria-label={`Baixar ${filename}`}
+                              >
+                                <Download className="h-4 w-4" />
+                              </a>
+                            </TooltipTrigger>
+                            <TooltipContent>Baixar arquivo</TooltipContent>
+                          </Tooltip>
                         </div>
-                        <div className="mt-1 flex flex-wrap gap-3 text-xs text-zinc-600">
-                          <span>{activity.data || "Sem data"}</span>
-                          <span>{activity.recurso || "Sem recurso"}</span>
-                          <span>{activity.area || "Sem área"}</span>
-                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-center text-sm text-zinc-500">
+                    Nenhum anexo encontrado.
+                  </div>
+                )}
+              </div>
+
+              {/* cronograma */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">
+                    Informações Adicionais
+                  </div>
+
+                  {!loading && !hasCronograma ? (
+                    <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-800">
+                      Sem cronograma
+                    </Badge>
+                  ) : null}
+                </div>
+
+                {loading ? (
+                  <div className="grid gap-2">
+                    <Skeleton className="h-4 w-4/5" />
+                    <Skeleton className="h-4 w-3/5" />
+                    <Skeleton className="h-4 w-2/5" />
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {cronogramaActivities.length ? (
+                      <div className="grid gap-2">
+                        {cronogramaActivities.slice(0, 6).map((activity) => (
+                          <div
+                            key={`${issueKey}-${activity.id}`}
+                            className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-zinc-900">
+                                {activity.name}
+                              </div>
+                              {activity.risk ? (
+                                <Badge className="rounded-full border border-red-200 bg-red-50 text-red-700">
+                                  Risco
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-3 text-xs text-zinc-600">
+                              <span>{activity.data || "Sem data"}</span>
+                              <span>{activity.recurso || "Sem recurso"}</span>
+                              <span>{activity.area || "Sem área"}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
+                    ) : null}
+
+                    <div className="whitespace-pre-wrap text-sm text-zinc-800">
+                      {hasCronograma ? infoAdicText : "—"}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* comentários */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                <div className="mb-2 text-sm font-semibold text-zinc-900">
+                  Comentários (últimos {Math.min(12, comments.length)})
+                </div>
+
+                {loading ? (
+                  <div className="grid gap-2">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <Skeleton key={i} className="h-12 w-full rounded-xl" />
                     ))}
                   </div>
-                ) : null}
-
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                  {hasCronograma ? infoAdicText : "—"}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* comentários */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-3">
-            <div className="mb-2 text-sm font-semibold text-zinc-900">
-              Comentários (últimos {Math.min(12, comments.length)})
-            </div>
-
-            {loading ? (
-              <div className="grid gap-2">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full rounded-xl" />
-                ))}
-              </div>
-            ) : comments.length ? (
-              <div className="grid gap-2">
-                {comments
-                  .slice(-12)
-                  .reverse()
-                  .map((c) => {
-                    const bodyText = safeText(c?.body);
-                    const started = /\[INICIADO\]/i.test(bodyText);
-                    const author =
-                      c?.author?.displayName ||
-                      c?.updateAuthor?.displayName ||
-                      "—";
-                    const created = fmtUpdatedBR(c?.created || c?.updated);
-                    return (
-                      <div
-                        key={c?.id || `${author}-${created}`}
-                        className={cn(
-                          "rounded-xl border p-3 text-sm",
-                          started
-                            ? "border-red-200 bg-red-50"
-                            : "border-zinc-200 bg-white",
-                        )}
-                      >
-                        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-7 w-7 border border-zinc-200">
-                              <AvatarFallback className="bg-zinc-100 text-[11px] text-zinc-700">
-                                {initials(author)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="text-xs font-semibold text-zinc-900">
-                              {author}
+                ) : comments.length ? (
+                  <div className="grid gap-2">
+                    {comments
+                      .slice(-12)
+                      .reverse()
+                      .map((c) => {
+                        const bodyText = safeText(c?.body);
+                        const started = /\[INICIADO\]/i.test(bodyText);
+                        const author =
+                          c?.author?.displayName ||
+                          c?.updateAuthor?.displayName ||
+                          "—";
+                        const created = fmtUpdatedBR(c?.created || c?.updated);
+                        return (
+                          <div
+                            key={c?.id || `${author}-${created}`}
+                            className={cn(
+                              "rounded-xl border p-3 text-sm",
+                              started
+                                ? "border-red-200 bg-red-50"
+                                : "border-zinc-200 bg-white",
+                            )}
+                          >
+                            <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-7 w-7 border border-zinc-200">
+                                  <AvatarFallback className="bg-zinc-100 text-[11px] text-zinc-700">
+                                    {initials(author)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="text-xs font-semibold text-zinc-900">
+                                  {author}
+                                </div>
+                                {started ? (
+                                  <Badge className="rounded-full bg-red-600 text-white">
+                                    [INICIADO]
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                {created}
+                              </div>
                             </div>
-                            {started ? (
-                              <Badge className="rounded-full bg-red-600 text-white">
-                                [INICIADO]
-                              </Badge>
-                            ) : null}
+
+                            <div className="whitespace-pre-wrap text-sm text-zinc-800">
+                              {bodyText || "—"}
+                            </div>
                           </div>
-                          <div className="text-xs text-zinc-500">{created}</div>
-                        </div>
-
-                        <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                          {bodyText || "—"}
-                        </div>
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-600">Sem comentários.</div>
+                )}
               </div>
-            ) : (
-              <div className="text-sm text-zinc-600">Sem comentários.</div>
-            )}
-          </div>
-        </div>
-        ) : (
-          <TicketOperationalHistory
-            active={detailsView === "history"}
-            issueKey={issueKey}
-            issue={issue}
-          />
-        )}
+            </div>
+          ) : (
+            <TicketOperationalHistory
+              active={detailsView === "history"}
+              issueKey={issueKey}
+              issue={issue}
+            />
+          )}
 
-        <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              className="rounded-xl border-zinc-200 bg-white"
-              onClick={() => setEditOpen(true)}
-              disabled={!issueKey || loading || !issue}
-            >
-              <Pencil className="mr-2 h-4 w-4" />
-              Editar ticket
-            </Button>
-
-            {!isTicketStarted ? (
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 className="rounded-xl border-zinc-200 bg-white"
-                onClick={markDetailsAsStarted}
-                disabled={!issueKey || savingStarted}
+                onClick={() => setEditOpen(true)}
+                disabled={!issueKey || loading || !issue}
               >
-                {savingStarted ? "Salvando..." : "Marcar como iniciado"}
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar ticket
               </Button>
-            ) : null}
 
-            <Button
-              variant="outline"
-              className="rounded-xl border-zinc-200 bg-white"
-              onClick={() => onOpenChange(false)}
-            >
-              Fechar
-            </Button>
-          </div>
+              {!isTicketStarted ? (
+                <Button
+                  variant="outline"
+                  className="rounded-xl border-zinc-200 bg-white"
+                  onClick={markDetailsAsStarted}
+                  disabled={!issueKey || savingStarted}
+                >
+                  {savingStarted ? "Salvando..." : "Marcar como iniciado"}
+                </Button>
+              ) : null}
 
-          {jiraBrowseUrl ? (
-            <Button
-              asChild
-              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
-            >
-              <a href={jiraBrowseUrl} target="_blank" rel="noopener noreferrer">
+              <Button
+                variant="outline"
+                className="rounded-xl border-zinc-200 bg-white"
+                onClick={() => onOpenChange(false)}
+              >
+                Fechar
+              </Button>
+            </div>
+
+            {jiraBrowseUrl ? (
+              <Button
+                asChild
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              >
+                <a
+                  href={jiraBrowseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="mr-2 h-4 w-4" />
+                  Abrir no Jira
+                </a>
+              </Button>
+            ) : (
+              <Button
+                className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+                disabled
+                title="Não foi possível montar a URL do Jira"
+              >
                 <ExternalLink className="mr-2 h-4 w-4" />
                 Abrir no Jira
-              </a>
-            </Button>
-          ) : (
-            <Button
-              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
-              disabled
-              title="Não foi possível montar a URL do Jira"
-            >
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Abrir no Jira
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <EditJiraIssueDialog
-      open={editOpen}
-      onOpenChange={setEditOpen}
-      issueKey={issueKey}
-      onSaved={async (savedIssueKey) => {
-        const freshIssue = await onTicketUpdated?.(savedIssueKey || issueKey);
-        if (freshIssue) {
-          const normalized = freshIssue?.fields ? freshIssue : { fields: freshIssue };
-          setIssue(normalized);
-        }
-        return freshIssue;
-      }}
-    />
-    <AttachmentPreviewModal
-      attachment={previewAttachment}
-      onClose={() => setPreviewAttachment(null)}
-    />
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <EditJiraIssueDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        issueKey={issueKey}
+        onSaved={async (savedIssueKey) => {
+          const freshIssue = await onTicketUpdated?.(savedIssueKey || issueKey);
+          if (freshIssue) {
+            const normalized = freshIssue?.fields
+              ? freshIssue
+              : { fields: freshIssue };
+            setIssue(normalized);
+          }
+          return freshIssue;
+        }}
+      />
+      <AttachmentPreviewModal
+        attachment={previewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
     </>
   );
 }
@@ -6354,7 +6433,14 @@ function valueToEditFormValue(field, value) {
   const schema = field?.schema || {};
 
   if (Array.isArray(value)) {
-    return value.map((item) => valueToEditFormValue({ ...field, schema: { ...schema, type: "item" } }, item)).filter(Boolean);
+    return value
+      .map((item) =>
+        valueToEditFormValue(
+          { ...field, schema: { ...schema, type: "item" } },
+          item,
+        ),
+      )
+      .filter(Boolean);
   }
 
   if (schema.type === "date") return String(value || "").slice(0, 10);
@@ -6413,11 +6499,7 @@ function summarizeEditValue(field, value) {
 
   const option = allowedValues.find((item) => editOptionId(item) === raw);
   const label =
-    option?.displayName ||
-    option?.name ||
-    option?.value ||
-    option?.key ||
-    raw;
+    option?.displayName || option?.name || option?.value || option?.key || raw;
 
   const normalized =
     schema.type === "date"
@@ -6426,7 +6508,9 @@ function summarizeEditValue(field, value) {
         ? raw.replace("T", " ")
         : String(label || raw);
 
-  return normalized.length > 140 ? `${normalized.slice(0, 140)}...` : normalized;
+  return normalized.length > 140
+    ? `${normalized.slice(0, 140)}...`
+    : normalized;
 }
 
 function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
@@ -6466,14 +6550,23 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
       }),
     [fields],
   );
-  const grouped = useMemo(() => groupFields(editableExtraFields), [editableExtraFields]);
+  const grouped = useMemo(
+    () => groupFields(editableExtraFields),
+    [editableExtraFields],
+  );
   const modalBusy = loading || saving;
   const projectKey = issue?.fields?.project?.key || "";
-  const parentJql = projectKey ? `project = ${projectKey} ORDER BY updated DESC` : "";
+  const parentJql = projectKey
+    ? `project = ${projectKey} ORDER BY updated DESC`
+    : "";
 
   const requiredErrors = useMemo(() => {
     const errors = {};
-    if (summaryField && isFieldRequired(summaryField) && !String(summary || "").trim()) {
+    if (
+      summaryField &&
+      isFieldRequired(summaryField) &&
+      !String(summary || "").trim()
+    ) {
       errors.summary = "Resumo e obrigatorio.";
     }
     if (
@@ -6483,7 +6576,11 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
     ) {
       errors.description = "Descricao e obrigatoria.";
     }
-    if (parentField && isFieldRequired(parentField) && !String(parentKey || "").trim()) {
+    if (
+      parentField &&
+      isFieldRequired(parentField) &&
+      !String(parentKey || "").trim()
+    ) {
       errors.parent = "Ticket pai e obrigatorio.";
     }
     editableExtraFields.forEach((field) => {
@@ -6572,7 +6669,9 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
 
     let alive = true;
     async function load() {
-      const key = String(issueKey || "").trim().toUpperCase();
+      const key = String(issueKey || "")
+        .trim()
+        .toUpperCase();
       setLoading(true);
       setErr("");
       setFieldErrors({});
@@ -6606,7 +6705,15 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
           const id = getFieldId(field);
           if (
             !id ||
-            ["summary", "description", "parent", "project", "issuetype", "status", "attachment"].includes(id)
+            [
+              "summary",
+              "description",
+              "parent",
+              "project",
+              "issuetype",
+              "status",
+              "attachment",
+            ].includes(id)
           ) {
             return;
           }
@@ -6703,7 +6810,9 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
   }
 
   async function submitEdit() {
-    const key = String(issueKey || "").trim().toUpperCase();
+    const key = String(issueKey || "")
+      .trim()
+      .toUpperCase();
     if (!key || !validateEditForm()) return;
 
     const payload = buildEditPayload();
@@ -7058,11 +7167,7 @@ function AttachmentPreviewModal({ attachment, onClose }) {
                   variant="outline"
                   className="rounded-xl border-zinc-200 bg-white"
                 >
-                  <a
-                    href={links.download}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+                  <a href={links.download} target="_blank" rel="noreferrer">
                     <Download className="mr-2 h-4 w-4" />
                     Baixar
                   </a>
@@ -7761,7 +7866,9 @@ function CronogramaEditorModal({
   }
 
   function parseActivityDateRange(raw, refYear) {
-    const match = String(raw || "").match(/(\d{2}\/\d{2})(?:\s*a\s*(\d{2}\/\d{2}))?/i);
+    const match = String(raw || "").match(
+      /(\d{2}\/\d{2})(?:\s*a\s*(\d{2}\/\d{2}))?/i,
+    );
     if (!match) return null;
 
     const start = parseBrDayMonthToDate(match[1], refYear);
@@ -7846,8 +7953,7 @@ function CronogramaEditorModal({
       1,
       parseInt(String(daysDraftById[currentActivity?.id] || ""), 10) || 1,
     );
-    const isSingleDate =
-      selectedRange && !/\s+a\s+/i.test(String(value || ""));
+    const isSingleDate = selectedRange && !/\s+a\s+/i.test(String(value || ""));
     const shouldApplyPendingDays =
       currentActivity &&
       !String(currentActivity.data || "").trim() &&
@@ -7981,356 +8087,361 @@ function CronogramaEditorModal({
 
   return (
     <>
-    <Dialog
-      open={true}
-      onOpenChange={(o) => {
-        if (!o) onClose?.();
-      }}
-    >
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-start gap-2 min-w-0">
-            <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
-              {issue.key}
-            </code>
+      <Dialog
+        open={true}
+        onOpenChange={(o) => {
+          if (!o) onClose?.();
+        }}
+      >
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl rounded-2xl sm:w-full max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-start gap-2 min-w-0">
+              <code className="shrink-0 rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+                {issue.key}
+              </code>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className="min-w-0 text-base leading-snug text-zinc-900"
-                  style={CLAMP_2}
-                >
-                  Criar cronograma — {issue.summary}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[520px]">
-                {issue.summary}
-              </TooltipContent>
-            </Tooltip>
-          </DialogTitle>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="min-w-0 text-base leading-snug text-zinc-900"
+                    style={CLAMP_2}
+                  >
+                    Criar cronograma — {issue.summary}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[520px]">
+                  {issue.summary}
+                </TooltipContent>
+              </Tooltip>
+            </DialogTitle>
 
-          <DialogDescription className="text-sm text-zinc-600">
-            Salva em <code className="rounded bg-zinc-100 px-1">DD/MM</code> ou{" "}
-            <code className="rounded bg-zinc-100 px-1">DD/MM a DD/MM</code>.
-          </DialogDescription>
-        </DialogHeader>
+            <DialogDescription className="text-sm text-zinc-600">
+              Salva em <code className="rounded bg-zinc-100 px-1">DD/MM</code>{" "}
+              ou <code className="rounded bg-zinc-100 px-1">DD/MM a DD/MM</code>
+              .
+            </DialogDescription>
+          </DialogHeader>
 
-        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Data limite</CardTitle>
-          </CardHeader>
-
-          <CardContent className="grid gap-2">
-            <div className="grid gap-1">
-              <Input
-                type="date"
-                value={dueDateDraft || ""}
-                onChange={(e) => {
-                  setDueDateDraft(e.target.value);
-                  setSaveAttempted(false);
-                }}
-                disabled={loading}
-                className={cn(
-                  "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
-                )}
-              />
-
-              {!missingDueDate && dueBeforeImplant && (
-                <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
-                  A data limite ({fmtDateBr(dueDateDraft)}) é menor que a
-                  Implantação ({fmtDateBrFull(implantEndDate)}).
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4">
           <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
             <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <CardTitle className="text-sm">
-                    Atividades do cronograma
-                  </CardTitle>
-                  <CardDescription className="text-xs">
-                    Preencha Data, Recurso e Área. Atividades customizadas podem
-                    ser renomeadas, reordenadas e excluídas.
-                  </CardDescription>
-                </div>
-
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-xl border-zinc-200 bg-white"
-                  onClick={addCustomRow}
-                  disabled={loading}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Adicionar atividade
-                </Button>
-              </div>
+              <CardTitle className="text-sm">Data limite</CardTitle>
             </CardHeader>
 
-            <CardContent className="grid gap-3">
-              {saveAttempted && invalidCustomActivity && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
-                  Toda atividade customizada precisa ter um nome antes de
-                  salvar.
-                </div>
-              )}
+            <CardContent className="grid gap-2">
+              <div className="grid gap-1">
+                <Input
+                  type="date"
+                  value={dueDateDraft || ""}
+                  onChange={(e) => {
+                    setDueDateDraft(e.target.value);
+                    setSaveAttempted(false);
+                  }}
+                  disabled={loading}
+                  className={cn(
+                    "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
+                  )}
+                />
 
-              {nonWorkingActivityCount > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
-                  {nonWorkingActivityCount} atividade(s) passam por dias não
-                  úteis. O Gantt exibirá a duração contando apenas dias úteis
-                  configurados.
-                </div>
-              )}
-
-              <div className="overflow-x-auto overflow-y-hidden md:overflow-visible rounded-2xl border border-zinc-200">
-                <div className="min-w-[1040px] md:min-w-0">
-                  <div className="sticky top-0 z-10 hidden md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(170px,1fr)_80px_minmax(130px,1fr)_minmax(130px,1fr)_110px] gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700">
-                    <div>Atividade</div>
-                    <div>Data</div>
-                    <div>Dias</div>
-                    <div>Recurso</div>
-                    <div>Área</div>
-                    <div>Ações</div>
+                {!missingDueDate && dueBeforeImplant && (
+                  <div className="mt-1 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
+                    A data limite ({fmtDateBr(dueDateDraft)}) é menor que a
+                    Implantação ({fmtDateBrFull(implantEndDate)}).
                   </div>
-
-                  <div className="grid">
-                    {preparedDraft.map((a, idx) => {
-                      const mode = modeById[a.id] || inferMode(a.data);
-                      const isCustom = deriveIsCustom(a);
-                      const disableUp = idx === 0 || loading;
-                      const disableDown =
-                        idx === preparedDraft.length - 1 || loading;
-
-                      return (
-                        <div
-                          key={a.id}
-                          className={cn(
-                            "border-t border-zinc-200 px-3 py-2",
-                            "md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(170px,1fr)_80px_minmax(130px,1fr)_minmax(130px,1fr)_110px] md:items-start md:gap-2",
-                            "grid gap-3",
-                          )}
-                        >
-                          <div className="min-w-0">
-                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
-                              Atividade
-                            </div>
-                            {isCustom ? (
-                              <Input
-                                value={a.name || ""}
-                                onChange={(e) =>
-                                  setCell(idx, "name", e.target.value)
-                                }
-                                placeholder="Nome da atividade"
-                                disabled={loading}
-                                className={cn(
-                                  "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
-                                  saveAttempted && !a.name && "border-red-300",
-                                )}
-                              />
-                            ) : (
-                              <div className="flex h-10 items-center truncate rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-900">
-                                {a.name}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="md:hidden text-[10px] font-bold uppercase text-zinc-400 mb-1">
-                              Data
-                            </div>
-                            <DateValuePicker
-                              value={a.data}
-                              mode={mode}
-                              onModeChange={(m) =>
-                                setModeById((prev) => ({ ...prev, [a.id]: m }))
-                              }
-                              onChange={(val) => setActivityDate(idx, val)}
-                              disabled={loading}
-                              className="w-full"
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
-                              Dias
-                            </div>
-                            <Input
-                              type="number"
-                              min={1}
-                              step={1}
-                              value={
-                                getActivityBusinessDays(
-                                  a,
-                                  dueDateObj?.getFullYear?.() ||
-                                    new Date().getFullYear(),
-                                ) ||
-                                daysDraftById[a.id] ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                setActivityBusinessDays(idx, e.target.value)
-                              }
-                              placeholder="1"
-                              disabled={loading}
-                              className="h-10 rounded-xl border-zinc-200 bg-white text-center focus-visible:ring-red-500"
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
-                              Recurso
-                            </div>
-                            <Input
-                              value={a.recurso || ""}
-                              onChange={(e) =>
-                                setCell(idx, "recurso", e.target.value)
-                              }
-                              placeholder="ex.: João"
-                              disabled={loading}
-                              className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
-                              Área
-                            </div>
-                            <Input
-                              value={a.area || ""}
-                              onChange={(e) =>
-                                setCell(idx, "area", e.target.value)
-                              }
-                              placeholder="ex.: TI"
-                              disabled={loading}
-                              className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="md:hidden text-[11px] font-semibold text-zinc-600">
-                              Ações
-                            </div>
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-10 w-10 rounded-xl border-zinc-200"
-                                onClick={() => moveRow(idx, -1)}
-                                disabled={disableUp}
-                                aria-label={`Mover ${a.name || "atividade"} para cima`}
-                              >
-                                <ChevronUp className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-10 w-10 rounded-xl border-zinc-200"
-                                onClick={() => moveRow(idx, 1)}
-                                disabled={disableDown}
-                                aria-label={`Mover ${a.name || "atividade"} para baixo`}
-                              >
-                                <ChevronDown className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon"
-                                className="h-10 w-10 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                                onClick={() => removeRow(idx, a.id)}
-                                disabled={loading}
-                                aria-label={`Excluir ${a.name || "atividade"}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          <details className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50">
-              Prévia do ADF gerado
-            </summary>
-            <div className="px-4 pb-4">
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap font-mono text-xs text-zinc-800">
-                  {JSON.stringify(buildCronogramaADF(preparedDraft), null, 2)}
-                </pre>
+          <div className="grid gap-4">
+            <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="text-sm">
+                      Atividades do cronograma
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Preencha Data, Recurso e Área. Atividades customizadas
+                      podem ser renomeadas, reordenadas e excluídas.
+                    </CardDescription>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-zinc-200 bg-white"
+                    onClick={addCustomRow}
+                    disabled={loading}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Adicionar atividade
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="grid gap-3">
+                {saveAttempted && invalidCustomActivity && (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+                    Toda atividade customizada precisa ter um nome antes de
+                    salvar.
+                  </div>
+                )}
+
+                {nonWorkingActivityCount > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+                    {nonWorkingActivityCount} atividade(s) passam por dias não
+                    úteis. O Gantt exibirá a duração contando apenas dias úteis
+                    configurados.
+                  </div>
+                )}
+
+                <div className="overflow-x-auto overflow-y-hidden md:overflow-visible rounded-2xl border border-zinc-200">
+                  <div className="min-w-[1040px] md:min-w-0">
+                    <div className="sticky top-0 z-10 hidden md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(170px,1fr)_80px_minmax(130px,1fr)_minmax(130px,1fr)_110px] gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700">
+                      <div>Atividade</div>
+                      <div>Data</div>
+                      <div>Dias</div>
+                      <div>Recurso</div>
+                      <div>Área</div>
+                      <div>Ações</div>
+                    </div>
+
+                    <div className="grid">
+                      {preparedDraft.map((a, idx) => {
+                        const mode = modeById[a.id] || inferMode(a.data);
+                        const isCustom = deriveIsCustom(a);
+                        const disableUp = idx === 0 || loading;
+                        const disableDown =
+                          idx === preparedDraft.length - 1 || loading;
+
+                        return (
+                          <div
+                            key={a.id}
+                            className={cn(
+                              "border-t border-zinc-200 px-3 py-2",
+                              "md:grid md:grid-cols-[minmax(220px,1.4fr)_minmax(170px,1fr)_80px_minmax(130px,1fr)_minmax(130px,1fr)_110px] md:items-start md:gap-2",
+                              "grid gap-3",
+                            )}
+                          >
+                            <div className="min-w-0">
+                              <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                                Atividade
+                              </div>
+                              {isCustom ? (
+                                <Input
+                                  value={a.name || ""}
+                                  onChange={(e) =>
+                                    setCell(idx, "name", e.target.value)
+                                  }
+                                  placeholder="Nome da atividade"
+                                  disabled={loading}
+                                  className={cn(
+                                    "h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500",
+                                    saveAttempted &&
+                                      !a.name &&
+                                      "border-red-300",
+                                  )}
+                                />
+                              ) : (
+                                <div className="flex h-10 items-center truncate rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-semibold text-zinc-900">
+                                  {a.name}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="md:hidden text-[10px] font-bold uppercase text-zinc-400 mb-1">
+                                Data
+                              </div>
+                              <DateValuePicker
+                                value={a.data}
+                                mode={mode}
+                                onModeChange={(m) =>
+                                  setModeById((prev) => ({
+                                    ...prev,
+                                    [a.id]: m,
+                                  }))
+                                }
+                                onChange={(val) => setActivityDate(idx, val)}
+                                disabled={loading}
+                                className="w-full"
+                              />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                                Dias
+                              </div>
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={
+                                  getActivityBusinessDays(
+                                    a,
+                                    dueDateObj?.getFullYear?.() ||
+                                      new Date().getFullYear(),
+                                  ) ||
+                                  daysDraftById[a.id] ||
+                                  ""
+                                }
+                                onChange={(e) =>
+                                  setActivityBusinessDays(idx, e.target.value)
+                                }
+                                placeholder="1"
+                                disabled={loading}
+                                className="h-10 rounded-xl border-zinc-200 bg-white text-center focus-visible:ring-red-500"
+                              />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                                Recurso
+                              </div>
+                              <Input
+                                value={a.recurso || ""}
+                                onChange={(e) =>
+                                  setCell(idx, "recurso", e.target.value)
+                                }
+                                placeholder="ex.: João"
+                                disabled={loading}
+                                className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
+                              />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                                Área
+                              </div>
+                              <Input
+                                value={a.area || ""}
+                                onChange={(e) =>
+                                  setCell(idx, "area", e.target.value)
+                                }
+                                placeholder="ex.: TI"
+                                disabled={loading}
+                                className="h-10 rounded-xl border-zinc-200 bg-white focus-visible:ring-red-500"
+                              />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="md:hidden text-[11px] font-semibold text-zinc-600">
+                                Ações
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-10 w-10 rounded-xl border-zinc-200"
+                                  onClick={() => moveRow(idx, -1)}
+                                  disabled={disableUp}
+                                  aria-label={`Mover ${a.name || "atividade"} para cima`}
+                                >
+                                  <ChevronUp className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-10 w-10 rounded-xl border-zinc-200"
+                                  onClick={() => moveRow(idx, 1)}
+                                  disabled={disableDown}
+                                  aria-label={`Mover ${a.name || "atividade"} para baixo`}
+                                >
+                                  <ChevronDown className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-10 w-10 rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                  onClick={() => removeRow(idx, a.id)}
+                                  disabled={loading}
+                                  aria-label={`Excluir ${a.name || "atividade"}`}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <details className="rounded-2xl border border-zinc-200 bg-white shadow-sm">
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50">
+                Prévia do ADF gerado
+              </summary>
+              <div className="px-4 pb-4">
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap font-mono text-xs text-zinc-800">
+                    {JSON.stringify(buildCronogramaADF(preparedDraft), null, 2)}
+                  </pre>
+                </div>
               </div>
-            </div>
-          </details>
-        </div>
+            </details>
+          </div>
 
-        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-xl border-zinc-200 bg-white"
-            onClick={onClose}
-            disabled={loading}
-          >
-            Cancelar
-          </Button>
+          <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl border-zinc-200 bg-white"
+              onClick={onClose}
+              disabled={loading}
+            >
+              Cancelar
+            </Button>
 
-          <Button
-            type="button"
-            className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-            onClick={() => submitCronograma()}
-            disabled={loading}
-          >
-            {loading ? "Salvando..." : "Salvar no Jira"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-    <Dialog
-      open={confirmMissingDueDateOpen}
-      onOpenChange={setConfirmMissingDueDateOpen}
-    >
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-2xl sm:w-full">
-        <DialogHeader>
-          <DialogTitle>Data limite não preenchida</DialogTitle>
-          <DialogDescription>
-            O cronograma será salvo sem data limite no Jira. Você deseja
-            continuar?
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter className="gap-2 sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            className="rounded-xl border-zinc-200 bg-white"
-            onClick={() => setConfirmMissingDueDateOpen(false)}
-            disabled={loading}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
-            onClick={() => submitCronograma({ allowMissingDueDate: true })}
-            disabled={loading}
-          >
-            OK
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <Button
+              type="button"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              onClick={() => submitCronograma()}
+              disabled={loading}
+            >
+              {loading ? "Salvando..." : "Salvar no Jira"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={confirmMissingDueDateOpen}
+        onOpenChange={setConfirmMissingDueDateOpen}
+      >
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-md rounded-2xl sm:w-full">
+          <DialogHeader>
+            <DialogTitle>Data limite não preenchida</DialogTitle>
+            <DialogDescription>
+              O cronograma será salvo sem data limite no Jira. Você deseja
+              continuar?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-xl border-zinc-200 bg-white"
+              onClick={() => setConfirmMissingDueDateOpen(false)}
+              disabled={loading}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              onClick={() => submitCronograma({ allowMissingDueDate: true })}
+              disabled={loading}
+            >
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
-

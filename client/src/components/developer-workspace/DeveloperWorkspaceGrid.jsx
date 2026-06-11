@@ -52,6 +52,7 @@ export default function DeveloperWorkspaceGrid({
   saveNote,
   saving,
   handleQuickAction,
+  onStartTicket,
   contextTicketKey,
   contextIssue,
   focusedStickyId,
@@ -65,9 +66,14 @@ export default function DeveloperWorkspaceGrid({
   const stickyNotes = useMemo(
     () =>
       [...(workspace.stickyNotes || [])].sort((a, b) => {
-        if (Boolean(a?.pinned) !== Boolean(b?.pinned)) return a?.pinned ? -1 : 1;
-        if (Boolean(a?.resolved) !== Boolean(b?.resolved)) return a?.resolved ? 1 : -1;
-        return new Date(b?.updatedAt || b?.createdAt || 0) - new Date(a?.updatedAt || a?.createdAt || 0);
+        if (Boolean(a?.pinned) !== Boolean(b?.pinned))
+          return a?.pinned ? -1 : 1;
+        if (Boolean(a?.resolved) !== Boolean(b?.resolved))
+          return a?.resolved ? 1 : -1;
+        return (
+          new Date(b?.updatedAt || b?.createdAt || 0) -
+          new Date(a?.updatedAt || a?.createdAt || 0)
+        );
       }),
     [workspace.stickyNotes],
   );
@@ -127,6 +133,7 @@ export default function DeveloperWorkspaceGrid({
                 <NextActionsWidget
                   rows={sortedRows}
                   onOpenExecution={onOpenExecution}
+                  onStartTicket={onStartTicket}
                   onShowAll={() => openExpandedWidget("actions")}
                 />
               </WidgetCard>
@@ -198,7 +205,10 @@ export default function DeveloperWorkspaceGrid({
           ) : null}
 
           {stickyNotes.map((note) => (
-            <div key={stickyGridKey(note.id)} className="developer-sticky-grid-item">
+            <div
+              key={stickyGridKey(note.id)}
+              className="developer-sticky-grid-item"
+            >
               <StickyNoteCard
                 note={note}
                 focused={focusedStickyId === note.id}
@@ -206,7 +216,9 @@ export default function DeveloperWorkspaceGrid({
                 onUpdate={onUpdateStickyNote}
                 onTogglePinned={() => onToggleStickyPinned(note)}
                 onToggleResolved={() => onToggleStickyResolved(note)}
-                onConvertToJiraComment={() => onConvertStickyToJiraComment(note)}
+                onConvertToJiraComment={() =>
+                  onConvertStickyToJiraComment(note)
+                }
                 onDelete={() => deleteStickyNote(note.id)}
                 ref={(node) => {
                   if (node) stickyRefs.current[note.id] = node;

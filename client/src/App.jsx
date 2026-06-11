@@ -87,7 +87,7 @@ function writeSavedLoginCredentials(credentials) {
   try {
     window.localStorage.setItem(
       SAVED_LOGIN_CREDENTIALS_KEY,
-      JSON.stringify(credentials)
+      JSON.stringify(credentials),
     );
   } catch {
     // Ignora falhas de armazenamento local; o login continua funcionando.
@@ -106,7 +106,7 @@ function saveLoginCredential({ email, password }) {
       savedAt: Date.now(),
     },
     ...previousCredentials.filter(
-      (item) => item.email.toLowerCase() !== normalizedEmail.toLowerCase()
+      (item) => item.email.toLowerCase() !== normalizedEmail.toLowerCase(),
     ),
   ].slice(0, MAX_SAVED_LOGIN_CREDENTIALS);
 
@@ -146,7 +146,8 @@ const MAIN_TABS = [
       "Monte uma RDM clara, bem distribuída e com leitura executiva, sem alterar o fluxo que já existe.",
     badge: "RDM",
     icon: FileText,
-    nextStep: "Preencha os blocos essenciais e valide no preview antes de exportar.",
+    nextStep:
+      "Preencha os blocos essenciais e valide no preview antes de exportar.",
   },
   {
     id: "am",
@@ -156,7 +157,8 @@ const MAIN_TABS = [
       "Acompanhe tickets, calendário, Gantt e dashboard com uma experiência mais limpa e orientada à decisão.",
     badge: "Jira",
     icon: LayoutDashboard,
-    nextStep: "Use a visão certa para decidir rápido e agir sem trocar de contexto.",
+    nextStep:
+      "Use a visão certa para decidir rápido e agir sem trocar de contexto.",
   },
   {
     id: "my",
@@ -264,7 +266,9 @@ function mixRgb(left, right, amount) {
 
 function rgbToHex({ r, g, b }) {
   return `#${[r, g, b]
-    .map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0"))
+    .map((value) =>
+      Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0"),
+    )
     .join("")}`;
 }
 
@@ -292,17 +296,19 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
   const preferredTab = normalizeDefaultTab(preferences.defaultTab);
   const [mainTab, setMainTab] = useState(preferredTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    Boolean(preferences.sidebarCollapsed)
+    Boolean(preferences.sidebarCollapsed),
   );
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([preferredTab]));
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
   const [rdmTitle, setRdmTitle] = useState("");
   const [rdmDueDate, setRdmDueDate] = useState("");
   const [calendarSettings, setCalendarSettings] = useState(
-    DEFAULT_CALENDAR_SETTINGS
+    DEFAULT_CALENDAR_SETTINGS,
   );
   const [calendarSettingsLoading, setCalendarSettingsLoading] = useState(false);
   const poData = usePoJiraData();
+
+  const poData = usePoJir;
 
   useEffect(() => {
     let active = true;
@@ -340,7 +346,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 
   const shellStyle = useMemo(
     () => buildPrimaryColorVars(currentUser?.preferences?.primaryColor),
-    [currentUser?.preferences?.primaryColor]
+    [currentUser?.preferences?.primaryColor],
   );
   const density = VALID_DENSITIES.has(currentUser?.preferences?.density)
     ? currentUser.preferences.density
@@ -354,7 +360,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 
   const currentTab = useMemo(
     () => MAIN_TABS.find((tab) => tab.id === mainTab) || MAIN_TABS[0],
-    [mainTab]
+    [mainTab],
   );
 
   const tabMeta = useMemo(
@@ -380,7 +386,9 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
         helper: "Alertas, calendário, Gantt e dashboard no mesmo fluxo.",
       },
       my: {
-        status: currentUser?.jiraAccountId ? "Perfil Jira ativo" : "Configurar Jira",
+        status: currentUser?.jiraAccountId
+          ? "Perfil Jira ativo"
+          : "Configurar Jira",
         helper: currentUser?.jiraDisplayName || "Selecione seu usuário Jira.",
       },
       versioning: {
@@ -405,7 +413,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       gmudProgressPct,
       rdmDueDate,
       rdmTitle,
-    ]
+    ],
   );
 
   const contentClassName = [
@@ -426,6 +434,26 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       next.add(tabId);
       return next;
     });
+  }
+
+  function openAmStartTicketModal(request = {}) {
+    const ticketKey = String(request.ticketKey || request.issue?.key || "")
+      .trim()
+      .toUpperCase();
+
+    if (!ticketKey) {
+      toast.error("Ticket inválido para iniciar.");
+      return;
+    }
+
+    setAmStartTicketRequest({
+      id: `${ticketKey}:${Date.now()}`,
+      ticketKey,
+      issue: request.issue || { key: ticketKey },
+      source: request.source || "developer-workspace",
+    });
+
+    selectMainTab("am");
   }
 
   return (
@@ -535,7 +563,6 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                 );
               })}
             </nav>
-
           </aside>
 
           <main className="app-main">
@@ -558,17 +585,27 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   <span className="app-chip app-chip--solid">
                     {currentTab.badge}
                   </span>
-                  {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" && mainTab !== "my" ? (
+                  {mainTab !== "am" &&
+                  mainTab !== "tools" &&
+                  mainTab !== "gmud" &&
+                  mainTab !== "my" ? (
                     <>
-                      <span className="app-chip">{tabMeta[mainTab].status}</span>
-                      <span className="app-chip">{tabMeta[mainTab].helper}</span>
+                      <span className="app-chip">
+                        {tabMeta[mainTab].status}
+                      </span>
+                      <span className="app-chip">
+                        {tabMeta[mainTab].helper}
+                      </span>
                     </>
                   ) : mainTab === "tools" ? (
                     <span className="app-chip">{tabMeta[mainTab].status}</span>
                   ) : null}
                 </div>
 
-                {mainTab !== "am" && mainTab !== "tools" && mainTab !== "gmud" && mainTab !== "my" ? (
+                {mainTab !== "am" &&
+                mainTab !== "tools" &&
+                mainTab !== "gmud" &&
+                mainTab !== "my" ? (
                   <div className="app-hero__focus">
                     <span className="app-hero__focus-label">Próxima ação</span>
                     <strong>{currentTab.nextStep}</strong>
@@ -585,7 +622,6 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                     </span>
                   </div>
                 ) : null}
-
               </div>
             </section>
 
@@ -599,6 +635,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   currentUser={currentUser}
                   poData={poData}
                   onConfigureUser={() => selectMainTab("settings")}
+                  onStartTicket={openAmStartTicketModal}
                   onProgressChange={setGmudProgressPct}
                   onRdmTitleChange={setRdmTitle}
                   onRdmDueDateChange={setRdmDueDate}
@@ -611,6 +648,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                     calendarSettings={calendarSettings}
                     currentUser={currentUser}
                     poData={poData}
+                    startTicketRequest={amStartTicketRequest}
                   />
                 </div>
               ) : null}
@@ -655,24 +693,27 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 }
 
 function AuthScreen({ onAuthenticated }) {
-  const initialSavedCredentials = useMemo(() => readSavedLoginCredentials(), []);
+  const initialSavedCredentials = useMemo(
+    () => readSavedLoginCredentials(),
+    [],
+  );
   const [mode, setMode] = useState("login");
   const [savedCredentials, setSavedCredentials] = useState(
-    initialSavedCredentials
+    initialSavedCredentials,
   );
   const [email, setEmail] = useState(initialSavedCredentials[0]?.email || "");
   const [password, setPassword] = useState(
-    initialSavedCredentials[0]?.password || ""
+    initialSavedCredentials[0]?.password || "",
   );
   const [jiraApiToken, setJiraApiToken] = useState("");
   const [rememberMe, setRememberMe] = useState(
-    initialSavedCredentials.length > 0
+    initialSavedCredentials.length > 0,
   );
   const [saveCredentials, setSaveCredentials] = useState(
-    initialSavedCredentials.length > 0
+    initialSavedCredentials.length > 0,
   );
   const [autofilledEmail, setAutofilledEmail] = useState(
-    initialSavedCredentials[0]?.email || ""
+    initialSavedCredentials[0]?.email || "",
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -685,7 +726,7 @@ function AuthScreen({ onAuthenticated }) {
     if (isRegister) return;
 
     const savedCredential = savedCredentials.find(
-      (item) => item.email.toLowerCase() === value.trim().toLowerCase()
+      (item) => item.email.toLowerCase() === value.trim().toLowerCase(),
     );
 
     if (savedCredential) {
@@ -741,7 +782,7 @@ function AuthScreen({ onAuthenticated }) {
 
     const savedCredential =
       savedCredentials.find(
-        (item) => item.email.toLowerCase() === email.trim().toLowerCase()
+        (item) => item.email.toLowerCase() === email.trim().toLowerCase(),
       ) || savedCredentials[0];
 
     if (savedCredential) {
@@ -849,9 +890,7 @@ function AuthScreen({ onAuthenticated }) {
                 <input
                   type="checkbox"
                   checked={saveCredentials}
-                  onChange={(event) =>
-                    setSaveCredentials(event.target.checked)
-                  }
+                  onChange={(event) => setSaveCredentials(event.target.checked)}
                 />
                 <span className="auth-remember__box" aria-hidden="true">
                   {saveCredentials ? <Check className="h-3.5 w-3.5" /> : null}
