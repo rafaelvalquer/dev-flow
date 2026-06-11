@@ -433,6 +433,11 @@ async function startSttService() {
     TTS_SSL_VERIFY: process.env.TTS_SSL_VERIFY || "false",
     TTS_SSL_RELAX_STRICT: process.env.TTS_SSL_RELAX_STRICT || "true",
 
+    // Limpeza automática de arquivos temporários de áudio.
+    STT_UPLOAD_MAX_AGE_HOURS: process.env.STT_UPLOAD_MAX_AGE_HOURS || "24",
+    STT_UPLOAD_CLEANUP_INTERVAL_SECONDS:
+      process.env.STT_UPLOAD_CLEANUP_INTERVAL_SECONDS || "300",
+
     ...(pythonPath ? { PYTHONPATH: pythonPath } : {}),
     ...(pathEntries.length
       ? { PATH: [...pathEntries, process.env.PATH || ""].join(path.delimiter) }

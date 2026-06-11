@@ -4,9 +4,12 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 import uuid
 import ssl
 from typing import Union
+
+from starlette.background import BackgroundTask
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -51,6 +54,46 @@ load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.getenv("STT_UPLOAD_DIR") or os.path.join(BASE_DIR, "uploads")
+
+def parse_positive_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name) or default)
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_positive_int_env(name: str, default: int) -> int:
+    try:
+        value = int(float(os.getenv(name) or default))
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+STT_UPLOAD_MAX_AGE_HOURS = parse_positive_float_env(
+    "STT_UPLOAD_MAX_AGE_HOURS",
+    24.0,
+)
+STT_UPLOAD_CLEANUP_INTERVAL_SECONDS = parse_positive_int_env(
+    "STT_UPLOAD_CLEANUP_INTERVAL_SECONDS",
+    300,
+)
+
+TEMP_AUDIO_EXTENSIONS = {
+    ".mp3",
+    ".wav",
+    ".webm",
+    ".ogg",
+    ".m4a",
+    ".mp4",
+    ".mpeg",
+    ".mpga",
+    ".bin",
+    ".tmp",
+}
+
+last_upload_cleanup_at = 0.0
 
 FFPROBE = (
     os.getenv("FFPROBE_PATH")
@@ -134,6 +177,127 @@ def ensure_upload_dir_writable():
     except OSError:
         pass
 
+def is_inside_upload_dir(path: str) -> bool:
+    try:
+        upload_root = os.path.abspath(UPLOAD_DIR)
+        target = os.path.abspath(path)
+        return os.path.commonpath([upload_root, target]) == upload_root
+    except Exception:
+        return False
+
+
+def is_temp_audio_file(path: str) -> bool:
+    if not path or not is_inside_upload_dir(path):
+        return False
+
+    ext = os.path.splitext(path)[1].lower()
+    return ext in TEMP_AUDIO_EXTENSIONS
+
+
+def safe_remove_file(path: str) -> bool:
+    if not path or not is_temp_audio_file(path):
+        return False
+
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+            return True
+    except OSError as err:
+        logger.warning("Nao foi possivel remover arquivo temporario %s: %s", path, err)
+
+    return False
+
+
+def cleanup_old_files(max_age_hours: float | None = None, force: bool = False) -> dict:
+    global last_upload_cleanup_at
+
+    now = time.time()
+    interval = STT_UPLOAD_CLEANUP_INTERVAL_SECONDS
+
+    if not force and last_upload_cleanup_at and now - last_upload_cleanup_at < interval:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "interval",
+            "removed": 0,
+            "bytes_removed": 0,
+            "upload_dir": UPLOAD_DIR,
+        }
+
+    last_upload_cleanup_at = now
+    max_age = max_age_hours or STT_UPLOAD_MAX_AGE_HOURS
+    cutoff = now - (max_age * 3600)
+
+    removed = 0
+    bytes_removed = 0
+    errors = []
+
+    if not os.path.isdir(UPLOAD_DIR):
+        return {
+            "ok": True,
+            "skipped": False,
+            "removed": removed,
+            "bytes_removed": bytes_removed,
+            "upload_dir": UPLOAD_DIR,
+            "max_age_hours": max_age,
+        }
+
+    try:
+        with os.scandir(UPLOAD_DIR) as entries:
+            for entry in entries:
+                try:
+                    if not entry.is_file():
+                        continue
+
+                    path = entry.path
+                    if not is_temp_audio_file(path):
+                        continue
+
+                    stat = entry.stat()
+                    if stat.st_mtime > cutoff:
+                        continue
+
+                    os.remove(path)
+                    removed += 1
+                    bytes_removed += stat.st_size
+                except OSError as err:
+                    errors.append(str(err))
+    except OSError as err:
+        errors.append(str(err))
+
+    result = {
+        "ok": not errors,
+        "skipped": False,
+        "removed": removed,
+        "bytes_removed": bytes_removed,
+        "upload_dir": UPLOAD_DIR,
+        "max_age_hours": max_age,
+        "errors": errors[:5],
+    }
+
+    if removed:
+        logger.info(
+            "Limpeza de uploads temporarios: %s arquivo(s), %s byte(s).",
+            removed,
+            bytes_removed,
+        )
+
+    if errors:
+        logger.warning("Limpeza de uploads temporarios com erro: %s", errors[:5])
+
+    return result
+
+
+def cleanup_response_files(*paths: str) -> None:
+    for path in paths:
+        safe_remove_file(path)
+
+    cleanup_old_files(force=False)
+
+
+@app.on_event("startup")
+def startup_cleanup_uploads():
+    cleanup_old_files(force=True)
 
 def get_model():
     global model, model_load_error
@@ -176,6 +340,12 @@ def health_check():
             "ok": False,
             "path": UPLOAD_DIR,
         },
+        "upload_cleanup": {
+            "ok": True,
+            "max_age_hours": STT_UPLOAD_MAX_AGE_HOURS,
+            "interval_seconds": STT_UPLOAD_CLEANUP_INTERVAL_SECONDS,
+            "extensions": sorted(TEMP_AUDIO_EXTENSIONS),
+        },
         "whisper_model": {
             "ok": False,
             "path": WHISPER_MODEL_PATH,
@@ -214,11 +384,15 @@ def health_check():
 
 def save_upload(file: UploadFile) -> str:
     ensure_upload_dir_writable()
+    cleanup_old_files(force=False)
+
     ext = os.path.splitext(file.filename)[1].lower() or ".bin"
     filename = f"{uuid.uuid4().hex}{ext}"
     path = os.path.join(UPLOAD_DIR, filename)
+
     with open(path, "wb") as f:
         f.write(file.file.read())
+
     return path
 
 
@@ -405,33 +579,41 @@ def health():
 @app.post("/analyze")
 def analyze_audio(file: UploadFile = File(...)):
     path = save_upload(file)
-    return analyze_audio_file(path, file.filename)
+
+    try:
+        return analyze_audio_file(path, file.filename)
+    finally:
+        safe_remove_file(path)
 
 
 @app.post("/transcribe")
 def transcribe_audio(file: UploadFile = File(...)):
     path = save_upload(file)
-    audio = audio_attributes(path)
 
-    loaded_model = get_model()
-    segments, info = loaded_model.transcribe(path, vad_filter=True)
-    text = "".join(seg.text for seg in segments).strip()
+    try:
+        audio = audio_attributes(path)
 
-    return {
-        "language": info.language,
-        "duration": info.duration,
-        "text": text,
-        "file_saved_as": os.path.basename(path),
-        "audio": {
-            "codec": audio["codec"],
-            "sample_rate_hz": audio["sample_rate_hz"],
-            "bit_rate_kbps": audio["bit_rate_kbps"],
-            "channel_layout": audio["channel_layout"],
-            "summary": audio["summary"],
-            "matches_target": audio["matches_target"],
-            "target": audio["target"],
-        },
-    }
+        loaded_model = get_model()
+        segments, info = loaded_model.transcribe(path, vad_filter=True)
+        text = "".join(seg.text for seg in segments).strip()
+
+        return {
+            "language": info.language,
+            "duration": info.duration,
+            "text": text,
+            "file_saved_as": os.path.basename(path),
+            "audio": {
+                "codec": audio["codec"],
+                "sample_rate_hz": audio["sample_rate_hz"],
+                "bit_rate_kbps": audio["bit_rate_kbps"],
+                "channel_layout": audio["channel_layout"],
+                "summary": audio["summary"],
+                "matches_target": audio["matches_target"],
+                "target": audio["target"],
+            },
+        }
+    finally:
+        safe_remove_file(path)
 
 
 @app.post("/convert")
@@ -442,34 +624,42 @@ def convert_audio(file: UploadFile = File(...)):
     out_name = f"{uuid.uuid4().hex}.wav"
     out_path = os.path.join(UPLOAD_DIR, out_name)
 
-    cmd = [
-        FFMPEG,
-        "-y",
-        "-i",
-        in_path,
-        "-ac",
-        str(TARGET_CH),
-        "-ar",
-        str(TARGET_SR),
-        "-c:a",
-        TARGET_CODEC,
-        out_path,
-    ]
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise HTTPException(status_code=400, detail=f"ffmpeg failed: {p.stderr[-500:]}")
+    try:
+        cmd = [
+            FFMPEG,
+            "-y",
+            "-i",
+            in_path,
+            "-ac",
+            str(TARGET_CH),
+            "-ar",
+            str(TARGET_SR),
+            "-c:a",
+            TARGET_CODEC,
+            out_path,
+        ]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode != 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ffmpeg failed: {p.stderr[-500:]}",
+            )
 
-    conv = audio_attributes(out_path)
+        conv = audio_attributes(out_path)
 
-    return FileResponse(
-        out_path,
-        media_type="audio/wav",
-        filename=out_name,
-        headers={
-            "X-Audio-Summary": conv["summary"],
-            "X-Audio-Matches-Target": str(conv["matches_target"]).lower(),
-        },
-    )
+        return FileResponse(
+            out_path,
+            media_type="audio/wav",
+            filename=out_name,
+            headers={
+                "X-Audio-Summary": conv["summary"],
+                "X-Audio-Matches-Target": str(conv["matches_target"]).lower(),
+            },
+            background=BackgroundTask(cleanup_response_files, in_path, out_path),
+        )
+    except Exception:
+        cleanup_response_files(in_path, out_path)
+        raise
 
 
 class TTSRequest(BaseModel):
@@ -553,19 +743,32 @@ async def save_edge_tts(text: str, path: str, req: TTSRequest):
 
 @app.post("/tts")
 async def tts(req: TTSRequest):
+    cleanup_old_files(force=False)
+
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Campo 'text' vazio.")
 
     out_mp3 = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.mp3")
-    await save_edge_tts(text, out_mp3, req)
 
-    return FileResponse(out_mp3, media_type="audio/mpeg", filename=os.path.basename(out_mp3))
+    try:
+        await save_edge_tts(text, out_mp3, req)
+    except Exception:
+        safe_remove_file(out_mp3)
+        raise
 
+    return FileResponse(
+        out_mp3,
+        media_type="audio/mpeg",
+        filename=os.path.basename(out_mp3),
+        background=BackgroundTask(cleanup_response_files, out_mp3),
+    )
 
 @app.post("/tts_ulaw")
 async def tts_ulaw(req: TTSRequest):
     ensure_audio_runtime()
+    cleanup_old_files(force=False)
+
     text = (req.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Campo 'text' vazio.")
@@ -573,23 +776,35 @@ async def tts_ulaw(req: TTSRequest):
     tmp_mp3 = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.mp3")
     out_wav = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}.wav")
 
-    await save_edge_tts(text, tmp_mp3, req)
+    try:
+        await save_edge_tts(text, tmp_mp3, req)
 
-    cmd = [
-        FFMPEG,
-        "-y",
-        "-i",
-        tmp_mp3,
-        "-ac",
-        str(TARGET_CH),
-        "-ar",
-        str(TARGET_SR),
-        "-c:a",
-        TARGET_CODEC,
-        out_wav,
-    ]
-    p = subprocess.run(cmd, capture_output=True, text=True)
-    if p.returncode != 0:
-        raise HTTPException(status_code=400, detail=f"ffmpeg failed: {p.stderr[-500:]}")
+        cmd = [
+            FFMPEG,
+            "-y",
+            "-i",
+            tmp_mp3,
+            "-ac",
+            str(TARGET_CH),
+            "-ar",
+            str(TARGET_SR),
+            "-c:a",
+            TARGET_CODEC,
+            out_wav,
+        ]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        if p.returncode != 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ffmpeg failed: {p.stderr[-500:]}",
+            )
 
-    return FileResponse(out_wav, media_type="audio/wav", filename=os.path.basename(out_wav))
+        return FileResponse(
+            out_wav,
+            media_type="audio/wav",
+            filename=os.path.basename(out_wav),
+            background=BackgroundTask(cleanup_response_files, tmp_mp3, out_wav),
+        )
+    except Exception:
+        cleanup_response_files(tmp_mp3, out_wav)
+        raise
