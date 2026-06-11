@@ -307,8 +307,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
   );
   const [calendarSettingsLoading, setCalendarSettingsLoading] = useState(false);
   const poData = usePoJiraData();
-
-  const poData = usePoJir;
+  const [amStartTicketRequest, setAmStartTicketRequest] = useState(null);
 
   useEffect(() => {
     let active = true;

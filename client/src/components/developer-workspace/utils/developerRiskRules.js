@@ -61,14 +61,9 @@ export function buildNextActions(rows, limit = 6) {
         };
       }
 
-      return {
-        key,
-        type: "updateExecution",
-        label: "Atualizar execução",
-        description: "Continuar o acompanhamento operacional do ticket.",
-        issue,
-      };
+      return null;
     })
+    .filter(Boolean)
     .slice(0, limit);
 }
 
