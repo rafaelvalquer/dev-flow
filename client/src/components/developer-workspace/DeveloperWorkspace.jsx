@@ -1,9 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, Clock, FileText, Settings2, TriangleAlert } from "lucide-react";
+import {
+  CalendarDays,
+  Clock,
+  FileText,
+  Settings2,
+  TriangleAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 import {
@@ -39,7 +50,10 @@ import {
   norm,
   normalizeTicketKey,
 } from "./utils/developerTicketUtils";
-import { DEFAULT_VISIBLE_WIDGETS, EMPTY_WORKSPACE } from "./utils/developerWidgetRegistry";
+import {
+  DEFAULT_VISIBLE_WIDGETS,
+  EMPTY_WORKSPACE,
+} from "./utils/developerWidgetRegistry";
 
 export default function DeveloperWorkspace({
   currentUser,
@@ -130,7 +144,12 @@ export default function DeveloperWorkspace({
       .map(normalizeTicketKey)
       .filter(Boolean);
     return Array.from(new Set(keys)).slice(0, 12);
-  }, [filteredRows, noteTicketKey, workspace.notesByTicket, workspace.stickyNotes]);
+  }, [
+    filteredRows,
+    noteTicketKey,
+    workspace.notesByTicket,
+    workspace.stickyNotes,
+  ]);
 
   const contextTicketKey = useMemo(
     () =>
@@ -141,25 +160,24 @@ export default function DeveloperWorkspace({
       ),
     [filteredRows, noteTicketKey, workspace.recentTickets],
   );
-  const contextIssue = useMemo(
-    () => {
-      const issue = findTicketByKey(sortedRows, contextTicketKey) || findTicketByKey(allRows, contextTicketKey);
-      if (issue) return issue;
-      const recent = (workspace.recentTickets || []).find(
-        (item) => normalizeTicketKey(item.ticketKey) === contextTicketKey,
-      );
-      return recent
-        ? {
-            key: recent.ticketKey,
-            summary: recent.summary,
-            status: recent.status,
-            priority: recent.priority,
-            progress: recent.progress,
-          }
-        : null;
-    },
-    [allRows, contextTicketKey, sortedRows, workspace.recentTickets],
-  );
+  const contextIssue = useMemo(() => {
+    const issue =
+      findTicketByKey(sortedRows, contextTicketKey) ||
+      findTicketByKey(allRows, contextTicketKey);
+    if (issue) return issue;
+    const recent = (workspace.recentTickets || []).find(
+      (item) => normalizeTicketKey(item.ticketKey) === contextTicketKey,
+    );
+    return recent
+      ? {
+          key: recent.ticketKey,
+          summary: recent.summary,
+          status: recent.status,
+          priority: recent.priority,
+          progress: recent.progress,
+        }
+      : null;
+  }, [allRows, contextTicketKey, sortedRows, workspace.recentTickets]);
   const handleQuickAction = useDeveloperWorkspaceActions({
     contextTicketKey,
     contextIssue,
@@ -198,7 +216,10 @@ export default function DeveloperWorkspace({
   }
 
   function getNoteTitle(ticketKey) {
-    const issue = findTicketByKey([...(sortedRows || []), ...(allRows || [])], ticketKey);
+    const issue = findTicketByKey(
+      [...(sortedRows || []), ...(allRows || [])],
+      ticketKey,
+    );
     if (issue) return getSummary(issue);
     const recent = (workspace.recentTickets || []).find(
       (item) => normalizeTicketKey(item.ticketKey) === ticketKey,
@@ -220,14 +241,18 @@ export default function DeveloperWorkspace({
     const draftKey = options.draftKey || key || "__free__";
     const rawNote = notesDraft[draftKey];
     const text =
-      rawNote && typeof rawNote === "object" ? rawNote.text || "" : rawNote || "";
+      rawNote && typeof rawNote === "object"
+        ? rawNote.text || ""
+        : rawNote || "";
     if (!String(text || "").trim()) {
       toast.warning("Escreva uma nota antes de criar o post-it.");
       return;
     }
     setSaving(true);
     try {
-      const title = String(options.title || "").trim() || (key ? getNoteTitle(key) : "Nota livre");
+      const title =
+        String(options.title || "").trim() ||
+        (key ? getNoteTitle(key) : "Nota livre");
       const saved = await createDeveloperStickyNote({
         ticketKey: key || "",
         title,
@@ -236,7 +261,10 @@ export default function DeveloperWorkspace({
       });
       const nextWorkspace = mergeWorkspace(saved);
       const created = nextWorkspace.stickyNotes?.[0];
-      const nextLayouts = ensureStickyLayouts(layoutsRef.current, nextWorkspace.stickyNotes);
+      const nextLayouts = ensureStickyLayouts(
+        layoutsRef.current,
+        nextWorkspace.stickyNotes,
+      );
 
       setNotesDraft((prev) => ({
         ...prev,
@@ -310,7 +338,10 @@ export default function DeveloperWorkspace({
     try {
       const saved = await deleteDeveloperStickyNote(id);
       const nextWorkspace = mergeWorkspace(saved);
-      const nextLayouts = ensureStickyLayouts(layoutsRef.current, nextWorkspace.stickyNotes);
+      const nextLayouts = ensureStickyLayouts(
+        layoutsRef.current,
+        nextWorkspace.stickyNotes,
+      );
       onWorkspaceSaved?.({
         ...nextWorkspace,
         layout: nextLayouts,
@@ -327,10 +358,12 @@ export default function DeveloperWorkspace({
   }
 
   function openExpandedWidget(widgetId) {
-    const hasNotes = Object.values(workspace.notesByTicket || {}).some((value) => {
-      const text = typeof value === "string" ? value : value?.text || "";
-      return String(text || "").trim();
-    });
+    const hasNotes = Object.values(workspace.notesByTicket || {}).some(
+      (value) => {
+        const text = typeof value === "string" ? value : value?.text || "";
+        return String(text || "").trim();
+      },
+    );
     const emptyChecks = {
       queue: filteredRows.length === 0,
       recent: !workspace.recentTickets?.length,
@@ -359,7 +392,10 @@ export default function DeveloperWorkspace({
                 Central do Desenvolvedor.
               </CardDescription>
             </div>
-            <Button className="rounded-xl bg-red-600 text-white hover:bg-red-700" onClick={onConfigureUser}>
+            <Button
+              className="rounded-xl bg-red-600 text-white hover:bg-red-700"
+              onClick={onConfigureUser}
+            >
               <Settings2 className="mr-2 h-4 w-4" />
               Abrir Configurações
             </Button>
@@ -403,7 +439,7 @@ export default function DeveloperWorkspace({
           icon={CalendarDays}
           label="tickets ativos"
           value={stats.active}
-          helper="+2 desde ontem"
+          helper={stats.activeHelper}
           tone="danger"
         />
         <MetricCard
