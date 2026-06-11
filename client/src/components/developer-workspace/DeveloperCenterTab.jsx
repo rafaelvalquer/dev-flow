@@ -161,6 +161,16 @@ export default function DeveloperCenterTab({
     );
   }
 
+  const handleTicketUpdatedFromDetails = useCallback(
+    async (ticketKey) => {
+      const key = normalizeTicketKey(ticketKey);
+      if (!key) return null;
+
+      return poData?.refreshIssue?.(key);
+    },
+    [poData],
+  );
+
   return (
     <DeveloperWorkspace
       currentUser={currentUser}
@@ -175,6 +185,7 @@ export default function DeveloperCenterTab({
       onOpenExecution={openExecution}
       onStartTicket={onStartTicket}
       onOpenTicketDetails={onOpenTicketDetails}
+      onTicketUpdatedFromDetails={handleTicketUpdatedFromDetails}
       onWorkspaceSaved={updateWorkspaceFromSave}
     />
   );

@@ -468,8 +468,8 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       return;
     }
 
-    // Garante que o AMPanelTab esteja montado para receber a request,
-    // mas sem trocar a tela atual para o Painel de Acompanhamento.
+    // Mantém o usuário no Workspace, mas garante que o AMPanelTab
+    // esteja montado para abrir o modal de detalhes.
     setVisitedTabs((prev) => {
       if (prev.has("am")) return prev;
 
@@ -483,6 +483,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       ticketKey,
       issue: request.issue || { key: ticketKey },
       source: request.source || "developer-workspace",
+      onTicketUpdatedFromDetails: request.onTicketUpdatedFromDetails,
     });
   }
 

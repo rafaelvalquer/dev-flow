@@ -2329,11 +2329,28 @@ export default function AMPanelTab({
 
   const reloadProgressText = formatReloadProgress(reloadProgress);
   const reloadButtonText =
-    loading && reloadProgress.total
+    loading && reloadProgress?.total
       ? `Atualizando ${reloadProgress.loaded}/${reloadProgress.total}`
       : loading
         ? "Buscando tickets..."
         : "Atualizar";
+
+  const handleDetailsTicketUpdated = useCallback(
+    async (ticketKey, ...args) => {
+      const key = String(ticketKey || detailsKey || "")
+        .trim()
+        .toUpperCase();
+
+      if (!key) return null;
+
+      const updated = await refreshTicketAfterMutation(key, ...args);
+
+      await ticketDetailsRequest?.onTicketUpdatedFromDetails?.(key, updated);
+
+      return updated;
+    },
+    [detailsKey, refreshTicketAfterMutation, ticketDetailsRequest],
+  );
 
   return (
     <TooltipProvider>
@@ -2808,10 +2825,9 @@ export default function AMPanelTab({
             onOpenSchedule={(ticket) => openEditor(ticket)}
             onTicketUpdated={refreshTicketAfterMutation}
             onMarkedStarted={async () => {
-              // cria comentário [INICIADO] sem mudar status
               if (!detailsKey) return;
               await createComment(detailsKey, adfFromPlainText("[INICIADO]"));
-              return refreshTicketAfterMutation(detailsKey);
+              return handleDetailsTicketUpdated(detailsKey);
             }}
           />
         </main>
@@ -8117,6 +8133,23 @@ function CronogramaEditorModal({
       return next;
     });
   }, [calendarSettings, draft, dueDateObj, issue?.key]);
+
+  const handleDetailsTicketUpdated = useCallback(
+    async (ticketKey, ...args) => {
+      const key = String(ticketKey || detailsKey || "")
+        .trim()
+        .toUpperCase();
+
+      if (!key) return null;
+
+      const updated = await refreshTicketAfterMutation(key, ...args);
+
+      await ticketDetailsRequest?.onTicketUpdatedFromDetails?.(key, updated);
+
+      return updated;
+    },
+    [detailsKey, refreshTicketAfterMutation, ticketDetailsRequest],
+  );
 
   return (
     <>

@@ -68,6 +68,7 @@ export default function DeveloperWorkspace({
   onOpenExecution,
   onStartTicket,
   onOpenTicketDetails,
+  onTicketUpdatedFromDetails,
   onWorkspaceSaved,
 }) {
   const { width, containerRef, mounted } = useMeasuredWidth();
@@ -417,21 +418,13 @@ export default function DeveloperWorkspace({
       ticketKey: key,
       issue: action?.issue || findTicketByKey(allRows, key) || null,
       source: `developer-next-actions:${action?.type || "details"}`,
+      onTicketUpdatedFromDetails: async (updatedTicketKey) => {
+        const refreshedKey = normalizeTicketKey(updatedTicketKey || key);
+        if (!refreshedKey) return null;
+
+        return onTicketUpdatedFromDetails?.(refreshedKey);
+      },
     });
-  }
-
-  function openExecutionFromDetails(ticketKey, opts = {}) {
-    closeDetailsAction();
-    onOpenExecution?.(ticketKey, opts);
-  }
-
-  async function handleScheduleSaved(ticketKey) {
-    if (typeof onRefreshIssue === "function") {
-      await onRefreshIssue(ticketKey).catch(() => null);
-      return;
-    }
-
-    await onReload?.();
   }
 
   function handleStartTicketAction(action) {
