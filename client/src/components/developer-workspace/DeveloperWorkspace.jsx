@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useContainerWidth } from "react-grid-layout";
 import { CalendarDays, Clock, FileText, Settings2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +21,7 @@ import ExpandedWorkspaceDialog from "./ExpandedWorkspaceDialog";
 import { useDeveloperWorkspaceActions } from "./hooks/useDeveloperWorkspaceActions";
 import { useDeveloperWorkspaceFilters } from "./hooks/useDeveloperWorkspaceFilters";
 import { useDeveloperWorkspaceLayout } from "./hooks/useDeveloperWorkspaceLayout";
+import { useMeasuredWidth } from "./hooks/useMeasuredWidth";
 import { buildNextActions, buildRiskRows } from "./utils/developerRiskRules";
 import {
   diffDaysFromToday,
@@ -54,7 +54,7 @@ export default function DeveloperWorkspace({
   onOpenExecution,
   onWorkspaceSaved,
 }) {
-  const { width, containerRef, mounted } = useContainerWidth();
+  const { width, containerRef, mounted } = useMeasuredWidth();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
@@ -99,7 +99,10 @@ export default function DeveloperWorkspace({
   const visibleWidgets = preferences.visibleWidgets?.length
     ? preferences.visibleWidgets
     : DEFAULT_VISIBLE_WIDGETS;
-  const visibleWidgetSet = new Set(visibleWidgets);
+  const visibleWidgetSet = useMemo(
+    () => new Set(visibleWidgets),
+    [visibleWidgets],
+  );
 
   const { filteredRows, sortedRows, stats } = useDeveloperWorkspaceFilters({
     rows,

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Responsive } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -61,11 +62,15 @@ export default function DeveloperWorkspaceGrid({
   deleteStickyNote,
   stickyRefs,
 }) {
-  const stickyNotes = [...(workspace.stickyNotes || [])].sort((a, b) => {
-    if (Boolean(a?.pinned) !== Boolean(b?.pinned)) return a?.pinned ? -1 : 1;
-    if (Boolean(a?.resolved) !== Boolean(b?.resolved)) return a?.resolved ? 1 : -1;
-    return new Date(b?.updatedAt || b?.createdAt || 0) - new Date(a?.updatedAt || a?.createdAt || 0);
-  });
+  const stickyNotes = useMemo(
+    () =>
+      [...(workspace.stickyNotes || [])].sort((a, b) => {
+        if (Boolean(a?.pinned) !== Boolean(b?.pinned)) return a?.pinned ? -1 : 1;
+        if (Boolean(a?.resolved) !== Boolean(b?.resolved)) return a?.resolved ? 1 : -1;
+        return new Date(b?.updatedAt || b?.createdAt || 0) - new Date(a?.updatedAt || a?.createdAt || 0);
+      }),
+    [workspace.stickyNotes],
+  );
 
   return (
     <div ref={containerRef} className="developer-grid">

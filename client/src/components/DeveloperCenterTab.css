@@ -379,10 +379,6 @@
   padding: 12px 10px 8px 4px;
 }
 
-.developer-status-queue > .recharts-responsive-container {
-  min-height: 150px;
-}
-
 .developer-status-queue .recharts-cartesian-axis-tick-value {
   letter-spacing: 0;
 }

@@ -3,7 +3,6 @@ import {
   Bar,
   BarChart,
   LabelList,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -33,30 +32,42 @@ function truncateLabel(label, maxLength) {
   return `${label.slice(0, Math.max(1, maxLength - 1))}...`;
 }
 
-function useElementWidth() {
+function useElementSize() {
   const ref = useRef(null);
-  const [width, setWidth] = useState(0);
+  const [size, setSize] = useState({ width: 260, height: 160 });
+
+  function updateSize(node) {
+    const rect = node.getBoundingClientRect();
+    const nextWidth = Math.max(180, Math.round(rect.width || 0));
+    const nextHeight = Math.max(150, Math.round(rect.height || 0));
+    setSize((current) =>
+      current.width === nextWidth && current.height === nextHeight
+        ? current
+        : { width: nextWidth, height: nextHeight },
+    );
+  }
 
   useLayoutEffect(() => {
     if (!ref.current) return undefined;
     const node = ref.current;
 
-    setWidth(node.getBoundingClientRect().width || 0);
+    updateSize(node);
 
     if (typeof ResizeObserver === "undefined") return undefined;
 
-    const observer = new ResizeObserver(([entry]) => {
-      setWidth(entry?.contentRect?.width || 0);
+    const observer = new ResizeObserver(() => {
+      updateSize(node);
     });
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
 
-  return [ref, width];
+  return [ref, size];
 }
 
 export function StatusQueueWidget({ rows }) {
-  const [containerRef, width] = useElementWidth();
+  const [containerRef, size] = useElementSize();
+  const { width, height } = size;
   const compact = width > 0 && width < 340;
   const labelMaxLength = compact ? 12 : 18;
 
@@ -96,62 +107,56 @@ export function StatusQueueWidget({ rows }) {
 
   return (
     <div className="developer-status-queue" ref={containerRef}>
-      <ResponsiveContainer
-        width="100%"
-        height="100%"
-        minHeight={150}
-        minWidth={180}
-        debounce={80}
+      <BarChart
+        width={width}
+        height={height}
+        data={data}
+        layout="vertical"
+        margin={{
+          top: 10,
+          right: compact ? 22 : 30,
+          bottom: 8,
+          left: compact ? 0 : 8,
+        }}
+        barCategoryGap={compact ? 9 : 12}
       >
-        <BarChart
-          data={data}
-          layout="vertical"
-          margin={{
-            top: 10,
-            right: compact ? 22 : 30,
-            bottom: 8,
-            left: compact ? 0 : 8,
+        <XAxis
+          type="number"
+          allowDecimals={false}
+          axisLine={false}
+          tickLine={false}
+          tick={{ fill: "#6b7280", fontSize: 11, fontWeight: 700 }}
+        />
+        <YAxis
+          type="category"
+          dataKey="shortLabel"
+          width={compact ? 78 : 112}
+          axisLine={false}
+          tickLine={false}
+          tick={{ fill: "#374151", fontSize: 11, fontWeight: 800 }}
+        />
+        <Tooltip
+          cursor={{ fill: "rgba(207, 0, 19, 0.06)" }}
+          formatter={(value) => [value, "Tickets"]}
+          labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ""}
+          contentStyle={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            boxShadow: "0 12px 24px rgba(15, 23, 42, 0.12)",
+            color: "#111827",
+            fontSize: 12,
           }}
-          barCategoryGap={compact ? 9 : 12}
-        >
-          <XAxis
-            type="number"
-            allowDecimals={false}
-            axisLine={false}
-            tickLine={false}
-            tick={{ fill: "#6b7280", fontSize: 11, fontWeight: 700 }}
+        />
+        <Bar dataKey="count" fill="#cf0013" radius={[0, 5, 5, 0]} maxBarSize={28}>
+          <LabelList
+            dataKey="count"
+            position="right"
+            fill="#111827"
+            fontSize={11}
+            fontWeight={850}
           />
-          <YAxis
-            type="category"
-            dataKey="shortLabel"
-            width={compact ? 78 : 112}
-            axisLine={false}
-            tickLine={false}
-            tick={{ fill: "#374151", fontSize: 11, fontWeight: 800 }}
-          />
-          <Tooltip
-            cursor={{ fill: "rgba(207, 0, 19, 0.06)" }}
-            formatter={(value) => [value, "Tickets"]}
-            labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ""}
-            contentStyle={{
-              border: "1px solid #e5e7eb",
-              borderRadius: 8,
-              boxShadow: "0 12px 24px rgba(15, 23, 42, 0.12)",
-              color: "#111827",
-              fontSize: 12,
-            }}
-          />
-          <Bar dataKey="count" fill="#cf0013" radius={[0, 5, 5, 0]} maxBarSize={28}>
-            <LabelList
-              dataKey="count"
-              position="right"
-              fill="#111827"
-              fontSize={11}
-              fontWeight={850}
-            />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+        </Bar>
+      </BarChart>
     </div>
   );
 }

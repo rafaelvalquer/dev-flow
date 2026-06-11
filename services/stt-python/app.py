@@ -5,7 +5,48 @@ import os
 import shutil
 import subprocess
 import uuid
+import ssl
 from typing import Union
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or str(value).strip() == "":
+        return default
+
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+TTS_SSL_VERIFY = env_bool("TTS_SSL_VERIFY", False)
+TTS_SSL_RELAX_STRICT = env_bool("TTS_SSL_RELAX_STRICT", True)
+
+_original_create_default_context = ssl.create_default_context
+
+
+def create_tts_ssl_context(*args, **kwargs):
+    if not TTS_SSL_VERIFY:
+        return ssl._create_unverified_context()
+
+    ctx = _original_create_default_context(*args, **kwargs)
+
+    if TTS_SSL_RELAX_STRICT and hasattr(ssl, "VERIFY_X509_STRICT"):
+        ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+
+    return ctx
+
+
+ssl.create_default_context = create_tts_ssl_context
+
+if not TTS_SSL_VERIFY:
+    ssl._create_default_https_context = ssl._create_unverified_context
+
+
+import edge_tts
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from faster_whisper import WhisperModel
+from pydantic import BaseModel, field_validator
 
 import edge_tts
 from dotenv import load_dotenv
@@ -125,6 +166,11 @@ def health_check():
         "edge_tts": {
             "ok": bool(edge_tts),
             "version": getattr(edge_tts, "__version__", None),
+        },
+         "tts_ssl": {
+            "ok": True,
+            "verify": TTS_SSL_VERIFY,
+            "relax_strict": TTS_SSL_RELAX_STRICT,
         },
         "ffmpeg": {
             "ok": bool(FFMPEG and os.path.exists(FFMPEG)),
@@ -465,6 +511,18 @@ class TTSRequest(BaseModel):
         return "+0%"
 
 
+def is_tls_or_network_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return (
+        "certificate_verify_failed" in msg
+        or "self-signed certificate" in msg
+        or "cannot connect to host" in msg
+        or "speech.platform.bing.com" in msg
+        or "ssl" in msg
+        or "cert" in msg
+    )
+
+
 async def save_edge_tts(text: str, path: str, req: TTSRequest):
     try:
         communicate = edge_tts.Communicate(
@@ -474,11 +532,31 @@ async def save_edge_tts(text: str, path: str, req: TTSRequest):
             volume=req.volume,
         )
         await communicate.save(path)
+
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=f"Parametros TTS invalidos: {err}") from err
+        if is_tls_or_network_error(err):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Falha SSL/rede ao conectar no Microsoft TTS "
+                    "speech.platform.bing.com:443. "
+                    "No ambiente corporativo, a aplicação está usando "
+                    "TTS_SSL_VERIFY=false para contornar inspeção SSL/proxy. "
+                    f"Detalhe técnico: {err}"
+                ),
+            ) from err
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Parametros TTS invalidos: {err}",
+        ) from err
+
     except Exception as err:
         logger.exception("Falha ao gerar TTS via edge-tts")
-        raise HTTPException(status_code=502, detail=f"edge-tts failed: {err}") from err
+        raise HTTPException(
+            status_code=502,
+            detail=f"edge-tts failed: {err}",
+        ) from err
 
 
 @app.post("/tts")

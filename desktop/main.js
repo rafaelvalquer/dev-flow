@@ -12,7 +12,14 @@ function appendNodeOption(option) {
 
 appendNodeOption(SYSTEM_CA_NODE_OPTION);
 
-const { app, BrowserWindow, dialog, Menu, session, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  Menu,
+  session,
+  shell,
+} = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -31,7 +38,10 @@ let sttBaseUrl = "";
 let sttLogFile = "";
 
 app.commandLine.appendSwitch("proxy-auto-detect");
-app.commandLine.appendSwitch("proxy-bypass-list", "<local>;localhost;127.0.0.1");
+app.commandLine.appendSwitch(
+  "proxy-bypass-list",
+  "<local>;localhost;127.0.0.1",
+);
 
 function getPreparedAppRoot() {
   if (app.isPackaged) {
@@ -71,7 +81,9 @@ function appendSttLog(level, message) {
   try {
     fs.appendFileSync(getSttLogFile(), line, "utf8");
   } catch (error) {
-    console.warn(`[stt] nao foi possivel gravar log: ${error?.message || error}`);
+    console.warn(
+      `[stt] nao foi possivel gravar log: ${error?.message || error}`,
+    );
   }
 }
 
@@ -166,7 +178,9 @@ function summarizeSttHealth(health) {
       return `${key}: ${detail}`;
     });
 
-  return failed.length ? failed.join("\n") : JSON.stringify(health || {}, null, 2);
+  return failed.length
+    ? failed.join("\n")
+    : JSON.stringify(health || {}, null, 2);
 }
 
 function readTail(filePath, maxChars = 4000) {
@@ -191,7 +205,7 @@ async function waitForSttHealth(url, timeoutMs = 120000) {
       if (response.ok && response.json?.ok === true) return response.json;
 
       lastError = new Error(
-        `Health STT ainda indisponivel (${response.statusCode}): ${summarizeSttHealth(response.json)}`
+        `Health STT ainda indisponivel (${response.statusCode}): ${summarizeSttHealth(response.json)}`,
       );
     } catch (error) {
       lastError = error;
@@ -204,7 +218,9 @@ async function waitForSttHealth(url, timeoutMs = 120000) {
     lastHealth && typeof lastHealth === "object"
       ? summarizeSttHealth(lastHealth)
       : lastError?.message || String(lastError || "");
-  throw new Error(`Servico Python de audio nao iniciou corretamente.\n${detail}`);
+  throw new Error(
+    `Servico Python de audio nao iniciou corretamente.\n${detail}`,
+  );
 }
 
 function runPythonPreflight(pythonExecutable, serviceDir, env) {
@@ -220,7 +236,7 @@ function runPythonPreflight(pythonExecutable, serviceDir, env) {
         env,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
-      }
+      },
     );
 
     let stdout = "";
@@ -242,7 +258,10 @@ function runPythonPreflight(pythonExecutable, serviceDir, env) {
     });
     child.on("exit", (code, signal) => {
       clearTimeout(timer);
-      appendSttLog("preflight", `code=${code} signal=${signal || ""} stdout=${stdout.trim()} stderr=${stderr.trim()}`);
+      appendSttLog(
+        "preflight",
+        `code=${code} signal=${signal || ""} stdout=${stdout.trim()} stderr=${stderr.trim()}`,
+      );
       if (code === 0) {
         resolve();
         return;
@@ -250,8 +269,8 @@ function runPythonPreflight(pythonExecutable, serviceDir, env) {
 
       reject(
         new Error(
-          `Preflight Python falhou code=${code} signal=${signal || ""}\n${stderr || stdout}`
-        )
+          `Preflight Python falhou code=${code} signal=${signal || ""}\n${stderr || stdout}`,
+        ),
       );
     });
   });
@@ -265,7 +284,7 @@ function getSttPythonExecutable(serviceDir) {
     serviceDir,
     "runtime",
     "python",
-    "python.exe"
+    "python.exe",
   );
   if (fs.existsSync(bundledRuntimePython)) return bundledRuntimePython;
 
@@ -289,7 +308,12 @@ function getSttPythonPathEntries(serviceDir) {
 }
 
 function getSttPythonPathEnv(serviceDir) {
-  const venvSitePackages = path.join(serviceDir, ".venv", "Lib", "site-packages");
+  const venvSitePackages = path.join(
+    serviceDir,
+    ".venv",
+    "Lib",
+    "site-packages",
+  );
   const entries = fs.existsSync(venvSitePackages) ? [venvSitePackages] : [];
   const current = String(process.env.PYTHONPATH || "").trim();
   if (current) entries.push(current);
@@ -297,7 +321,9 @@ function getSttPythonPathEnv(serviceDir) {
 }
 
 async function startSttService() {
-  if (String(process.env.DEV_FLOW_STT_ENABLED || "true").toLowerCase() === "false") {
+  if (
+    String(process.env.DEV_FLOW_STT_ENABLED || "true").toLowerCase() === "false"
+  ) {
     return "";
   }
 
@@ -316,7 +342,11 @@ async function startSttService() {
   const uploadDir = path.join(app.getPath("userData"), "stt-uploads");
   const bundledFfmpeg = path.join(serviceDir, "bin", "ffmpeg.exe");
   const bundledFfprobe = path.join(serviceDir, "bin", "ffprobe.exe");
-  const bundledWhisperModel = path.join(serviceDir, "models", "faster-whisper-small");
+  const bundledWhisperModel = path.join(
+    serviceDir,
+    "models",
+    "faster-whisper-small",
+  );
   const pythonPath = getSttPythonPathEnv(serviceDir);
   const pathEntries = getSttPythonPathEntries(serviceDir);
 
@@ -331,6 +361,12 @@ async function startSttService() {
     PYTHONUNBUFFERED: "1",
     STT_UPLOAD_DIR: uploadDir,
     WHISPER_MODEL_PATH: bundledWhisperModel,
+
+    // Ambiente corporativo com proxy/inspeção SSL.
+    // Necessário para edge-tts acessar speech.platform.bing.com.
+    TTS_SSL_VERIFY: process.env.TTS_SSL_VERIFY || "false",
+    TTS_SSL_RELAX_STRICT: process.env.TTS_SSL_RELAX_STRICT || "true",
+
     ...(pythonPath ? { PYTHONPATH: pythonPath } : {}),
     ...(pathEntries.length
       ? { PATH: [...pathEntries, process.env.PATH || ""].join(path.delimiter) }
@@ -341,7 +377,7 @@ async function startSttService() {
 
   appendSttLog(
     "info",
-    `preflight python=${pythonExecutable} serviceDir=${serviceDir} model=${bundledWhisperModel} ffmpeg=${bundledFfmpeg} ffprobe=${bundledFfprobe}`
+    `preflight python=${pythonExecutable} serviceDir=${serviceDir} model=${bundledWhisperModel} ffmpeg=${bundledFfmpeg} ffprobe=${bundledFfprobe}`,
   );
   await runPythonPreflight(pythonExecutable, serviceDir, sttEnv);
 
@@ -354,13 +390,13 @@ async function startSttService() {
       env: sttEnv,
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
-    }
+    },
   );
 
   sttProcess = child;
   appendSttLog(
     "info",
-    `iniciando python=${pythonExecutable} baseUrl=${baseUrl} serviceDir=${serviceDir} model=${bundledWhisperModel}`
+    `iniciando python=${pythonExecutable} baseUrl=${baseUrl} serviceDir=${serviceDir} model=${bundledWhisperModel}`,
   );
 
   child.stdout?.on("data", (chunk) => {
@@ -391,8 +427,8 @@ async function startSttService() {
         child.once("exit", (code, signal) => {
           reject(
             new Error(
-              `Servico Python encerrou antes do health. code=${code} signal=${signal || ""}`
-            )
+              `Servico Python encerrou antes do health. code=${code} signal=${signal || ""}`,
+            ),
           );
         });
       }),
@@ -401,10 +437,13 @@ async function startSttService() {
     appendSttLog("health", JSON.stringify(health));
   } catch (error) {
     const tail = readTail(getSttLogFile());
-    appendSttLog("error", `${error?.stack || error?.message || String(error)}\nchildExited=${JSON.stringify(childExited)}\nlogTail=${tail}`);
+    appendSttLog(
+      "error",
+      `${error?.stack || error?.message || String(error)}\nchildExited=${JSON.stringify(childExited)}\nlogTail=${tail}`,
+    );
     await shutdownSttService();
     throw new Error(
-      `Falha ao iniciar o servico Python de audio.\n\n${error?.message || String(error)}\n\nUltimas linhas do log:\n${tail || "(log vazio)"}\n\nLog: ${getSttLogFile()}`
+      `Falha ao iniciar o servico Python de audio.\n\n${error?.message || String(error)}\n\nUltimas linhas do log:\n${tail || "(log vazio)"}\n\nLog: ${getSttLogFile()}`,
     );
   }
 
@@ -417,13 +456,13 @@ async function startBackend() {
 
   if (!fs.existsSync(path.join(clientDist, "index.html"))) {
     throw new Error(
-      `Build do front nao encontrado em ${clientDist}. Rode npm run package:win novamente.`
+      `Build do front nao encontrado em ${clientDist}. Rode npm run package:win novamente.`,
     );
   }
 
   if (!fs.existsSync(path.join(serverDir, "app.js"))) {
     throw new Error(
-      `Backend empacotado nao encontrado em ${serverDir}. Rode npm run package:win novamente.`
+      `Backend empacotado nao encontrado em ${serverDir}. Rode npm run package:win novamente.`,
     );
   }
 
@@ -435,7 +474,8 @@ async function startBackend() {
   process.env.DEV_FLOW_APP_VERSION = app.getVersion();
   process.env.DEV_FLOW_ENV_FILE = envFile;
   process.env.REQUEST_TIMEOUT_MS = process.env.REQUEST_TIMEOUT_MS || "60000";
-  process.env.HEALTHCHECK_TIMEOUT_MS = process.env.HEALTHCHECK_TIMEOUT_MS || "8000";
+  process.env.HEALTHCHECK_TIMEOUT_MS =
+    process.env.HEALTHCHECK_TIMEOUT_MS || "8000";
   if (sttBaseUrl) process.env.STT_PY_BASE = sttBaseUrl;
   ensureSessionSecret();
 
@@ -584,7 +624,7 @@ app.whenReady().then(async () => {
     console.error(error);
     dialog.showErrorBox(
       "Falha ao iniciar o Dev Flow",
-      error?.message || String(error)
+      error?.message || String(error),
     );
     app.quit();
   }
@@ -616,7 +656,7 @@ app.on("activate", async () => {
     console.error(error);
     dialog.showErrorBox(
       "Falha ao reabrir o Dev Flow",
-      error?.message || String(error)
+      error?.message || String(error),
     );
   }
 });

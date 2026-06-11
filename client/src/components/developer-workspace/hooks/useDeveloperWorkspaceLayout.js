@@ -5,6 +5,10 @@ import { saveDeveloperWorkspacePreferences } from "../../../lib/developerWorkspa
 import { ensureStickyLayouts } from "../utils/developerTicketUtils";
 import { DEFAULT_LAYOUTS } from "../utils/developerWidgetRegistry";
 
+function sameLayouts(a, b) {
+  return JSON.stringify(a || {}) === JSON.stringify(b || {});
+}
+
 export function useDeveloperWorkspaceLayout({
   workspace,
   preferences,
@@ -20,6 +24,7 @@ export function useDeveloperWorkspaceLayout({
       workspace.layout || DEFAULT_LAYOUTS,
       workspace.stickyNotes,
     );
+    if (sameLayouts(layoutsRef.current, nextLayouts)) return;
     layoutsRef.current = nextLayouts;
     setLayouts(nextLayouts);
   }, [workspace.layout, workspace.stickyNotes]);
@@ -53,6 +58,7 @@ export function useDeveloperWorkspaceLayout({
   }
 
   function handleLayoutChange(_layout, allLayouts) {
+    if (sameLayouts(layoutsRef.current, allLayouts)) return;
     layoutsRef.current = allLayouts;
     setLayouts(allLayouts);
   }
