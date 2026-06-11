@@ -40,14 +40,6 @@ ssl.create_default_context = create_tts_ssl_context
 if not TTS_SSL_VERIFY:
     ssl._create_default_https_context = ssl._create_unverified_context
 
-
-import edge_tts
-from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
-from faster_whisper import WhisperModel
-from pydantic import BaseModel, field_validator
-
 import edge_tts
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile

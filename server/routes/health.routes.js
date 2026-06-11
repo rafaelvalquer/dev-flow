@@ -1,8 +1,14 @@
 import { Router } from "express";
 import dns from "node:dns/promises";
+import fs from "node:fs/promises";
 import net from "node:net";
+import path from "node:path";
 import mongoose from "mongoose";
-import { asyncRoute, fetchWithTimeout, readResponseBody } from "../utils/http.js";
+import {
+  asyncRoute,
+  fetchWithTimeout,
+  readResponseBody,
+} from "../utils/http.js";
 import { getAutomationJobStatus } from "../jobs/automationJob.js";
 import { makeJiraHeaders } from "../utils/jiraAuth.js";
 import { getPortalIccClient } from "../services/portalIcc/sessionStore.js";
@@ -95,10 +101,10 @@ async function checkTcpConnection(host, port, timeoutMs) {
     socket.setTimeout(timeoutMs);
     socket.once("connect", () => done({ ok: true }));
     socket.once("timeout", () =>
-      done({ ok: false, error: `Timeout after ${timeoutMs}ms` })
+      done({ ok: false, error: `Timeout after ${timeoutMs}ms` }),
     );
     socket.once("error", (error) =>
-      done({ ok: false, error: serializeFetchError(error) })
+      done({ ok: false, error: serializeFetchError(error) }),
     );
   });
 }
@@ -164,12 +170,12 @@ async function buildJiraDiagnostics(env) {
   const jiraBase = String(
     env.JIRA_BASE ||
       env.JIRA_BASE_URL ||
-      "https://clarobr-jsw-tecnologia.atlassian.net"
+      "https://clarobr-jsw-tecnologia.atlassian.net",
   ).replace(/\/$/, "");
   const jiraUrl = new URL(jiraBase);
   const jiraConfigured = Boolean(
     String(env.JIRA_EMAIL || "").trim() &&
-      String(env.JIRA_API_TOKEN || "").trim()
+    String(env.JIRA_API_TOKEN || "").trim(),
   );
 
   const dnsStartedAt = Date.now();
@@ -196,7 +202,7 @@ async function buildJiraDiagnostics(env) {
   const tcpCheck = await checkTcpConnection(
     jiraUrl.hostname,
     Number(jiraUrl.port || 443),
-    timeoutMs
+    timeoutMs,
   );
 
   const headers = jiraConfigured
@@ -247,8 +253,7 @@ async function buildJiraDiagnostics(env) {
       node: process.versions.node,
       electron: process.versions.electron || null,
       nodeOptions: process.env.NODE_OPTIONS || "",
-      nodeTlsRejectUnauthorized:
-        process.env.NODE_TLS_REJECT_UNAUTHORIZED || "",
+      nodeTlsRejectUnauthorized: process.env.NODE_TLS_REJECT_UNAUTHORIZED || "",
       tlsWarning:
         process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0"
           ? "Validacao TLS desativada neste processo para compatibilidade com certificado corporativo."
@@ -323,8 +328,106 @@ function summarizeLatency(checks = []) {
     .filter((value) => Number.isFinite(value));
   if (!latencies.length) return null;
   return Math.round(
-    latencies.reduce((total, value) => total + value, 0) / latencies.length
+    latencies.reduce((total, value) => total + value, 0) / latencies.length,
   );
+}
+
+const DEFAULT_LOG_LINES = 200;
+const MAX_LOG_LINES = 1000;
+
+function clampLogLines(value) {
+  const parsed = Number(value || DEFAULT_LOG_LINES);
+  if (!Number.isFinite(parsed)) return DEFAULT_LOG_LINES;
+  return Math.min(MAX_LOG_LINES, Math.max(20, Math.round(parsed)));
+}
+
+function tailLines(text, maxLines) {
+  const normalized = String(text || "").replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  return lines.slice(Math.max(0, lines.length - maxLines));
+}
+
+function resolveLogFiles() {
+  const logDir =
+    process.env.DEV_FLOW_LOG_DIR || path.join(process.cwd(), "logs");
+
+  return {
+    stt: {
+      label: "STT / Python",
+      filePath:
+        process.env.DEV_FLOW_STT_LOG_FILE ||
+        path.join(logDir, "stt-python.log"),
+    },
+    backend: {
+      label: "Backend / Electron",
+      filePath:
+        process.env.DEV_FLOW_BACKEND_LOG_FILE ||
+        path.join(logDir, "backend.log"),
+    },
+  };
+}
+
+async function readLogTail({ label, filePath, lineLimit }) {
+  try {
+    const stat = await fs.stat(filePath);
+    const raw = await fs.readFile(filePath, "utf8");
+    const lines = tailLines(raw, lineLimit);
+
+    return {
+      ok: true,
+      exists: true,
+      label,
+      path: filePath,
+      sizeBytes: stat.size,
+      updatedAt: stat.mtime.toISOString(),
+      lineCount: lines.filter((line) => line !== "").length,
+      lines,
+      text: lines.join("\n"),
+    };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return {
+        ok: false,
+        exists: false,
+        label,
+        path: filePath,
+        sizeBytes: 0,
+        updatedAt: null,
+        lineCount: 0,
+        lines: [],
+        text: "",
+        message: "Arquivo de log ainda não foi criado.",
+      };
+    }
+
+    return {
+      ok: false,
+      exists: false,
+      label,
+      path: filePath,
+      sizeBytes: 0,
+      updatedAt: null,
+      lineCount: 0,
+      lines: [],
+      text: "",
+      error: error?.message || String(error),
+    };
+  }
+}
+
+function buildCombinedLogs(logs, lineLimit, checkedAt) {
+  return [
+    "Dev Flow - Logs do Sistema",
+    `Coletado em: ${checkedAt}`,
+    `Limite: últimas ${lineLimit} linhas por arquivo`,
+    "",
+    "==================== STT / PYTHON ====================",
+    logs.stt?.text || logs.stt?.message || "(sem conteúdo)",
+    "",
+    "==================== BACKEND / ELECTRON ====================",
+    logs.backend?.text || logs.backend?.message || "(sem conteúdo)",
+    "",
+  ].join("\n");
 }
 
 export default function healthRoutes({ env }) {
@@ -347,7 +450,7 @@ export default function healthRoutes({ env }) {
         },
         automation: getAutomationJobStatus(),
       });
-    })
+    }),
   );
 
   router.get(
@@ -361,7 +464,7 @@ export default function healthRoutes({ env }) {
         checkJsonDependency(
           "stt",
           `${env.STT_PY_BASE || "http://127.0.0.1:8000"}/health`,
-          timeoutMs
+          timeoutMs,
         ),
         buildJiraDiagnostics(env).catch((error) => ({
           ok: false,
@@ -438,7 +541,39 @@ export default function healthRoutes({ env }) {
         },
         services,
       });
-    })
+    }),
+  );
+
+  router.get(
+    "/logs",
+    asyncRoute(async (req, res) => {
+      const checkedAt = new Date().toISOString();
+      const lineLimit = clampLogLines(req.query.lines);
+      const files = resolveLogFiles();
+
+      const [stt, backend] = await Promise.all([
+        readLogTail({
+          label: files.stt.label,
+          filePath: files.stt.filePath,
+          lineLimit,
+        }),
+        readLogTail({
+          label: files.backend.label,
+          filePath: files.backend.filePath,
+          lineLimit,
+        }),
+      ]);
+
+      const logs = { stt, backend };
+
+      return res.json({
+        ok: true,
+        checkedAt,
+        lineLimit,
+        logs,
+        combinedText: buildCombinedLogs(logs, lineLimit, checkedAt),
+      });
+    }),
   );
 
   router.get(
@@ -449,15 +584,15 @@ export default function healthRoutes({ env }) {
         checkJsonDependency(
           "stt",
           `${env.STT_PY_BASE || "http://127.0.0.1:8000"}/health`,
-          timeoutMs
+          timeoutMs,
         ),
       ]);
 
       const mongoState = mongoose.connection.readyState;
       const jiraConfigured = Boolean(
         String(env.JIRA_BASE || "").trim() &&
-          String(env.JIRA_EMAIL || "").trim() &&
-          String(env.JIRA_API_TOKEN || "").trim()
+        String(env.JIRA_EMAIL || "").trim() &&
+        String(env.JIRA_API_TOKEN || "").trim(),
       );
       const geminiConfigured = Boolean(String(env.GEMINI_API_KEY || "").trim());
 
@@ -481,14 +616,16 @@ export default function healthRoutes({ env }) {
         stt: checks.find((item) => item.name === "stt"),
       };
 
-      const ok = Object.values(dependencies).every((dependency) => dependency?.ok);
+      const ok = Object.values(dependencies).every(
+        (dependency) => dependency?.ok,
+      );
 
       return res.status(ok ? 200 : 503).json({
         ok,
         checkedAt: new Date().toISOString(),
         dependencies,
       });
-    })
+    }),
   );
 
   router.get(
@@ -498,12 +635,12 @@ export default function healthRoutes({ env }) {
       const jiraBase = String(
         env.JIRA_BASE ||
           env.JIRA_BASE_URL ||
-          "https://clarobr-jsw-tecnologia.atlassian.net"
+          "https://clarobr-jsw-tecnologia.atlassian.net",
       ).replace(/\/$/, "");
       const jiraUrl = new URL(jiraBase);
       const jiraConfigured = Boolean(
         String(env.JIRA_EMAIL || "").trim() &&
-          String(env.JIRA_API_TOKEN || "").trim()
+        String(env.JIRA_API_TOKEN || "").trim(),
       );
 
       const dnsStartedAt = Date.now();
@@ -530,7 +667,7 @@ export default function healthRoutes({ env }) {
       const tcpCheck = await checkTcpConnection(
         jiraUrl.hostname,
         Number(jiraUrl.port || 443),
-        timeoutMs
+        timeoutMs,
       );
 
       const headers = jiraConfigured
@@ -596,7 +733,7 @@ export default function healthRoutes({ env }) {
         },
         checks,
       });
-    })
+    }),
   );
 
   return router;

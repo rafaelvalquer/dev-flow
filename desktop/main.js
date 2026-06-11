@@ -36,6 +36,8 @@ let backendBaseUrl = "";
 let sttProcess = null;
 let sttBaseUrl = "";
 let sttLogFile = "";
+let backendLogFile = "";
+let desktopFileLoggingInstalled = false;
 
 app.commandLine.appendSwitch("proxy-auto-detect");
 app.commandLine.appendSwitch(
@@ -67,13 +69,77 @@ function getSttServiceDir() {
   return path.join(getServicesDir(), "stt-python");
 }
 
+function getLogsDir() {
+  const logsDir = path.join(app.getPath("userData"), "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  process.env.DEV_FLOW_LOG_DIR = logsDir;
+  return logsDir;
+}
+
 function getSttLogFile() {
   if (sttLogFile) return sttLogFile;
 
-  const logsDir = path.join(app.getPath("userData"), "logs");
-  fs.mkdirSync(logsDir, { recursive: true });
-  sttLogFile = path.join(logsDir, "stt-python.log");
+  sttLogFile = path.join(getLogsDir(), "stt-python.log");
+  process.env.DEV_FLOW_STT_LOG_FILE = sttLogFile;
   return sttLogFile;
+}
+
+function getBackendLogFile() {
+  if (backendLogFile) return backendLogFile;
+
+  backendLogFile = path.join(getLogsDir(), "backend.log");
+  process.env.DEV_FLOW_BACKEND_LOG_FILE = backendLogFile;
+  return backendLogFile;
+}
+
+function formatLogArg(arg) {
+  if (typeof arg === "string") return arg;
+  if (arg instanceof Error) return arg.stack || arg.message;
+
+  try {
+    return JSON.stringify(arg);
+  } catch {
+    return String(arg);
+  }
+}
+
+function appendBackendLog(level, args) {
+  const line = `[${new Date().toISOString()}] [${level}] ${args
+    .map(formatLogArg)
+    .join(" ")}\n`;
+
+  try {
+    fs.appendFileSync(getBackendLogFile(), line, "utf8");
+  } catch {
+    // Evita loop de log caso o arquivo esteja bloqueado.
+  }
+}
+
+function installDesktopFileLogging() {
+  if (desktopFileLoggingInstalled) return;
+  desktopFileLoggingInstalled = true;
+
+  getBackendLogFile();
+  getSttLogFile();
+
+  const originalLog = console.log.bind(console);
+  const originalWarn = console.warn.bind(console);
+  const originalError = console.error.bind(console);
+
+  console.log = (...args) => {
+    appendBackendLog("info", args);
+    originalLog(...args);
+  };
+
+  console.warn = (...args) => {
+    appendBackendLog("warn", args);
+    originalWarn(...args);
+  };
+
+  console.error = (...args) => {
+    appendBackendLog("error", args);
+    originalError(...args);
+  };
 }
 
 function appendSttLog(level, message) {
@@ -615,6 +681,8 @@ async function shutdownSttService() {
 
 app.whenReady().then(async () => {
   try {
+    installDesktopFileLogging();
+
     await session.defaultSession.setProxy({ mode: "auto_detect" });
     await startSttService();
     const port = await startBackend();

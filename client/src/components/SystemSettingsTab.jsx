@@ -8,6 +8,7 @@ import {
   Check,
   Database,
   Download,
+  FileText,
   Gauge,
   KeyRound,
   Loader2,
@@ -23,6 +24,7 @@ import {
   UserX,
   Wifi,
 } from "lucide-react";
+
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +64,7 @@ import {
 import { jiraSearchUsers } from "@/lib/jiraClient";
 import { fetchSystemDiagnostics } from "@/lib/systemDiagnostics";
 import { ModuleHeader } from "@/components/layout/ModulePrimitives";
+import SystemLogsView from "./SystemLogsView";
 import {
   countActiveHolidays,
   formatWorkingWeekdays,
@@ -135,10 +138,22 @@ const DEFAULT_PREFERENCES = {
 };
 
 const THEME_OPTIONS = [
-  { value: "claro", label: "Claro", helper: "Vermelho Claro e superficies claras" },
-  { value: "grafite", label: "Grafite", helper: "Cinza elegante com acoes em vermelho" },
+  {
+    value: "claro",
+    label: "Claro",
+    helper: "Vermelho Claro e superficies claras",
+  },
+  {
+    value: "grafite",
+    label: "Grafite",
+    helper: "Cinza elegante com acoes em vermelho",
+  },
   { value: "oceano", label: "Oceano", helper: "Azuis suaves com acentos teal" },
-  { value: "verde", label: "Verde", helper: "Verdes claros com contraste azul" },
+  {
+    value: "verde",
+    label: "Verde",
+    helper: "Verdes claros com contraste azul",
+  },
 ];
 
 const PRIMARY_COLOR_OPTIONS = [
@@ -175,13 +190,13 @@ function normalizePrimaryColor(value) {
 function normalizePreferences(preferences = {}) {
   const validTabs = new Set(TAB_OPTIONS.map((tab) => tab.value));
   const validThemes = new Set(THEME_OPTIONS.map((theme) => theme.value));
-  const validDensities = new Set(DENSITY_OPTIONS.map((density) => density.value));
+  const validDensities = new Set(
+    DENSITY_OPTIONS.map((density) => density.value),
+  );
   const theme = preferences.theme === "light" ? "claro" : preferences.theme;
   const density = preferences.density || DEFAULT_PREFERENCES.density;
   return {
-    theme: validThemes.has(theme)
-      ? theme
-      : DEFAULT_PREFERENCES.theme,
+    theme: validThemes.has(theme) ? theme : DEFAULT_PREFERENCES.theme,
     primaryColor: normalizePrimaryColor(preferences.primaryColor),
     density: validDensities.has(density)
       ? density
@@ -255,9 +270,12 @@ function diagnosticMessage(service, type) {
     const failed = (service.checks || []).find((check) => !check?.ok);
     if (failed?.error?.message) return failed.error.message;
     if (failed?.error) return String(failed.error);
-    return service.host ? `Host: ${service.host}` : "Diagnóstico Jira executado.";
+    return service.host
+      ? `Host: ${service.host}`
+      : "Diagnóstico Jira executado.";
   }
-  if (type === "stt") return service.status ? `HTTP ${service.status}` : "Health STT consultado.";
+  if (type === "stt")
+    return service.status ? `HTTP ${service.status}` : "Health STT consultado.";
   if (type === "portalIcc") {
     return service.authenticated
       ? `Sessão ativa para ${service.session?.username || "usuário atual"}.`
@@ -304,7 +322,9 @@ function DiagnosticCard({ title, description, icon: Icon, service, type }) {
       <div className="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
         <div className="flex items-center justify-between gap-3">
           <span>Latência</span>
-          <strong className="text-zinc-900">{formatLatency(service?.latencyMs)}</strong>
+          <strong className="text-zinc-900">
+            {formatLatency(service?.latencyMs)}
+          </strong>
         </div>
         <div className="flex items-center justify-between gap-3">
           <span>Última checagem</span>
@@ -321,12 +341,7 @@ function DiagnosticCard({ title, description, icon: Icon, service, type }) {
   );
 }
 
-function SystemHealthView({
-  diagnostics,
-  loading,
-  error,
-  onRefresh,
-}) {
+function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
   const services = diagnostics?.services || {};
   const version = diagnostics?.version || {};
   const statusMeta =
@@ -489,10 +504,10 @@ function AppearanceSettingsView({
   onSubmit,
 }) {
   const selectedTheme = THEME_OPTIONS.find(
-    (theme) => theme.value === preferencesDraft.theme
+    (theme) => theme.value === preferencesDraft.theme,
   );
   const selectedDensity = DENSITY_OPTIONS.find(
-    (density) => density.value === preferencesDraft.density
+    (density) => density.value === preferencesDraft.density,
   );
 
   return (
@@ -505,7 +520,8 @@ function AppearanceSettingsView({
               Aparência
             </CardTitle>
             <CardDescription>
-              Personalize tema, cor, densidade e comportamento inicial da interface.
+              Personalize tema, cor, densidade e comportamento inicial da
+              interface.
             </CardDescription>
           </div>
 
@@ -528,7 +544,8 @@ function AppearanceSettingsView({
                 Tema e cor primária
               </h3>
               <p className="text-xs text-zinc-500">
-                O tema define a base visual; a cor primária ajusta ações e destaques.
+                O tema define a base visual; a cor primária ajusta ações e
+                destaques.
               </p>
             </div>
 
@@ -571,7 +588,7 @@ function AppearanceSettingsView({
                           "h-10 w-10 rounded-full border-2 shadow-sm transition",
                           selected
                             ? "border-zinc-900 ring-2 ring-zinc-300"
-                            : "border-white hover:border-zinc-300"
+                            : "border-white hover:border-zinc-300",
                         )}
                         style={{ backgroundColor: color.value }}
                         title={color.label}
@@ -623,7 +640,8 @@ function AppearanceSettingsView({
                 Layout e início
               </h3>
               <p className="text-xs text-zinc-500">
-                Controle a quantidade de informação em tela e o estado inicial do app.
+                Controle a quantidade de informação em tela e o estado inicial
+                do app.
               </p>
             </div>
 
@@ -639,7 +657,7 @@ function AppearanceSettingsView({
                         "rounded-lg px-3 py-2 text-xs font-semibold transition",
                         preferencesDraft.density === density.value
                           ? "bg-red-600 text-white"
-                          : "text-zinc-600 hover:bg-zinc-50"
+                          : "text-zinc-600 hover:bg-zinc-50",
                       )}
                       onClick={() =>
                         setPreferencesDraft((current) => ({
@@ -731,7 +749,7 @@ export default function SystemSettingsTab({
 }) {
   const [activeSection, setActiveSection] = useState("calendar");
   const [draft, setDraft] = useState(() =>
-    normalizeCalendarSettings(calendarSettings)
+    normalizeCalendarSettings(calendarSettings),
   );
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -757,7 +775,7 @@ export default function SystemSettingsTab({
   const [jiraUserLoading, setJiraUserLoading] = useState(false);
   const [jiraUserErr, setJiraUserErr] = useState("");
   const [preferencesDraft, setPreferencesDraft] = useState(() =>
-    normalizePreferences(currentUser?.preferences)
+    normalizePreferences(currentUser?.preferences),
   );
   const [preferencesSaving, setPreferencesSaving] = useState(false);
   const [diagnostics, setDiagnostics] = useState(null);
@@ -803,12 +821,14 @@ export default function SystemSettingsTab({
         setJiraUserOptions(
           (Array.isArray(users) ? users : [])
             .map(mapJiraUser)
-            .filter((user) => user?.accountId)
+            .filter((user) => user?.accountId),
         );
       } catch (err) {
         if (!alive) return;
         setJiraUserOptions([]);
-        setJiraUserErr(err?.message || "Não foi possível buscar usuários Jira.");
+        setJiraUserErr(
+          err?.message || "Não foi possível buscar usuários Jira.",
+        );
       } finally {
         if (alive) setJiraUserLoading(false);
       }
@@ -854,7 +874,7 @@ export default function SystemSettingsTab({
     updateDraft((current) => ({
       ...current,
       holidays: (current.holidays || []).filter(
-        (_, itemIndex) => itemIndex !== index
+        (_, itemIndex) => itemIndex !== index,
       ),
     }));
   }
@@ -863,7 +883,7 @@ export default function SystemSettingsTab({
     setSaving(true);
     try {
       const saved = await onSaveCalendarSettings?.(
-        normalizeCalendarSettings(draft)
+        normalizeCalendarSettings(draft),
       );
       setDraft(normalizeCalendarSettings(saved || draft));
       setDirty(false);
@@ -1006,7 +1026,9 @@ export default function SystemSettingsTab({
 
     setPreferencesSaving(true);
     try {
-      const user = await updatePreferences(normalizePreferences(preferencesDraft));
+      const user = await updatePreferences(
+        normalizePreferences(preferencesDraft),
+      );
       onUserUpdated?.(user);
       toast.success("Preferências salvas.");
     } catch (err) {
@@ -1024,7 +1046,7 @@ export default function SystemSettingsTab({
       setDiagnostics(payload);
     } catch (err) {
       setDiagnosticsError(
-        err?.message || "Não foi possível carregar o diagnóstico."
+        err?.message || "Não foi possível carregar o diagnóstico.",
       );
     } finally {
       setDiagnosticsLoading(false);
@@ -1034,7 +1056,7 @@ export default function SystemSettingsTab({
   const lastLoginLabel = formatDateTime(currentUser?.lastLoginAt);
   const tokenUpdatedLabel = formatDateTime(
     currentUser?.jiraTokenUpdatedAt,
-    "Token cadastrado"
+    "Token cadastrado",
   );
 
   return (
@@ -1069,7 +1091,7 @@ export default function SystemSettingsTab({
                 "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
                 activeSection === "calendar"
                   ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
               )}
             >
               <CalendarDays className="h-4 w-4" />
@@ -1088,7 +1110,7 @@ export default function SystemSettingsTab({
                 "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
                 activeSection === "appearance"
                   ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
               )}
             >
               <Palette className="h-4 w-4" />
@@ -1107,7 +1129,7 @@ export default function SystemSettingsTab({
                 "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
                 activeSection === "user"
                   ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
               )}
             >
               <User className="h-4 w-4" />
@@ -1126,15 +1148,29 @@ export default function SystemSettingsTab({
                 "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
                 activeSection === "diagnostics"
                   ? "border-red-200 bg-red-50 text-red-700"
-                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
               )}
             >
               <Activity className="h-4 w-4" />
               <span className="grid">
                 <span className="text-sm font-semibold">Diagnóstico</span>
-                <span className="text-xs text-zinc-500">
-                  Saúde do sistema
-                </span>
+                <span className="text-xs text-zinc-500">Saúde do sistema</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSection("logs")}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition",
+                activeSection === "logs"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+              )}
+            >
+              <FileText className="h-4 w-4" />
+              <span className="grid">
+                <span className="text-sm font-semibold">Logs</span>
+                <span className="text-xs text-zinc-500">STT e backend</span>
               </span>
             </button>
           </CardContent>
@@ -1174,9 +1210,8 @@ export default function SystemSettingsTab({
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
                     A regra passa a valer quando uma duracao, encadeamento,
-                    reordenacao ou recalculo de datas for executado.
-                    Cronogramas antigos nao serao reprocessados
-                    automaticamente.
+                    reordenacao ou recalculo de datas for executado. Cronogramas
+                    antigos nao serao reprocessados automaticamente.
                   </p>
                 </div>
               </div>
@@ -1203,7 +1238,7 @@ export default function SystemSettingsTab({
                           "flex h-14 items-center justify-center rounded-xl border text-sm font-semibold transition",
                           selected
                             ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+                            : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50",
                         )}
                       >
                         {selected ? <Check className="mr-2 h-4 w-4" /> : null}
@@ -1346,6 +1381,8 @@ export default function SystemSettingsTab({
             error={diagnosticsError}
             onRefresh={handleDiagnosticsRefresh}
           />
+        ) : activeSection === "logs" ? (
+          <SystemLogsView />
         ) : (
           <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
             <CardHeader className="gap-3">
@@ -1460,7 +1497,7 @@ export default function SystemSettingsTab({
                               {initials(
                                 currentUser?.jiraDisplayName ||
                                   currentUser?.name ||
-                                  currentUser?.email
+                                  currentUser?.email,
                               )}
                             </AvatarFallback>
                           </Avatar>
@@ -1646,15 +1683,14 @@ export default function SystemSettingsTab({
                         "rounded-xl border px-3 py-3 text-sm",
                         jiraStatus.ok
                           ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                          : "border-red-200 bg-red-50 text-red-900"
+                          : "border-red-200 bg-red-50 text-red-900",
                       )}
                     >
                       {jiraStatus.ok ? (
                         <div className="grid gap-1">
                           <strong>Conexão Jira validada.</strong>
                           <span>
-                            {jiraStatus.jiraUser?.displayName ||
-                              "Usuario Jira"}{" "}
+                            {jiraStatus.jiraUser?.displayName || "Usuario Jira"}{" "}
                             {jiraStatus.jiraUser?.emailAddress
                               ? `- ${jiraStatus.jiraUser.emailAddress}`
                               : ""}
@@ -1837,7 +1873,6 @@ export default function SystemSettingsTab({
                   </div>
                 </form>
               </div>
-
             </CardContent>
           </Card>
         )}
