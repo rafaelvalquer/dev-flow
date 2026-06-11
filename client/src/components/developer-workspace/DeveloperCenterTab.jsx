@@ -22,6 +22,7 @@ export default function DeveloperCenterTab({
   poData,
   onConfigureUser,
   onStartTicket,
+  onOpenTicketDetails,
   onProgressChange,
   onRdmTitleChange,
   onRdmDueDateChange,
@@ -173,6 +174,7 @@ export default function DeveloperCenterTab({
       onConfigureUser={onConfigureUser}
       onOpenExecution={openExecution}
       onStartTicket={onStartTicket}
+      onOpenTicketDetails={onOpenTicketDetails}
       onWorkspaceSaved={updateWorkspaceFromSave}
     />
   );

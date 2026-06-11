@@ -31,6 +31,7 @@ import {
 import {
   dueLabel,
   getAssigneeName,
+  getDueYmd,
   getIssueKey,
   getJiraBrowseUrl,
   getPriority,
@@ -104,9 +105,10 @@ export default function DeveloperTicketDetailsDialog({
 
   useEffect(() => {
     if (!open) return;
+
     setScheduleDraft(normalizeSchedule(issue));
     setDueDateDraft(getDueYmd(issue) || "");
-  }, [issue, open]);
+  }, [open, issueKey]);
 
   function updateActivity(activityId, patch) {
     setScheduleDraft((current) =>

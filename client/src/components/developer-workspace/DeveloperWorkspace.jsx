@@ -28,7 +28,6 @@ import { MetricCard } from "./components/MetricCard";
 import DeveloperWorkspaceFilters from "./DeveloperWorkspaceFilters";
 import DeveloperWorkspaceGrid from "./DeveloperWorkspaceGrid";
 import DeveloperWorkspaceHeader from "./DeveloperWorkspaceHeader";
-import DeveloperTicketDetailsDialog from "./DeveloperTicketDetailsDialog";
 import ExpandedWorkspaceDialog from "./ExpandedWorkspaceDialog";
 import { useDeveloperWorkspaceActions } from "./hooks/useDeveloperWorkspaceActions";
 import { useDeveloperWorkspaceFilters } from "./hooks/useDeveloperWorkspaceFilters";
@@ -68,6 +67,7 @@ export default function DeveloperWorkspace({
   onConfigureUser,
   onOpenExecution,
   onStartTicket,
+  onOpenTicketDetails,
   onWorkspaceSaved,
 }) {
   const { width, containerRef, mounted } = useMeasuredWidth();
@@ -81,7 +81,6 @@ export default function DeveloperWorkspace({
   const [expandedWidget, setExpandedWidget] = useState(null);
   const [saving, setSaving] = useState(false);
   const [focusedStickyId, setFocusedStickyId] = useState("");
-  const [detailsAction, setDetailsAction] = useState(null);
   const stickyRefs = useRef({});
   const preferences = workspace.preferences || EMPTY_WORKSPACE.preferences;
   const {
@@ -181,18 +180,6 @@ export default function DeveloperWorkspace({
         }
       : null;
   }, [allRows, contextTicketKey, sortedRows, workspace.recentTickets]);
-
-  const detailsIssue = useMemo(() => {
-    const key = normalizeTicketKey(detailsAction?.key);
-    if (!key) return null;
-
-    return (
-      detailsAction?.issue ||
-      findTicketByKey(sortedRows, key) ||
-      findTicketByKey(allRows, key) ||
-      null
-    );
-  }, [allRows, detailsAction, sortedRows]);
 
   const handleQuickAction = useDeveloperWorkspaceActions({
     contextTicketKey,
@@ -429,11 +416,16 @@ export default function DeveloperWorkspace({
         : "Atualizar Jira";
 
   function openDetailsAction(action) {
-    setDetailsAction(action || null);
-  }
+    const key = normalizeTicketKey(action?.key || action?.issue?.key);
 
-  function closeDetailsAction() {
-    setDetailsAction(null);
+    if (!key) return;
+
+    onOpenTicketDetails?.({
+      id: `${key}:${Date.now()}`,
+      ticketKey: key,
+      issue: action?.issue || findTicketByKey(allRows, key) || null,
+      source: `developer-next-actions:${action?.type || "details"}`,
+    });
   }
 
   function openExecutionFromDetails(ticketKey, opts = {}) {
@@ -582,15 +574,6 @@ export default function DeveloperWorkspace({
         onOpenExecution={onOpenExecution}
         onStartTicket={handleStartTicketAction}
         onOpenDetails={openDetailsAction}
-      />
-
-      <DeveloperTicketDetailsDialog
-        open={Boolean(detailsAction)}
-        action={detailsAction}
-        issue={detailsIssue}
-        onClose={closeDetailsAction}
-        onOpenExecution={openExecutionFromDetails}
-        onScheduleSaved={handleScheduleSaved}
       />
     </section>
   );

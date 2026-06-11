@@ -308,6 +308,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
   const [calendarSettingsLoading, setCalendarSettingsLoading] = useState(false);
   const poData = usePoJiraData();
   const [amStartTicketRequest, setAmStartTicketRequest] = useState(null);
+  const [amTicketDetailsRequest, setAmTicketDetailsRequest] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -446,6 +447,28 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
     }
 
     setAmStartTicketRequest({
+      id: `${ticketKey}:${Date.now()}`,
+      ticketKey,
+      issue: request.issue || { key: ticketKey },
+      source: request.source || "developer-workspace",
+    });
+
+    selectMainTab("am");
+  }
+
+  function openAmTicketDetailsModal(request = {}) {
+    const ticketKey = String(
+      request.ticketKey || request.issue?.key || request.key || "",
+    )
+      .trim()
+      .toUpperCase();
+
+    if (!ticketKey) {
+      toast.error("Ticket inválido para abrir detalhes.");
+      return;
+    }
+
+    setAmTicketDetailsRequest({
       id: `${ticketKey}:${Date.now()}`,
       ticketKey,
       issue: request.issue || { key: ticketKey },
@@ -635,6 +658,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                   poData={poData}
                   onConfigureUser={() => selectMainTab("settings")}
                   onStartTicket={openAmStartTicketModal}
+                  onOpenTicketDetails={openAmTicketDetailsModal}
                   onProgressChange={setGmudProgressPct}
                   onRdmTitleChange={setRdmTitle}
                   onRdmDueDateChange={setRdmDueDate}
@@ -648,6 +672,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                     currentUser={currentUser}
                     poData={poData}
                     startTicketRequest={amStartTicketRequest}
+                    ticketDetailsRequest={amTicketDetailsRequest}
                   />
                 </div>
               ) : null}

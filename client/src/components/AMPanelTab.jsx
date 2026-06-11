@@ -1405,6 +1405,7 @@ export default function AMPanelTab({
   personalMode = false,
   onConfigureUser,
   startTicketRequest = null,
+  ticketDetailsRequest = null,
 }) {
   const effectiveCalendarSettings = useMemo(
     () => normalizeCalendarSettings(calendarSettings),
@@ -1509,6 +1510,7 @@ export default function AMPanelTab({
   const [startErr, setStartErr] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(STATUS_OPTIONS[0]);
   const lastExternalStartRequestRef = useRef("");
+  const lastExternalDetailsRequestRef = useRef("");
 
   // trava durante persistência de mudança de datas (drag/resize)
   const [persisting, setPersisting] = useState(false);
@@ -1760,6 +1762,37 @@ export default function AMPanelTab({
       key: ticketKey,
     });
   }, [startTicketRequest]);
+
+  useEffect(() => {
+    const requestId = String(
+      ticketDetailsRequest?.id || ticketDetailsRequest?.ticketKey || "",
+    ).trim();
+
+    if (!requestId || lastExternalDetailsRequestRef.current === requestId) {
+      return;
+    }
+
+    const ticketKey = String(
+      ticketDetailsRequest?.ticketKey || ticketDetailsRequest?.issue?.key || "",
+    )
+      .trim()
+      .toUpperCase();
+
+    if (!ticketKey) return;
+
+    lastExternalDetailsRequestRef.current = requestId;
+
+    setSubView("acoes");
+    setDashTab("andamento");
+    setDetailsKey(ticketKey);
+    setDetailsOpen(true);
+  }, [
+    ticketDetailsRequest,
+    setDashTab,
+    setDetailsKey,
+    setDetailsOpen,
+    setSubView,
+  ]);
 
   async function applyStatusOnly(ctx = {}) {
     if (!startIssueKey) return;
