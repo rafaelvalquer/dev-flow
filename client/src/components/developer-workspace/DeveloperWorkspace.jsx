@@ -141,17 +141,12 @@ export default function DeveloperWorkspace({
       noteTicketKey === "__free__" ? "" : noteTicketKey,
       ...filteredRows.map(getIssueKey),
       ...(workspace.stickyNotes || []).map((note) => note.ticketKey),
-      ...Object.keys(workspace.notesByTicket || {}),
     ]
       .map(normalizeTicketKey)
       .filter(Boolean);
+
     return Array.from(new Set(keys)).slice(0, 12);
-  }, [
-    filteredRows,
-    noteTicketKey,
-    workspace.notesByTicket,
-    workspace.stickyNotes,
-  ]);
+  }, [filteredRows, noteTicketKey, workspace.stickyNotes]);
 
   const contextTicketKey = useMemo(
     () =>
@@ -361,11 +356,8 @@ export default function DeveloperWorkspace({
   }
 
   function openExpandedWidget(widgetId) {
-    const hasNotes = Object.values(workspace.notesByTicket || {}).some(
-      (value) => {
-        const text = typeof value === "string" ? value : value?.text || "";
-        return String(text || "").trim();
-      },
+    const hasNotes = (workspace.stickyNotes || []).some((note) =>
+      String(note?.text || "").trim(),
     );
     const emptyChecks = {
       queue: filteredRows.length === 0,
@@ -567,7 +559,7 @@ export default function DeveloperWorkspace({
         riskRows={riskRows}
         actions={nextActions}
         recentTickets={workspace.recentTickets}
-        notesByTicket={workspace.notesByTicket}
+        stickyNotes={workspace.stickyNotes}
         onOpenChange={(open) => {
           if (!open) setExpandedWidget(null);
         }}

@@ -468,14 +468,22 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
       return;
     }
 
+    // Garante que o AMPanelTab esteja montado para receber a request,
+    // mas sem trocar a tela atual para o Painel de Acompanhamento.
+    setVisitedTabs((prev) => {
+      if (prev.has("am")) return prev;
+
+      const next = new Set(prev);
+      next.add("am");
+      return next;
+    });
+
     setAmTicketDetailsRequest({
       id: `${ticketKey}:${Date.now()}`,
       ticketKey,
       issue: request.issue || { key: ticketKey },
       source: request.source || "developer-workspace",
     });
-
-    selectMainTab("am");
   }
 
   return (

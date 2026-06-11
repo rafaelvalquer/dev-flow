@@ -18,12 +18,7 @@ const VALID_WIDGETS = new Set([
   "productivity",
 ]);
 const VALID_DENSITIES = new Set(["compact", "comfortable"]);
-const VALID_SORTS = new Set([
-  "dueDate",
-  "priority",
-  "updated",
-  "status",
-]);
+const VALID_SORTS = new Set(["dueDate", "priority", "updated", "status"]);
 const VALID_START_MODES = new Set(["workspace", "lastTicket"]);
 const MAX_STICKY_NOTES = 80;
 
@@ -65,7 +60,7 @@ function publicWorkspace(doc) {
     notesMap instanceof Map
       ? Object.fromEntries(notesMap.entries())
       : Object.fromEntries(
-          Object.entries(notesMap).map(([key, value]) => [normKey(key), value])
+          Object.entries(notesMap).map(([key, value]) => [normKey(key), value]),
         );
 
   return {
@@ -81,9 +76,16 @@ function publicWorkspace(doc) {
 function normalizeStickyNotePayload(raw = {}) {
   return {
     ticketKey: normKey(raw.ticketKey),
-    title: String(raw.title || "").trim().slice(0, 180),
-    text: String(raw.text || "").trim().slice(0, 12000),
-    color: String(raw.color || "yellow").trim().slice(0, 32) || "yellow",
+    title: String(raw.title || "")
+      .trim()
+      .slice(0, 180),
+    text: String(raw.text || "")
+      .trim()
+      .slice(0, 12000),
+    color:
+      String(raw.color || "yellow")
+        .trim()
+        .slice(0, 32) || "yellow",
     pinned: Boolean(raw.pinned),
     resolved: Boolean(raw.resolved),
   };
@@ -100,7 +102,7 @@ async function getOrCreateWorkspace(req) {
   return DeveloperWorkspace.findOneAndUpdate(
     { userId },
     { $setOnInsert: { userId } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { new: true, upsert: true, setDefaultsOnInsert: true },
   );
 }
 
@@ -119,9 +121,10 @@ router.put("/preferences", async (req, res, next) => {
   try {
     const doc = await getOrCreateWorkspace(req);
     const preferences = normalizePreferences(req.body?.preferences || req.body);
-    const layout = req.body?.layout && typeof req.body.layout === "object"
-      ? req.body.layout
-      : undefined;
+    const layout =
+      req.body?.layout && typeof req.body.layout === "object"
+        ? req.body.layout
+        : undefined;
 
     if (Object.keys(preferences).length) {
       doc.preferences = {
@@ -147,10 +150,18 @@ router.put("/recent/:ticketKey", async (req, res, next) => {
     const previous = Array.isArray(doc.recentTickets) ? doc.recentTickets : [];
     const nextItem = {
       ticketKey,
-      summary: String(req.body?.summary || "").trim().slice(0, 240),
-      status: String(req.body?.status || "").trim().slice(0, 80),
-      priority: String(req.body?.priority || "").trim().slice(0, 80),
-      activeTab: String(req.body?.activeTab || "").trim().slice(0, 40),
+      summary: String(req.body?.summary || "")
+        .trim()
+        .slice(0, 240),
+      status: String(req.body?.status || "")
+        .trim()
+        .slice(0, 80),
+      priority: String(req.body?.priority || "")
+        .trim()
+        .slice(0, 80),
+      activeTab: String(req.body?.activeTab || "")
+        .trim()
+        .slice(0, 40),
       progress: Math.max(0, Math.min(100, Number(req.body?.progress || 0))),
       accessedAt: new Date(),
     };
@@ -234,7 +245,10 @@ router.post("/sticky-notes", async (req, res, next) => {
 
     if (payload.ticketKey) {
       if (!doc.notesByTicket) doc.notesByTicket = new Map();
-      doc.notesByTicket.set(payload.ticketKey, { text: payload.text, updatedAt: now });
+      doc.notesByTicket.set(payload.ticketKey, {
+        text: payload.text,
+        updatedAt: now,
+      });
       doc.markModified("notesByTicket");
     }
 
@@ -262,15 +276,22 @@ router.put("/sticky-notes/:noteId", async (req, res, next) => {
     }
     if (Object.prototype.hasOwnProperty.call(body, "title")) {
       note.title =
-        String(body.title || "").trim().slice(0, 180) ||
+        String(body.title || "")
+          .trim()
+          .slice(0, 180) ||
         note.ticketKey ||
         "Nota livre";
     }
     if (Object.prototype.hasOwnProperty.call(body, "text")) {
-      note.text = String(body.text || "").trim().slice(0, 12000);
+      note.text = String(body.text || "")
+        .trim()
+        .slice(0, 12000);
     }
     if (Object.prototype.hasOwnProperty.call(body, "color")) {
-      note.color = String(body.color || "yellow").trim().slice(0, 32) || "yellow";
+      note.color =
+        String(body.color || "yellow")
+          .trim()
+          .slice(0, 32) || "yellow";
     }
     if (Object.prototype.hasOwnProperty.call(body, "pinned")) {
       note.pinned = Boolean(body.pinned);
@@ -333,12 +354,41 @@ router.delete("/sticky-notes/:noteId", async (req, res, next) => {
 
     const doc = await getOrCreateWorkspace(req);
     const previous = Array.isArray(doc.stickyNotes) ? doc.stickyNotes : [];
-    const nextNotes = previous.filter((item) => String(item?.id || "") !== noteId);
-    if (nextNotes.length === previous.length) {
+    const deletedNote = previous.find(
+      (item) => String(item?.id || "") === noteId,
+    );
+    const nextNotes = previous.filter(
+      (item) => String(item?.id || "") !== noteId,
+    );
+
+    if (!deletedNote || nextNotes.length === previous.length) {
       return res.status(404).json({ error: "Nota nao encontrada." });
     }
 
     doc.stickyNotes = nextNotes;
+
+    const deletedTicketKey = normKey(deletedNote.ticketKey);
+    if (deletedTicketKey && doc.notesByTicket?.delete) {
+      const latestSameTicketNote = nextNotes
+        .filter((note) => normKey(note?.ticketKey) === deletedTicketKey)
+        .sort(
+          (a, b) =>
+            new Date(b?.updatedAt || b?.createdAt || 0) -
+            new Date(a?.updatedAt || a?.createdAt || 0),
+        )[0];
+
+      if (latestSameTicketNote) {
+        doc.notesByTicket.set(deletedTicketKey, {
+          text: latestSameTicketNote.text || "",
+          updatedAt: latestSameTicketNote.updatedAt || new Date(),
+        });
+      } else {
+        doc.notesByTicket.delete(deletedTicketKey);
+      }
+
+      doc.markModified("notesByTicket");
+    }
+
     await doc.save();
     res.json({ ok: true, workspace: publicWorkspace(doc) });
   } catch (err) {

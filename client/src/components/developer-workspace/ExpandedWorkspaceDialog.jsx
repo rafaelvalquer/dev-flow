@@ -32,7 +32,7 @@ export function ExpandedWorkspaceDialog({
   riskRows,
   actions,
   recentTickets,
-  notesByTicket,
+  stickyNotes,
   onOpenChange,
   onOpenExecution,
   onStartTicket,
@@ -80,12 +80,22 @@ export function ExpandedWorkspaceDialog({
       activeTab: action.activeTab || "",
     });
   }
-  const notesEntries = Object.entries(notesByTicket || {}).filter(
-    ([, value]) => {
-      const text = typeof value === "string" ? value : value?.text || "";
-      return String(text || "").trim();
-    },
-  );
+  const notesEntries = [...(stickyNotes || [])]
+    .filter((note) => String(note?.text || "").trim())
+    .sort((a, b) => {
+      if (Boolean(a?.pinned) !== Boolean(b?.pinned)) {
+        return a?.pinned ? -1 : 1;
+      }
+
+      if (Boolean(a?.resolved) !== Boolean(b?.resolved)) {
+        return a?.resolved ? 1 : -1;
+      }
+
+      return (
+        new Date(b?.updatedAt || b?.createdAt || 0) -
+        new Date(a?.updatedAt || a?.createdAt || 0)
+      );
+    });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -216,16 +226,17 @@ export function ExpandedWorkspaceDialog({
 
         {widget === "notes" ? (
           <div className="developer-expanded-notes">
-            {notesEntries.map(([ticketKey, value]) => {
-              const text =
-                typeof value === "string" ? value : value?.text || "";
-              return (
-                <article key={ticketKey}>
-                  <strong>{ticketKey}</strong>
-                  <p>{text}</p>
-                </article>
-              );
-            })}
+            {notesEntries.map((note) => (
+              <article key={note.id}>
+                <strong>{note.ticketKey || "Nota livre"}</strong>
+
+                {note.title && note.title !== note.ticketKey ? (
+                  <small>{note.title}</small>
+                ) : null}
+
+                <p>{note.text}</p>
+              </article>
+            ))}
           </div>
         ) : null}
       </DialogContent>
