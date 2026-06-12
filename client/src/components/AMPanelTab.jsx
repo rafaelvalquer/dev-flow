@@ -2352,6 +2352,20 @@ export default function AMPanelTab({
     [detailsKey, refreshTicketAfterMutation, ticketDetailsRequest],
   );
 
+  async function handleScheduleEditorSave(nextDraft) {
+    const key = String(editorIssue?.key || "")
+      .trim()
+      .toUpperCase();
+
+    const updated = await saveEditor(nextDraft);
+
+    if (key) {
+      await ticketDetailsRequest?.onTicketUpdatedFromDetails?.(key, updated);
+    }
+
+    return updated;
+  }
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-zinc-50">
@@ -2750,7 +2764,7 @@ export default function AMPanelTab({
               draft={draft}
               setDraft={setDraft}
               onClose={closeEditor}
-              onSave={saveEditor}
+              onSave={handleScheduleEditorSave}
               loading={loading}
               dueDateDraft={dueDateDraft}
               setDueDateDraft={setDueDateDraft}
@@ -2823,7 +2837,7 @@ export default function AMPanelTab({
             onDocumentationFlagChange={setDocumentationFolderFlag}
             onOpenDocumentation={(ticket) => openDocumentationOrganizer(ticket)}
             onOpenSchedule={(ticket) => openEditor(ticket)}
-            onTicketUpdated={refreshTicketAfterMutation}
+            onTicketUpdated={handleDetailsTicketUpdated}
             onMarkedStarted={async () => {
               if (!detailsKey) return;
               await createComment(detailsKey, adfFromPlainText("[INICIADO]"));
@@ -8133,23 +8147,6 @@ function CronogramaEditorModal({
       return next;
     });
   }, [calendarSettings, draft, dueDateObj, issue?.key]);
-
-  const handleDetailsTicketUpdated = useCallback(
-    async (ticketKey, ...args) => {
-      const key = String(ticketKey || detailsKey || "")
-        .trim()
-        .toUpperCase();
-
-      if (!key) return null;
-
-      const updated = await refreshTicketAfterMutation(key, ...args);
-
-      await ticketDetailsRequest?.onTicketUpdatedFromDetails?.(key, updated);
-
-      return updated;
-    },
-    [detailsKey, refreshTicketAfterMutation, ticketDetailsRequest],
-  );
 
   return (
     <>

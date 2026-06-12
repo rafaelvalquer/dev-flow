@@ -34,7 +34,9 @@ export default function DeveloperCenterTab({
     activeTab: "",
     progress: 0,
   });
+
   const recentSaveTimer = useRef(null);
+  const executionContextRef = useRef(executionContext);
 
   const {
     workspace,
@@ -43,6 +45,10 @@ export default function DeveloperCenterTab({
     personalRows,
     updateWorkspaceFromSave,
   } = useDeveloperWorkspaceData({ currentUser, poData });
+
+  useEffect(() => {
+    executionContextRef.current = executionContext;
+  }, [executionContext]);
 
   const selectedTicket = useMemo(
     () => findTicketByKey(personalRows, selectedTicketKey),
@@ -53,42 +59,60 @@ export default function DeveloperCenterTab({
     async (ticketKey, patch = {}) => {
       const key = normalizeTicketKey(ticketKey);
       if (!key) return;
+
       const issue = findTicketByKey(personalRows, key);
+      const currentExecutionContext = executionContextRef.current || {};
+
       const nextWorkspace = await registerDeveloperRecentTicket(key, {
         summary: patch.summary ?? getSummary(issue),
         status: patch.status ?? getStatus(issue),
         priority: patch.priority ?? getPriority(issue),
-        activeTab: patch.activeTab ?? executionContext.activeTab,
-        progress: patch.progress ?? executionContext.progress,
+        activeTab: patch.activeTab ?? currentExecutionContext.activeTab,
+        progress: patch.progress ?? currentExecutionContext.progress,
       });
+
       updateWorkspaceFromSave(nextWorkspace);
     },
-    [
-      executionContext.activeTab,
-      executionContext.progress,
-      personalRows,
-      updateWorkspaceFromSave,
-    ],
+    [personalRows, updateWorkspaceFromSave],
   );
 
-  function openExecution(ticketKey, opts = {}) {
-    const key = normalizeTicketKey(ticketKey);
-    if (!key) return;
-    const recent = workspace.recentTickets.find(
-      (item) => normalizeTicketKey(item.ticketKey) === key,
-    );
-    setSelectedTicketKey(key);
-    setSelectedInitialTab(opts.activeTab ?? recent?.activeTab ?? "");
-    setExecutionContext({
-      activeTab: opts.activeTab ?? recent?.activeTab ?? "",
-      progress: Number(recent?.progress || 0),
-    });
-    setMode("execution");
-    registerRecent(key, {
-      activeTab: opts.activeTab ?? recent?.activeTab ?? "",
-      progress: Number(recent?.progress || 0),
-    }).catch(() => null);
-  }
+  const handleTicketUpdatedFromDetails = useCallback(
+    async (ticketKey) => {
+      const key = normalizeTicketKey(ticketKey);
+      if (!key) return null;
+
+      return poData?.refreshIssue?.(key);
+    },
+    [poData],
+  );
+
+  const openExecution = useCallback(
+    (ticketKey, opts = {}) => {
+      const key = normalizeTicketKey(ticketKey);
+      if (!key) return;
+
+      const recent = (workspace.recentTickets || []).find(
+        (item) => normalizeTicketKey(item.ticketKey) === key,
+      );
+
+      const activeTab = opts.activeTab ?? recent?.activeTab ?? "";
+      const progress = Number(recent?.progress || 0);
+
+      setSelectedTicketKey(key);
+      setSelectedInitialTab(activeTab);
+      setExecutionContext({
+        activeTab,
+        progress,
+      });
+      setMode("execution");
+
+      registerRecent(key, {
+        activeTab,
+        progress,
+      }).catch(() => null);
+    },
+    [registerRecent, workspace.recentTickets],
+  );
 
   const handleExecutionContextChange = useCallback((next = {}) => {
     setExecutionContext((prev) => ({
@@ -111,18 +135,23 @@ export default function DeveloperCenterTab({
 
   useEffect(() => {
     if (mode !== "execution" || !selectedTicketKey) return undefined;
+
     window.clearTimeout(recentSaveTimer.current);
+
     recentSaveTimer.current = window.setTimeout(() => {
       registerRecent(selectedTicketKey).catch(() => null);
     }, 900);
 
     return () => window.clearTimeout(recentSaveTimer.current);
-  }, [executionContext, mode, registerRecent, selectedTicketKey]);
+  }, [mode, registerRecent, selectedTicketKey]);
 
-  function backToWorkspace() {
-    if (selectedTicketKey) registerRecent(selectedTicketKey).catch(() => null);
+  const backToWorkspace = useCallback(() => {
+    if (selectedTicketKey) {
+      registerRecent(selectedTicketKey).catch(() => null);
+    }
+
     setMode("workspace");
-  }
+  }, [registerRecent, selectedTicketKey]);
 
   if (mode === "execution") {
     return (
@@ -137,6 +166,7 @@ export default function DeveloperCenterTab({
             <ArrowLeft className="mr-2 h-4 w-4" />
             Workspace
           </Button>
+
           <div className="developer-execution-return__copy">
             <strong>{selectedTicketKey || "Ticket"}</strong>
             <span>
@@ -146,6 +176,7 @@ export default function DeveloperCenterTab({
             </span>
           </div>
         </div>
+
         <ChecklistGMUDTab
           key={selectedTicketKey}
           initialTicketJira={selectedTicketKey}
@@ -160,16 +191,6 @@ export default function DeveloperCenterTab({
       </div>
     );
   }
-
-  const handleTicketUpdatedFromDetails = useCallback(
-    async (ticketKey) => {
-      const key = normalizeTicketKey(ticketKey);
-      if (!key) return null;
-
-      return poData?.refreshIssue?.(key);
-    },
-    [poData],
-  );
 
   return (
     <DeveloperWorkspace
