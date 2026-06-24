@@ -112,6 +112,15 @@ export async function searchCdr(filters = {}) {
   return request(`/search?${params.toString()}`);
 }
 
+export async function searchPortalTasks(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    params.set(key, value ?? "");
+  });
+
+  return request(`/tasks/search?${params.toString()}`);
+}
+
 export async function analyzeCdr(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {

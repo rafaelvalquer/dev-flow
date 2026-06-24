@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import "../DeveloperCenterTab.css";
 
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 
-import ChecklistGMUDTab from "../ChecklistGMUDTab";
 import { registerDeveloperRecentTicket } from "../../lib/developerWorkspace";
 
 import DeveloperWorkspace from "./DeveloperWorkspace";
@@ -16,6 +23,21 @@ import {
   getSummary,
   normalizeTicketKey,
 } from "./utils/developerTicketUtils";
+
+const ChecklistGMUDTab = lazy(() => import("../ChecklistGMUDTab"));
+
+function ChecklistLoadingFallback() {
+  return (
+    <div
+      className="developer-execution-loading"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="developer-execution-loading__spinner" aria-hidden="true" />
+      <span>Carregando jornada operacional...</span>
+    </div>
+  );
+}
 
 export default function DeveloperCenterTab({
   currentUser,
@@ -177,17 +199,19 @@ export default function DeveloperCenterTab({
           </div>
         </div>
 
-        <ChecklistGMUDTab
-          key={selectedTicketKey}
-          initialTicketJira={selectedTicketKey}
-          initialActiveTab={selectedInitialTab}
-          autoSyncOnOpen={workspace.preferences.autoSyncOnOpen !== false}
-          onBackToWorkspace={backToWorkspace}
-          onExecutionContextChange={handleExecutionContextChange}
-          onProgressChange={handleChecklistProgress}
-          onRdmTitleChange={onRdmTitleChange}
-          onRdmDueDateChange={onRdmDueDateChange}
-        />
+        <Suspense fallback={<ChecklistLoadingFallback />}>
+          <ChecklistGMUDTab
+            key={selectedTicketKey}
+            initialTicketJira={selectedTicketKey}
+            initialActiveTab={selectedInitialTab}
+            autoSyncOnOpen={workspace.preferences.autoSyncOnOpen !== false}
+            onBackToWorkspace={backToWorkspace}
+            onExecutionContextChange={handleExecutionContextChange}
+            onProgressChange={handleChecklistProgress}
+            onRdmTitleChange={onRdmTitleChange}
+            onRdmDueDateChange={onRdmDueDateChange}
+          />
+        </Suspense>
       </div>
     );
   }

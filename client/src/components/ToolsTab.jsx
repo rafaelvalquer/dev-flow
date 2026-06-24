@@ -22,6 +22,7 @@ import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
 import CdrSearchTool from "@/components/tools/CdrSearchTool";
 import CdrAnalyticsTool from "@/components/tools/CdrAnalyticsTool";
+import TaskFileSearchTool from "@/components/tools/TaskFileSearchTool";
 
 const TOOL_DEFS = [
   {
@@ -71,6 +72,13 @@ const TOOL_DEFS = [
     title: "Dashboard CDR",
     desc: "Baixe o CSV do Portal ICC e visualize estatisticas por DDD, DNA, duracao e transferencias.",
     icon: BarChart3,
+    status: "ativo",
+  },
+  {
+    id: "task-file-search",
+    title: "Busca Tarefas ICC",
+    desc: "Pesquise tarefas do Portal ICC por Arquivo e Remoto na etapa principal.",
+    icon: FileSearch,
     status: "ativo",
   },
 ];
@@ -233,7 +241,8 @@ export default function ToolsTab() {
     [activeTool],
   );
   const ActiveIcon = active.icon;
-  const usesSttHealth = !["automacao", "cdr", "cdr-analytics"].includes(activeTool);
+  const portalIccTools = ["cdr", "cdr-analytics", "task-file-search"];
+  const usesSttHealth = !["automacao", ...portalIccTools].includes(activeTool);
 
   const healthSummary = useMemo(() => {
     if (sttOnline === true) {
@@ -335,7 +344,7 @@ export default function ToolsTab() {
     healthBadge
   ) : (
     <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-      {["cdr", "cdr-analytics"].includes(activeTool) ? "Portal ICC" : "Local"}
+      {portalIccTools.includes(activeTool) ? "Portal ICC" : "Local"}
     </Badge>
   );
 
@@ -366,6 +375,10 @@ export default function ToolsTab() {
 
     if (activeTool === "cdr-analytics") {
       return <CdrAnalyticsTool />;
+    }
+
+    if (activeTool === "task-file-search") {
+      return <TaskFileSearchTool />;
     }
 
     return (

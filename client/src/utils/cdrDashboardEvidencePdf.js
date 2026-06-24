@@ -1,6 +1,3 @@
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
-
 function numberBr(value) {
   return new Intl.NumberFormat("pt-BR").format(Number(value || 0));
 }
@@ -184,7 +181,7 @@ function prepareReportClone(element) {
   return { container, clone };
 }
 
-async function captureElement(element) {
+async function captureElement(element, html2canvas) {
   const { container, clone } = prepareReportClone(element);
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
@@ -288,6 +285,10 @@ export async function createDashboardEvidencePdfFile({
     throw new Error("Selecione pelo menos um modulo para gerar a evidencia.");
   }
 
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import("html2canvas"),
+    import("jspdf"),
+  ]);
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const cursorStart = addHeader(pdf, { analytics, filters });
 
@@ -295,7 +296,7 @@ export async function createDashboardEvidencePdfFile({
   for (const module of selected) {
     const element = moduleElements?.[module.id];
     if (!element) continue;
-    const canvas = await captureElement(element);
+    const canvas = await captureElement(element, html2canvas);
     cursorY = addCanvasToPdf(pdf, canvas, module.label, cursorY) + 4;
   }
 

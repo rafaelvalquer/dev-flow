@@ -274,6 +274,20 @@ export default function toolsCdrRoutes({ env }) {
     }
   });
 
+  router.get("/tasks/search", requirePortal, async (req, res, next) => {
+    try {
+      const result = await req.portalIccClient.searchTasksByFileRemote(
+        req.query || {},
+      );
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      if (err?.code === "PORTAL_SESSION_EXPIRED") {
+        removePortalIccSession(req);
+      }
+      next(toPublicError(err));
+    }
+  });
+
   router.get("/analytics", requirePortal, async (req, res, next) => {
     try {
       const { export: exportInfo, analytics } = await runCdrAnalytics(

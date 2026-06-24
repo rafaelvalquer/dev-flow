@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Blocks,
   Briefcase,
@@ -23,12 +23,6 @@ import { Toaster, toast } from "sonner";
 import "./App.css";
 import "./module-primitives.css";
 import "./theme-overrides.css";
-import DeveloperCenterTab from "./components/DeveloperCenterTab";
-import RDMTab from "./components/RDMTab";
-import AMPanelTab from "./components/AMPanelTab";
-import ToolsTab from "./components/ToolsTab";
-import SystemSettingsTab from "./components/SystemSettingsTab";
-import URAVersioningTab from "./components/URAVersioningTab";
 import usePoJiraData from "./hooks/usePoJiraData";
 import {
   fetchCurrentUser,
@@ -46,6 +40,19 @@ import {
 } from "./utils/businessCalendar";
 
 import "react-day-picker/dist/style.css";
+
+const DeveloperCenterTab = lazy(
+  () => import("./components/DeveloperCenterTab"),
+);
+const RDMTab = lazy(() => import("./components/RDMTab"));
+const AMPanelTab = lazy(() => import("./components/AMPanelTab"));
+const ToolsTab = lazy(() => import("./components/ToolsTab"));
+const SystemSettingsTab = lazy(
+  () => import("./components/SystemSettingsTab"),
+);
+const URAVersioningTab = lazy(
+  () => import("./components/URAVersioningTab"),
+);
 
 const AUTH_SESSION_EXPIRED_EVENT = "devflow:auth-session-expired";
 const SAVED_LOGIN_CREDENTIALS_KEY = "devflow:saved-login-credentials:v1";
@@ -206,6 +213,20 @@ const MAIN_TAB_IDS = new Set(MAIN_TABS.map((tab) => tab.id));
 
 function normalizeDefaultTab(tabId) {
   return MAIN_TAB_IDS.has(tabId) ? tabId : "gmud";
+}
+
+function ModuleLoadingFallback() {
+  return (
+    <div
+      className="app-module-loading"
+      role="status"
+      aria-live="polite"
+      aria-label="Carregando módulo"
+    >
+      <span className="app-module-loading__spinner" aria-hidden="true" />
+      <span>Carregando módulo...</span>
+    </div>
+  );
 }
 
 const DEFAULT_PRIMARY_COLOR = "#cf0013";
@@ -657,64 +678,66 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
             </section>
 
             <section className={contentClassName}>
-              {mainTab === "rdm" ? (
-                <RDMTab initialTitle={rdmTitle} initialDueDate={rdmDueDate} />
-              ) : null}
+              <Suspense fallback={<ModuleLoadingFallback />}>
+                {mainTab === "rdm" ? (
+                  <RDMTab initialTitle={rdmTitle} initialDueDate={rdmDueDate} />
+                ) : null}
 
-              {mainTab === "gmud" ? (
-                <DeveloperCenterTab
-                  currentUser={currentUser}
-                  poData={poData}
-                  onConfigureUser={() => selectMainTab("settings")}
-                  onStartTicket={openAmStartTicketModal}
-                  onOpenTicketDetails={openAmTicketDetailsModal}
-                  onProgressChange={setGmudProgressPct}
-                  onRdmTitleChange={setRdmTitle}
-                  onRdmDueDateChange={setRdmDueDate}
-                />
-              ) : null}
-
-              {visitedTabs.has("am") ? (
-                <div hidden={mainTab !== "am"}>
-                  <AMPanelTab
-                    calendarSettings={calendarSettings}
+                {mainTab === "gmud" ? (
+                  <DeveloperCenterTab
                     currentUser={currentUser}
                     poData={poData}
-                    startTicketRequest={amStartTicketRequest}
-                    ticketDetailsRequest={amTicketDetailsRequest}
-                  />
-                </div>
-              ) : null}
-
-              {visitedTabs.has("my") ? (
-                <div hidden={mainTab !== "my"}>
-                  <AMPanelTab
-                    calendarSettings={calendarSettings}
-                    currentUser={currentUser}
-                    poData={poData}
-                    personalMode
                     onConfigureUser={() => selectMainTab("settings")}
+                    onStartTicket={openAmStartTicketModal}
+                    onOpenTicketDetails={openAmTicketDetailsModal}
+                    onProgressChange={setGmudProgressPct}
+                    onRdmTitleChange={setRdmTitle}
+                    onRdmDueDateChange={setRdmDueDate}
                   />
-                </div>
-              ) : null}
+                ) : null}
 
-              {visitedTabs.has("versioning") ? (
-                <div hidden={mainTab !== "versioning"}>
-                  <URAVersioningTab />
-                </div>
-              ) : null}
+                {visitedTabs.has("am") ? (
+                  <div hidden={mainTab !== "am"}>
+                    <AMPanelTab
+                      calendarSettings={calendarSettings}
+                      currentUser={currentUser}
+                      poData={poData}
+                      startTicketRequest={amStartTicketRequest}
+                      ticketDetailsRequest={amTicketDetailsRequest}
+                    />
+                  </div>
+                ) : null}
 
-              {mainTab === "tools" ? <ToolsTab /> : null}
+                {visitedTabs.has("my") ? (
+                  <div hidden={mainTab !== "my"}>
+                    <AMPanelTab
+                      calendarSettings={calendarSettings}
+                      currentUser={currentUser}
+                      poData={poData}
+                      personalMode
+                      onConfigureUser={() => selectMainTab("settings")}
+                    />
+                  </div>
+                ) : null}
 
-              {mainTab === "settings" ? (
-                <SystemSettingsTab
-                  currentUser={currentUser}
-                  calendarSettings={calendarSettings}
-                  calendarSettingsLoading={calendarSettingsLoading}
-                  onSaveCalendarSettings={handleSaveCalendarSettings}
-                  onUserUpdated={onUserUpdated}
-                />
-              ) : null}
+                {visitedTabs.has("versioning") ? (
+                  <div hidden={mainTab !== "versioning"}>
+                    <URAVersioningTab />
+                  </div>
+                ) : null}
+
+                {mainTab === "tools" ? <ToolsTab /> : null}
+
+                {mainTab === "settings" ? (
+                  <SystemSettingsTab
+                    currentUser={currentUser}
+                    calendarSettings={calendarSettings}
+                    calendarSettingsLoading={calendarSettingsLoading}
+                    onSaveCalendarSettings={handleSaveCalendarSettings}
+                    onUserUpdated={onUserUpdated}
+                  />
+                ) : null}
+              </Suspense>
             </section>
           </main>
         </div>

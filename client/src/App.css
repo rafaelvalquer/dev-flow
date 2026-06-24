@@ -132,6 +132,34 @@ body {
   box-shadow: 0 0 0 8px rgba(227, 6, 19, 0.14);
 }
 
+.app-module-loading,
+.developer-execution-loading {
+  display: flex;
+  min-height: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: #52525b;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.app-module-loading__spinner,
+.developer-execution-loading__spinner {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid rgba(207, 0, 19, 0.18);
+  border-top-color: var(--theme-primary-color, #cf0013);
+  border-radius: 999px;
+  animation: app-module-loading-spin 0.8s linear infinite;
+}
+
+@keyframes app-module-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .auth-brand {
   display: flex;
   gap: 16px;

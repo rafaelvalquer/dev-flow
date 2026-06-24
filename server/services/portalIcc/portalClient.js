@@ -4,6 +4,12 @@ import http from "node:http";
 import https from "node:https";
 import { CookieJar } from "tough-cookie";
 import { parseCdrResponse, ensureAuthenticatedHtml } from "./cdrParser.js";
+import {
+  normalizeTaskSearchText,
+  parseTaskListPage,
+  parseTaskStepForm,
+  taskMatchesSearch,
+} from "./tasksParser.js";
 
 const BROWSER_ACCEPT =
   "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8";
@@ -586,6 +592,249 @@ export class PortalIccClient {
       contentType: response.headers["content-type"] || "",
       filename: response.headers["content-disposition"] || "",
       filters: params,
+    };
+  }
+
+  async listTaskPage(page = 1) {
+    const currentPage = Math.max(1, Number(page || 1) || 1);
+    const path = `/portalicc/tarefas-list/page/${currentPage}`;
+    const params = {
+      sortField: "tarefaId",
+      sortOrder: "desc",
+    };
+    const startedAt = Date.now();
+
+    console.log("[portal-tasks] GET list request", {
+      url: this.portalUrl(path),
+      params,
+      page: currentPage,
+    });
+
+    let response;
+    try {
+      response = await this.client.get(path, {
+        params,
+        headers: {
+          ...BASE_HEADERS,
+          Referer: this.portalUrl("/portalicc/index"),
+          "Upgrade-Insecure-Requests": "1",
+        },
+      });
+    } catch (error) {
+      logPortalError("portal-tasks", "GET list", error);
+      if (Number(error?.response?.status) === 417) {
+        const sessionError = new Error(
+          "Sessão Portal ICC expirada. Faça login novamente.",
+        );
+        sessionError.code = "PORTAL_SESSION_EXPIRED";
+        sessionError.status = 401;
+        throw sessionError;
+      }
+      throw error;
+    }
+
+    const location = normalizePortalLocation(
+      this.baseUrl,
+      response.headers.location || "",
+    );
+    if (response.status >= 300 && response.status < 400) {
+      if (String(location || "").includes("/portalicc/login")) {
+        const error = new Error("Sessão Portal ICC expirada.");
+        error.code = "PORTAL_SESSION_EXPIRED";
+        error.status = 401;
+        throw error;
+      }
+    }
+
+    const html = String(response.data || "");
+    const parsed = parseTaskListPage(html, { page: currentPage });
+
+    console.log("[portal-tasks] list response", {
+      status: response.status,
+      location,
+      elapsedMs: Date.now() - startedAt,
+      htmlLength: html.length,
+      page: currentPage,
+      rows: parsed.rows.length,
+      totalPages: parsed.pagination.totalPages,
+      totalItems: parsed.pagination.totalItems,
+      empty: parsed.empty,
+    });
+
+    return {
+      ...parsed,
+      page: currentPage,
+      rawHtmlLength: html.length,
+    };
+  }
+
+  async getTaskStepForm(task) {
+    const taskId = typeof task === "object" ? task.id : task;
+    const safeTaskId = String(taskId || "").replace(/[^\d]/g, "");
+    if (!safeTaskId) {
+      const error = new Error("ID da tarefa é obrigatório.");
+      error.status = 400;
+      throw error;
+    }
+
+    const path = `/portalicc/etapas-form/tarefa/${safeTaskId}/1`;
+    const startedAt = Date.now();
+
+    console.log("[portal-tasks] GET step request", {
+      url: this.portalUrl(path),
+      taskId: safeTaskId,
+    });
+
+    let response;
+    try {
+      response = await this.client.get(path, {
+        headers: {
+          ...BASE_HEADERS,
+          Referer: this.portalUrl(`/portalicc/etapas-list/tarefa/${safeTaskId}`),
+          "Upgrade-Insecure-Requests": "1",
+        },
+      });
+    } catch (error) {
+      logPortalError("portal-tasks", "GET step", error);
+      if (Number(error?.response?.status) === 417) {
+        const sessionError = new Error(
+          "Sessão Portal ICC expirada. Faça login novamente.",
+        );
+        sessionError.code = "PORTAL_SESSION_EXPIRED";
+        sessionError.status = 401;
+        throw sessionError;
+      }
+      throw error;
+    }
+
+    const location = normalizePortalLocation(
+      this.baseUrl,
+      response.headers.location || "",
+    );
+    if (response.status >= 300 && response.status < 400) {
+      if (String(location || "").includes("/portalicc/login")) {
+        const error = new Error("Sessão Portal ICC expirada.");
+        error.code = "PORTAL_SESSION_EXPIRED";
+        error.status = 401;
+        throw error;
+      }
+    }
+
+    const html = String(response.data || "");
+    const parsed = parseTaskStepForm(html, {
+      ...(typeof task === "object" ? task : {}),
+      id: safeTaskId,
+    });
+
+    console.log("[portal-tasks] step response", {
+      status: response.status,
+      location,
+      elapsedMs: Date.now() - startedAt,
+      htmlLength: html.length,
+      taskId: safeTaskId,
+      hasArquivo: Boolean(parsed.arquivo),
+      hasRemoto: Boolean(parsed.remoto),
+    });
+
+    return parsed;
+  }
+
+  async searchTasksByFileRemote(filters = {}) {
+    const arquivo = String(filters.arquivo || "").trim();
+    const local = String(filters.local || "").trim();
+    const remoto = String(filters.remoto || "").trim();
+
+    if (!arquivo && !local && !remoto) {
+      const error = new Error("Informe Arquivo, Local e/ou Remoto para pesquisar.");
+      error.status = 400;
+      throw error;
+    }
+
+    const pages = [];
+    const tasks = [];
+    let page = 1;
+    let keepReading = true;
+
+    while (keepReading) {
+      const pageResult = await this.listTaskPage(page);
+      pages.push({
+        page,
+        rows: pageResult.rows.length,
+        empty: pageResult.empty,
+        pagination: pageResult.pagination,
+      });
+
+      tasks.push(...pageResult.rows);
+
+      keepReading = !pageResult.empty && pageResult.pagination.hasNextPage;
+      page += 1;
+    }
+
+    const uniqueTasks = [...new Map(tasks.map((task) => [task.id, task])).values()];
+    const matched = [];
+    const failures = [];
+    let analyzed = 0;
+    const concurrency = Math.max(1, Math.min(10, Number(filters.concurrency || 5) || 5));
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < uniqueTasks.length) {
+        const currentIndex = cursor;
+        cursor += 1;
+        const task = uniqueTasks[currentIndex];
+        let detail;
+        try {
+          detail = await this.getTaskStepForm(task);
+          analyzed += 1;
+        } catch (error) {
+          if (error?.code === "PORTAL_SESSION_EXPIRED") throw error;
+          failures.push({
+            id: task.id,
+            tarefa: task.tarefa,
+            code: error?.code || "PORTAL_TASK_DETAIL_ERROR",
+            message: error?.message || "Falha ao analisar detalhe da tarefa.",
+          });
+          console.warn("[portal-tasks] step skipped", {
+            taskId: task.id,
+            code: error?.code,
+            message: error?.message,
+          });
+          continue;
+        }
+
+        if (taskMatchesSearch(detail, { arquivo, local, remoto })) {
+          matched.push(detail);
+        }
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, uniqueTasks.length) }, () =>
+        worker.call(this),
+      ),
+    );
+
+    matched.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+
+    return {
+      filters: {
+        arquivo,
+        local,
+        remoto,
+        normalizedArquivo: normalizeTaskSearchText(arquivo),
+        normalizedLocal: normalizeTaskSearchText(local),
+        normalizedRemoto: normalizeTaskSearchText(remoto),
+      },
+      summary: {
+        pagesRead: pages.length,
+        tasksFound: uniqueTasks.length,
+        detailsAnalyzed: analyzed,
+        detailsFailed: failures.length,
+        matches: matched.length,
+      },
+      pages,
+      failures,
+      rows: matched,
     };
   }
 }
