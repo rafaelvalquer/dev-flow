@@ -59,6 +59,7 @@ export default function DeveloperWorkspace({
   currentUser,
   rows,
   allRows,
+  doneRows,
   workspace,
   loading,
   reloadProgress,
@@ -514,6 +515,8 @@ export default function DeveloperWorkspace({
         saveBreakpointLayout={saveBreakpointLayout}
         visibleWidgetSet={visibleWidgetSet}
         filteredRows={filteredRows}
+        currentUser={currentUser}
+        doneRows={doneRows}
         loading={loading}
         onOpenExecution={onOpenExecution}
         openExpandedWidget={openExpandedWidget}

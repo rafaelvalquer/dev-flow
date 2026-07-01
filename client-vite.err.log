@@ -1,0 +1,477 @@
+Browserslist: browsers data (caniuse-lite) is 6 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2731/comments[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2725?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+Error: read ECONNRESET
+    at TCP.onStreamRead (node:internal/stream_base_commons:216:20)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2724?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2732/comments[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2730/comments[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2729/comments[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2723?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2727/comments[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2721?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2720?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2719?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2717?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2716?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2715?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2714?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2713?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2712?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2711?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2709?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2708?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2703?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2702?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2701?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2696?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2697?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2695?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2694?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2693?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2688?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2687?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2686?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2685?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2684?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2682?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2681?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2680?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2678?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2677?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2676?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2675?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2672?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2671?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2666?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2665?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2664?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2657?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2490?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2489?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2488?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2398?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2407?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-579?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2320?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2007?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-629?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-671?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-682?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-685?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-690?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-866?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2190?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2181?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2145?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2123?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2120?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-2119?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1967?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1965?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1821?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1718?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1510?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1477?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1476?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1475?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1126?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1364?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1363?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1362?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1361?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1360?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1359?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1358?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1357?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1356?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1352?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1351?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1270?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1264?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1154?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1150?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1146?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1139?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-969?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1113?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1112?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1111?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1107?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1035?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1033?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1032?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1022?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1019?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1014?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1013?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-1011?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-998?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-996?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-968?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-965?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-964?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-963?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-962?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-960?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-958?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-943?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-936?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-935?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-934?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)
+[2m21:11:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/jira/issue/ICON-928?fields=summary%2Cstatus%2Cissuetype%2Ccreated%2Cupdated%2Cassignee%2Clabels%2Cattachment%2Cparent%2Ccustomfield_14017%2Cduedate%2Ccustomfield_11519%2Ccustomfield_11520%2Cpriority%2Ccustomfield_10988%2Cresolutiondate%2Ccustomfield_11993%2Ccomponents[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1139:18)
+    at afterConnectMultiple (node:net:1714:7)

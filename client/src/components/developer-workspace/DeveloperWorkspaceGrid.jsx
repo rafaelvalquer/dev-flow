@@ -6,6 +6,7 @@ import {
   BarChart3,
   CalendarDays,
   ClipboardList,
+  Flame,
   Grid2X2,
   ListChecks,
   NotebookPen,
@@ -24,6 +25,7 @@ import {
   QueueWidget,
   QuickActionsWidget,
   RecentWidget,
+  RhythmWidget,
   RiskWidget,
   StatusQueueWidget,
 } from "./widgets";
@@ -39,6 +41,8 @@ export default function DeveloperWorkspaceGrid({
   saveBreakpointLayout,
   visibleWidgetSet,
   filteredRows,
+  currentUser,
+  doneRows,
   loading,
   onOpenExecution,
   openExpandedWidget,
@@ -172,6 +176,18 @@ export default function DeveloperWorkspaceGrid({
                   recentTickets={workspace.recentTickets}
                   onOpenExecution={onOpenExecution}
                   onShowAll={() => openExpandedWidget("recent")}
+                />
+              </WidgetCard>
+            </div>
+          ) : null}
+
+          {visibleWidgetSet.has("rhythm") ? (
+            <div key="rhythm">
+              <WidgetCard title="Meu ritmo" icon={Flame}>
+                <RhythmWidget
+                  rows={sortedRows}
+                  doneRows={doneRows}
+                  currentUser={currentUser}
                 />
               </WidgetCard>
             </div>

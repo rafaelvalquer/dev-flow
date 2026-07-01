@@ -221,6 +221,7 @@ export default function DeveloperCenterTab({
       currentUser={currentUser}
       rows={personalRows}
       allRows={sourceRows}
+      doneRows={poData?.doneRows || []}
       workspace={workspace}
       loading={Boolean(poData?.loading || workspaceLoading)}
       reloadProgress={poData?.reloadProgress}

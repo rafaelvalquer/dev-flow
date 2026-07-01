@@ -6,6 +6,7 @@ export const WIDGETS = [
   { id: "risk", label: "Tickets em risco" },
   { id: "calendar", label: "Calendário" },
   { id: "recent", label: "Últimos acessados" },
+  { id: "rhythm", label: "Meu ritmo" },
   { id: "notes", label: "Notas pessoais" },
   { id: "productivity", label: "Atalhos rápidos" },
 ];
@@ -22,6 +23,7 @@ export const DEFAULT_LAYOUTS = {
     { i: "recent", x: 0, y: 11, w: 3, h: 5, minW: 2, minH: 5 },
     { i: "productivity", x: 3, y: 11, w: 3, h: 5, minW: 2, minH: 5 },
     { i: "notes", x: 6, y: 11, w: 6, h: 6, minW: 3, minH: 5 },
+    { i: "rhythm", x: 0, y: 16, w: 3, h: 5, minW: 3, minH: 4 },
   ],
   md: [
     { i: "queue", x: 0, y: 0, w: 6, h: 6 },
@@ -32,6 +34,7 @@ export const DEFAULT_LAYOUTS = {
     { i: "daily", x: 5, y: 12, w: 5, h: 5, minW: 3, minH: 4 },
     { i: "recent", x: 0, y: 17, w: 4, h: 5 },
     { i: "productivity", x: 4, y: 17, w: 2, h: 5 },
+    { i: "rhythm", x: 6, y: 17, w: 4, h: 5 },
     { i: "notes", x: 0, y: 22, w: 10, h: 5 },
   ],
   sm: WIDGETS.map((widget, index) => ({

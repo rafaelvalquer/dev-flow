@@ -396,6 +396,167 @@
   }
 }
 
+.developer-rhythm {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.developer-rhythm__metrics {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.developer-rhythm-metric {
+  align-items: start;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 3px 7px;
+  grid-template-areas:
+    "icon label"
+    "icon value"
+    "helper helper";
+  grid-template-columns: 18px minmax(0, 1fr);
+  min-width: 0;
+  padding: 10px 10px 9px;
+}
+
+.developer-rhythm-metric svg {
+  grid-area: icon;
+  margin-top: 2px;
+}
+
+.developer-rhythm-metric span {
+  grid-area: label;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.developer-rhythm-metric span {
+  color: #4b5563;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.developer-rhythm-metric strong {
+  color: #111827;
+  font-size: 1.05rem;
+  font-weight: 900;
+  grid-area: value;
+  line-height: 1;
+}
+
+.developer-rhythm-metric small {
+  color: #6b7280;
+  font-size: 0.65rem;
+  font-weight: 750;
+  grid-area: helper;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+}
+
+.developer-rhythm-metric--success svg {
+  color: #059669;
+}
+
+.developer-rhythm-metric--danger svg {
+  color: #cf0013;
+}
+
+.developer-rhythm-metric--info svg {
+  color: #2563eb;
+}
+
+.developer-rhythm-metric--warning svg {
+  color: #d97706;
+}
+
+.developer-rhythm-metric--neutral svg {
+  color: #6b7280;
+}
+
+.developer-rhythm__progress {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.developer-rhythm__progress > div:first-child {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.developer-rhythm__progress span {
+  color: #4b5563;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.developer-rhythm__progress strong {
+  color: #111827;
+  font-size: 0.74rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.developer-rhythm__track {
+  background: #e5e7eb;
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.developer-rhythm__track span {
+  background: #cf0013;
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.developer-rhythm__insight {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.3;
+  margin: auto 0 0;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+@container (max-width: 340px) {
+  .developer-rhythm {
+    padding: 10px;
+  }
+
+  .developer-rhythm__metrics {
+    gap: 6px;
+  }
+
+  .developer-rhythm-metric {
+    padding: 7px;
+  }
+}
+
 .developer-ticket-row {
   align-items: stretch;
   background: #fff;

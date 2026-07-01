@@ -7,3 +7,4 @@ export { CalendarWidget } from "./CalendarWidget";
 export { RecentWidget } from "./RecentWidget";
 export { NotesWidget } from "./NotesWidget";
 export { QuickActionsWidget } from "./QuickActionsWidget";
+export { RhythmWidget } from "./RhythmWidget";

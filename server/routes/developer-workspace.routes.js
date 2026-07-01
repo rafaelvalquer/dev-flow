@@ -14,6 +14,7 @@ const VALID_WIDGETS = new Set([
   "risk",
   "calendar",
   "recent",
+  "rhythm",
   "notes",
   "productivity",
 ]);

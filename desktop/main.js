@@ -643,7 +643,39 @@ function createWindow(port) {
     mainWindow = null;
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${port}/`);
+  mainWindow.webContents.on(
+    "console-message",
+    (_event, level, message, line, sourceId) => {
+      console.log(
+        `[renderer:console:${level}] ${message} (${sourceId || "sem origem"}:${line || 0})`,
+      );
+    },
+  );
+
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL) => {
+      console.error(
+        `[renderer:did-fail-load] ${errorCode} ${errorDescription} ${validatedURL}`,
+      );
+    },
+  );
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error(`[renderer:gone] ${JSON.stringify(details)}`);
+  });
+
+  mainWindow.webContents.session
+    .clearCache()
+    .catch((error) =>
+      console.warn(
+        `[renderer:cache] nao foi possivel limpar cache: ${error?.message || error}`,
+      ),
+    )
+    .finally(() => {
+      if (!mainWindow) return;
+      mainWindow.loadURL(`http://127.0.0.1:${port}/`);
+    });
 }
 
 async function shutdownBackend() {

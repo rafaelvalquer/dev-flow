@@ -25,9 +25,10 @@ function WorkspaceMenuCheckItem({ checked, children, onCheckedChange }) {
   return (
     <DropdownMenuItem
       className="developer-workspace-menu-check"
-      onSelect={(event) => {
-        event.preventDefault();
-        onCheckedChange?.(!checked);
+      onSelect={() => {
+        window.setTimeout(() => {
+          onCheckedChange?.(!checked);
+        }, 0);
       }}
     >
       <span className="developer-workspace-menu-check__icon">

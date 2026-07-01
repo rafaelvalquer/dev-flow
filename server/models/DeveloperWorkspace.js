@@ -51,6 +51,7 @@ const DeveloperWorkspaceSchema = new mongoose.Schema(
           "risk",
           "calendar",
           "recent",
+          "rhythm",
           "notes",
           "productivity",
         ],
