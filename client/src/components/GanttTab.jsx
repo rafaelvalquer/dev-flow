@@ -1,7 +1,7 @@
 // src/components/GanttTab.jsx
 import { useEffect, useMemo, useRef, useState, useCallback, memo } from "react";
-import { Gantt, ViewMode } from "gantt-task-react";
-import "gantt-task-react/dist/index.css";
+import { Gantt, ViewMode } from "@rsagiev/gantt-task-react-19";
+import "@rsagiev/gantt-task-react-19/dist/index.css";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

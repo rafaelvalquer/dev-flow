@@ -16,13 +16,16 @@ import AutomationTool from "@/components/tools/AutomationTool";
 import AudioComparatorTool from "@/components/tools/AudioComparatorTool";
 import AudioValidatorTool from "@/components/tools/AudioValidatorTool";
 
-import { BarChart3, ChevronDown, Database, FileAudio, FileSearch, Mic, Sparkles, Workflow } from "lucide-react";
+import { BarChart3, CalendarClock, ChevronDown, Database, FileAudio, FileSearch, Mic, Sparkles, Workflow } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
 import CdrSearchTool from "@/components/tools/CdrSearchTool";
 import CdrAnalyticsTool from "@/components/tools/CdrAnalyticsTool";
 import TaskFileSearchTool from "@/components/tools/TaskFileSearchTool";
+import BusinessHoursTool from "@/components/tools/BusinessHoursTool";
+
+const MotionSection = motion.section;
 
 const TOOL_DEFS = [
   {
@@ -79,6 +82,13 @@ const TOOL_DEFS = [
     title: "Busca Tarefas ICC",
     desc: "Pesquise tarefas do Portal ICC por Arquivo e Remoto na etapa principal.",
     icon: FileSearch,
+    status: "ativo",
+  },
+  {
+    id: "business-hours",
+    title: "Configuracao de Feriados / Fechamento de URAs",
+    desc: "Selecione URAs, configure datas especiais e gere inserts tb_bussinesshours.",
+    icon: CalendarClock,
     status: "ativo",
   },
 ];
@@ -242,7 +252,7 @@ export default function ToolsTab() {
   );
   const ActiveIcon = active.icon;
   const portalIccTools = ["cdr", "cdr-analytics", "task-file-search"];
-  const usesSttHealth = !["automacao", ...portalIccTools].includes(activeTool);
+  const usesSttHealth = !["automacao", "business-hours", ...portalIccTools].includes(activeTool);
 
   const healthSummary = useMemo(() => {
     if (sttOnline === true) {
@@ -381,6 +391,10 @@ export default function ToolsTab() {
       return <TaskFileSearchTool />;
     }
 
+    if (activeTool === "business-hours") {
+      return <BusinessHoursTool />;
+    }
+
     return (
       <EmptyState
         title="Em breve"
@@ -390,7 +404,7 @@ export default function ToolsTab() {
   }
 
   return (
-    <motion.section
+    <MotionSection
       key="tools"
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
@@ -456,6 +470,6 @@ export default function ToolsTab() {
           {renderActiveTool()}
         </CompactAccordion>
       </div>
-    </motion.section>
+    </MotionSection>
   );
 }

@@ -11,6 +11,9 @@ import {
 import { EmptyWidgetText } from "../components/EmptyWidgetText";
 import { getStatus } from "../utils/developerTicketUtils";
 
+const STATUS_AXIS_WIDTH = 116;
+const STATUS_LABEL_MAX_LENGTH = 18;
+
 const PREFERRED_STATUS_ORDER = [
   "Para Dev",
   "Desenvolvimento",
@@ -68,8 +71,6 @@ function useElementSize() {
 export function StatusQueueWidget({ rows }) {
   const [containerRef, size] = useElementSize();
   const { width, height } = size;
-  const compact = width > 0 && width < 340;
-  const labelMaxLength = compact ? 12 : 18;
 
   const data = useMemo(() => {
     const counts = new Map();
@@ -97,9 +98,9 @@ export function StatusQueueWidget({ rows }) {
 
     return [...preferredRows, ...extraRows].map((item) => ({
       ...item,
-      shortLabel: truncateLabel(item.label, labelMaxLength),
+      shortLabel: truncateLabel(item.label, STATUS_LABEL_MAX_LENGTH),
     }));
-  }, [labelMaxLength, rows]);
+  }, [rows]);
 
   if (!data.length) {
     return <EmptyWidgetText text="Sem tickets ativos por status." />;
@@ -114,11 +115,11 @@ export function StatusQueueWidget({ rows }) {
         layout="vertical"
         margin={{
           top: 10,
-          right: compact ? 22 : 30,
+          right: 30,
           bottom: 8,
-          left: compact ? 0 : 8,
+          left: 0,
         }}
-        barCategoryGap={compact ? 9 : 12}
+        barCategoryGap={12}
       >
         <XAxis
           type="number"
@@ -130,7 +131,7 @@ export function StatusQueueWidget({ rows }) {
         <YAxis
           type="category"
           dataKey="shortLabel"
-          width={compact ? 78 : 112}
+          width={STATUS_AXIS_WIDTH}
           axisLine={false}
           tickLine={false}
           tick={{ fill: "#374151", fontSize: 11, fontWeight: 800 }}
@@ -147,7 +148,13 @@ export function StatusQueueWidget({ rows }) {
             fontSize: 12,
           }}
         />
-        <Bar dataKey="count" fill="#cf0013" radius={[0, 5, 5, 0]} maxBarSize={28}>
+        <Bar
+          dataKey="count"
+          fill="#cf0013"
+          radius={[0, 5, 5, 0]}
+          maxBarSize={28}
+          isAnimationActive={false}
+        >
           <LabelList
             dataKey="count"
             position="right"

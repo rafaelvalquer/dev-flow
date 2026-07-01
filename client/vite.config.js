@@ -89,21 +89,14 @@ function manualChunks(id) {
     return "vendor-ui";
   }
 
-  if (
-    normalizedId.includes("/react/") ||
-    normalizedId.includes("/react-dom/") ||
-    normalizedId.includes("/scheduler/") ||
-    normalizedId.includes("/lucide-react/") ||
-    normalizedId.includes("/sonner/")
-  ) {
-    return "vendor-core";
-  }
-
   return undefined;
 }
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: ["@rsagiev/gantt-task-react-19"],
+  },
   server: {
     proxy: {
       "/api": "http://localhost:3000",
@@ -120,7 +113,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks,
-        onlyExplicitManualChunks: true,
       },
     },
   },

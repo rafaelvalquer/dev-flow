@@ -131,6 +131,7 @@ import {
   jiraSearchAssignableUsers,
   jiraSearchUsers,
   jiraTransitionToStatus,
+  jiraUploadIssueAttachments,
 } from "../lib/jiraClient";
 import {
   ATIVIDADES_PADRAO,
@@ -244,6 +245,31 @@ function initials(name) {
   if (!s) return "SR";
   const parts = s.split(/\s+/).slice(0, 2);
   return parts.map((p) => (p[0] || "").toUpperCase()).join("");
+}
+
+function mapJiraUser(user) {
+  if (!user) return null;
+  const avatarUrl =
+    user?.avatarUrls?.["48x48"] ||
+    user?.avatarUrls?.["32x32"] ||
+    user?.avatarUrls?.["24x24"] ||
+    "";
+  return {
+    accountId: user?.accountId || "",
+    displayName: user?.displayName || user?.name || user?.emailAddress || "—",
+    emailAddress: user?.emailAddress || "",
+    avatarUrl,
+    active: user?.active !== false,
+  };
+}
+
+function useDebouncedValue(value, delayMs = 250) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timeoutId = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timeoutId);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 const START_FIELDS = [
@@ -4114,6 +4140,23 @@ function makeAttachmentTreeNode(attachment) {
   };
 }
 
+function makeLocalFileTreeNode(file, index = 0) {
+  const id = [
+    Date.now(),
+    index,
+    file?.name || "arquivo",
+    file?.size || 0,
+    file?.lastModified || 0,
+    Math.random().toString(36).slice(2, 8),
+  ].join("-");
+  return {
+    id: `local-file-${id}`,
+    name: file?.name || "arquivo",
+    kind: "file",
+    localFile: file,
+  };
+}
+
 function buildDocumentationTree(attachments = []) {
   return [
     {
@@ -4202,6 +4245,13 @@ function getExportableDocumentationFolders(nodes) {
     .filter((entry) => entry.files.length > 0);
 }
 
+function getDocumentationTargetFolders(nodes) {
+  return (nodes || []).filter(
+    (node) =>
+      node.kind === "folder" && node.id !== DOCUMENTATION_SOURCE_FOLDER_ID,
+  );
+}
+
 function uniqueZipFileName(used, rawName) {
   const safe = sanitizeFileName(rawName, "arquivo");
   if (!used.has(safe)) {
@@ -4218,15 +4268,81 @@ function uniqueZipFileName(used, rawName) {
   return next;
 }
 
-function DocumentationTreeNode({ node, style, dragHandle }) {
+function DocumentationTreeNode({
+  node,
+  style,
+  dragHandle,
+  onDropLocalFiles,
+  onLocalDragTargetChange,
+  activeLocalDropFolderId = "",
+  localFileDropDisabled = false,
+}) {
   const isFolder = node.data.kind === "folder";
+  const canDropLocalFiles =
+    isFolder && !node.data.system && !localFileDropDisabled;
+  const isLocalDropTarget = canDropLocalFiles && activeLocalDropFolderId === node.data.id;
+  const fileSize = Number(
+    node.data.attachment?.size || node.data.localFile?.size || 0,
+  );
+  function isExternalFileDrag(event) {
+    return Array.from(event.dataTransfer?.types || []).includes("Files");
+  }
+
+  function handleDragEnter(event) {
+    if (!canDropLocalFiles || !isExternalFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onLocalDragTargetChange?.(node.data.id);
+  }
+
+  function handleDragOver(event) {
+    if (!canDropLocalFiles || !isExternalFileDrag(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    onLocalDragTargetChange?.(node.data.id);
+  }
+
+  function handleDragLeave(event) {
+    if (!canDropLocalFiles || !isExternalFileDrag(event)) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+    onLocalDragTargetChange?.("");
+  }
+
+  function handleDrop(event) {
+    if (!canDropLocalFiles) return;
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (!files.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onLocalDragTargetChange?.("");
+    onDropLocalFiles?.(node.data.id, files);
+  }
+
   return (
     <div
       style={style}
       ref={dragHandle}
+      title={
+        canDropLocalFiles
+          ? "Solte arquivos aqui para adicionar nesta pasta"
+          : undefined
+      }
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={cn(
-        "flex items-center gap-2 rounded-lg px-2 text-sm",
+        "flex items-center gap-2 rounded-lg border border-transparent px-2 text-sm transition-colors",
         node.isSelected ? "bg-red-50 text-red-700" : "text-zinc-800",
+        canDropLocalFiles && "hover:border-sky-200 hover:bg-sky-50",
+        isLocalDropTarget &&
+          "border-sky-300 bg-sky-50 text-sky-900 ring-2 ring-sky-200",
       )}
       onClick={() => {
         if (isFolder) node.toggle();
@@ -4238,9 +4354,14 @@ function DocumentationTreeNode({ node, style, dragHandle }) {
         <FileText className="h-4 w-4 text-zinc-500" />
       )}
       <span className="truncate">{node.data.name}</span>
-      {!isFolder && node.data.attachment?.size ? (
+      {isLocalDropTarget ? (
+        <span className="ml-auto shrink-0 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+          Soltar aqui
+        </span>
+      ) : null}
+      {!isFolder && fileSize ? (
         <span className="ml-auto text-[11px] text-zinc-400">
-          {Math.ceil(Number(node.data.attachment.size || 0) / 1024)} KB
+          {Math.ceil(fileSize / 1024)} KB
         </span>
       ) : null}
     </div>
@@ -4258,6 +4379,11 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
   const [attachments, setAttachments] = useState([]);
   const [treeData, setTreeData] = useState(() => buildDocumentationTree([]));
   const [newFolderName, setNewFolderName] = useState("");
+  const [localFiles, setLocalFiles] = useState([]);
+  const [localFolderId, setLocalFolderId] = useState(
+    `folder-${DOCUMENTATION_DEFAULT_FOLDERS[0]}`,
+  );
+  const [localDropTargetFolderId, setLocalDropTargetFolderId] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -4287,6 +4413,15 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
     () => getExportableDocumentationFolders(treeData),
     [treeData],
   );
+  const targetFolders = useMemo(
+    () => getDocumentationTargetFolders(treeData),
+    [treeData],
+  );
+  const selectedLocalFolderId = targetFolders.some(
+    (folder) => folder.id === localFolderId,
+  )
+    ? localFolderId
+    : targetFolders[0]?.id || "";
 
   function addFolder() {
     const name = String(newFolderName || "").trim();
@@ -4306,6 +4441,33 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
     setNewFolderName("");
   }
 
+  function addLocalFilesToFolder() {
+    if (!selectedLocalFolderId || !localFiles.length) return;
+    const nodes = localFiles.map(makeLocalFileTreeNode);
+    setTreeData((prev) =>
+      insertTreeNodes(prev, selectedLocalFolderId, Number.MAX_SAFE_INTEGER, nodes),
+    );
+    setLocalFiles([]);
+  }
+
+  function dropLocalFilesIntoFolder(folderId, files) {
+    const target = targetFolders.find((folder) => folder.id === folderId);
+    if (!target || !Array.isArray(files) || !files.length) return;
+    setTreeData((prev) =>
+      insertTreeNodes(
+        prev,
+        folderId,
+        Number.MAX_SAFE_INTEGER,
+        files.map(makeLocalFileTreeNode),
+      ),
+    );
+    setLocalFolderId(folderId);
+    toast.success(
+      `${files.length} arquivo(s) adicionado(s) em ${target.name}.`,
+    );
+    setLocalDropTargetFolderId("");
+  }
+
   async function exportZip() {
     if (!ticketKey || !exportFolders.length) return;
     setExporting(true);
@@ -4321,7 +4483,18 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
         );
         const usedNames = new Set();
         for (const file of entry.files) {
+          if (file.localFile) {
+            folder.file(
+              uniqueZipFileName(usedNames, file.localFile.name || file.name),
+              file.localFile,
+            );
+            continue;
+          }
+
           const attachment = file.attachment || {};
+          if (!attachment.downloadUrl) {
+            throw new Error(`Arquivo sem origem para exportar: ${file.name}.`);
+          }
           const response = await fetch(attachment.downloadUrl);
           if (!response.ok) {
             throw new Error(
@@ -4405,7 +4578,20 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+            <div
+              className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50"
+              onDragLeave={(event) => {
+                const nextTarget = event.relatedTarget;
+                if (
+                  nextTarget instanceof Node &&
+                  event.currentTarget.contains(nextTarget)
+                ) {
+                  return;
+                }
+                setLocalDropTargetFolderId("");
+              }}
+              onDrop={() => setLocalDropTargetFolderId("")}
+            >
               {loading ? (
                 <div className="grid gap-2 p-4">
                   <Skeleton className="h-8 w-full" />
@@ -4426,13 +4612,95 @@ function DocumentationOrganizerModal({ ticket, onClose, onExported }) {
                     )
                   }
                 >
-                  {DocumentationTreeNode}
+                  {(props) => (
+                    <DocumentationTreeNode
+                      {...props}
+                      activeLocalDropFolderId={localDropTargetFolderId}
+                      localFileDropDisabled={loading || exporting}
+                      onLocalDragTargetChange={setLocalDropTargetFolderId}
+                      onDropLocalFiles={dropLocalFilesIntoFolder}
+                    />
+                  )}
                 </Tree>
               )}
             </div>
           </div>
 
           <div className="grid content-start gap-3 rounded-2xl border border-zinc-200 bg-white p-3">
+            <div className="grid gap-2 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">
+                  Arquivos da máquina
+                </div>
+                <div className="text-xs text-zinc-500">
+                  Escolha uma pasta ou arraste arquivos direto para ela.
+                </div>
+              </div>
+
+              <label
+                className={cn(
+                  "flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition",
+                  "hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800",
+                  (loading || exporting) &&
+                    "pointer-events-none cursor-not-allowed opacity-60",
+                )}
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="truncate">Escolher arquivos</span>
+                <Input
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  disabled={loading || exporting}
+                  onChange={(event) => {
+                    setLocalFiles(Array.from(event.target.files || []));
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+
+              <div className="min-h-9 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+                {localFiles.length ? (
+                  <span className="block truncate">
+                    {localFiles.length === 1
+                      ? localFiles[0]?.name || "1 arquivo selecionado"
+                      : `${localFiles.length} arquivos selecionados`}
+                  </span>
+                ) : (
+                  <span className="text-zinc-400">Nenhum arquivo selecionado</span>
+                )}
+              </div>
+
+              <select
+                value={selectedLocalFolderId}
+                onChange={(event) => setLocalFolderId(event.target.value)}
+                disabled={loading || exporting || !targetFolders.length}
+                className="h-9 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition focus:border-red-300 focus:ring-2 focus:ring-red-100 disabled:opacity-60"
+              >
+                {targetFolders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-xl border-zinc-200 bg-white"
+                onClick={addLocalFilesToFolder}
+                disabled={
+                  loading ||
+                  exporting ||
+                  !selectedLocalFolderId ||
+                  !localFiles.length
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Adicionar à pasta
+              </Button>
+            </div>
+
             <div className="text-sm font-semibold text-zinc-900">
               Pronto para exportar
             </div>
@@ -5418,6 +5686,16 @@ function TicketDetailsDialog({
   const [savingStarted, setSavingStarted] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState(null);
   const [detailsView, setDetailsView] = useState("summary");
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
+  const [assigneeQuery, setAssigneeQuery] = useState("");
+  const [assigneeOptions, setAssigneeOptions] = useState([]);
+  const [assigneeLoading, setAssigneeLoading] = useState(false);
+  const [assigneeSaving, setAssigneeSaving] = useState(false);
+  const [assigneeErr, setAssigneeErr] = useState("");
+  const [newCommentText, setNewCommentText] = useState("");
+  const [newCommentFiles, setNewCommentFiles] = useState([]);
+  const [savingComment, setSavingComment] = useState(false);
+  const debouncedAssigneeQuery = useDebouncedValue(assigneeQuery, 250);
 
   useEffect(() => {
     if (!open || !issueKey) return;
@@ -5429,6 +5707,12 @@ function TicketDetailsDialog({
     setComments([]);
     setPreviewAttachment(null);
     setDetailsView("summary");
+    setAssigneeOpen(false);
+    setAssigneeQuery("");
+    setAssigneeOptions([]);
+    setAssigneeErr("");
+    setNewCommentText("");
+    setNewCommentFiles([]);
 
     Promise.allSettled([
       getIssue(issueKey, TICKET_DETAILS_FIELDS),
@@ -5470,6 +5754,54 @@ function TicketDetailsDialog({
   useEffect(() => {
     setDueDateSaveState("");
   }, [issueKey]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function searchAssignees() {
+      if (!assigneeOpen) return;
+
+      const query = String(debouncedAssigneeQuery || "").trim();
+      setAssigneeErr("");
+
+      if (query.length < 2) {
+        setAssigneeOptions([]);
+        setAssigneeLoading(false);
+        return;
+      }
+
+      setAssigneeLoading(true);
+      try {
+        let list = [];
+        try {
+          list = await jiraSearchAssignableUsers(issueKey, query);
+        } catch {
+          list = await jiraSearchUsers(query);
+        }
+
+        if (!alive) return;
+        setAssigneeOptions(
+          Array.isArray(list)
+            ? list.map(mapJiraUser).filter((user) => user?.accountId)
+            : [],
+        );
+      } catch (e) {
+        if (!alive) return;
+        setAssigneeOptions([]);
+        setAssigneeErr(
+          e?.message ||
+            "Falha ao buscar usuários atribuíveis no Jira.",
+        );
+      } finally {
+        if (alive) setAssigneeLoading(false);
+      }
+    }
+
+    searchAssignees();
+    return () => {
+      alive = false;
+    };
+  }, [assigneeOpen, debouncedAssigneeQuery, issueKey]);
 
   function getFirstDescriptionText(descriptionAdf) {
     try {
@@ -5559,6 +5891,32 @@ function TicketDetailsDialog({
     : currentDueYmd
       ? fmtDateBr(currentDueYmd)
       : "Sem data limite";
+  const currentAssignee = mapJiraUser(f?.assignee);
+
+  function AssigneeTriggerLabel() {
+    if (!currentAssignee?.accountId) {
+      return (
+        <span className="inline-flex min-w-0 items-center gap-1.5 text-zinc-700">
+          <UserX className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+          <span className="truncate">Sem responsável</span>
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <Avatar className="h-5 w-5 shrink-0 border border-zinc-200">
+          {currentAssignee.avatarUrl ? (
+            <AvatarImage src={currentAssignee.avatarUrl} alt="avatar" />
+          ) : null}
+          <AvatarFallback className="bg-zinc-100 text-[9px] text-zinc-700">
+            {initials(currentAssignee.displayName)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate">{currentAssignee.displayName}</span>
+      </span>
+    );
+  }
 
   async function applyDetailsStatus() {
     if (!issueKey || !statusDraft || statusDraft === f?.status?.name) return;
@@ -5687,6 +6045,122 @@ function TicketDetailsDialog({
       );
     } finally {
       setSavingDueDate(false);
+    }
+  }
+
+  async function applyDetailsAssignee(nextUser) {
+    if (!issueKey || assigneeSaving) return;
+    const currentAccountId = f?.assignee?.accountId || "";
+    const nextAccountId = nextUser?.accountId || "";
+    if (currentAccountId === nextAccountId) {
+      setAssigneeOpen(false);
+      return;
+    }
+
+    setAssigneeSaving(true);
+    setAssigneeErr("");
+    setErr("");
+    setAssigneeOpen(false);
+    try {
+      await jiraEditIssue(issueKey, {
+        fields: {
+          assignee: nextAccountId ? { accountId: nextAccountId } : null,
+        },
+      });
+
+      const nextAssignee = nextUser
+        ? {
+            accountId: nextUser.accountId,
+            displayName: nextUser.displayName,
+            emailAddress: nextUser.emailAddress,
+            avatarUrls: nextUser.avatarUrl
+              ? { "48x48": nextUser.avatarUrl, "32x32": nextUser.avatarUrl }
+              : {},
+            active: nextUser.active !== false,
+          }
+        : null;
+
+      setIssue((prev) =>
+        prev
+          ? {
+              ...prev,
+              fields: {
+                ...(prev.fields || {}),
+                assignee: nextAssignee,
+              },
+            }
+          : prev,
+      );
+
+      const freshIssue = await onTicketUpdated?.(issueKey);
+      if (freshIssue) {
+        setIssue(freshIssue?.fields ? freshIssue : { fields: freshIssue });
+      }
+
+      toast.success(
+        nextUser
+          ? `Responsável atualizado para ${nextUser.displayName}.`
+          : "Ticket ficou sem responsável.",
+      );
+    } catch (e) {
+      const message = formatJiraActionableError(e, {
+        type: "assignee",
+        issueKey,
+        fallback: "Falha ao alterar responsável.",
+      });
+      setAssigneeErr(message);
+      setErr(message);
+    } finally {
+      setAssigneeSaving(false);
+    }
+  }
+
+  async function submitDetailsComment() {
+    const text = String(newCommentText || "").trim();
+    const files = Array.from(newCommentFiles || []);
+    if (!issueKey || savingComment || (!text && !files.length)) return;
+
+    setSavingComment(true);
+    setErr("");
+    try {
+      if (text) {
+        await createComment(issueKey, adfFromPlainText(text));
+      }
+
+      if (files.length) {
+        await jiraUploadIssueAttachments(issueKey, files);
+      }
+
+      const refreshedComments = await getComments(issueKey).catch(() => null);
+      const list =
+        refreshedComments?.comments ||
+        refreshedComments?.values ||
+        refreshedComments ||
+        [];
+      if (Array.isArray(list)) setComments(list);
+
+      const freshIssue = await onTicketUpdated?.(issueKey);
+      if (freshIssue) {
+        setIssue(freshIssue?.fields ? freshIssue : { fields: freshIssue });
+      }
+
+      setNewCommentText("");
+      setNewCommentFiles([]);
+      toast.success(
+        files.length
+          ? "Comentário/anexo enviado ao Jira."
+          : "Comentário enviado ao Jira.",
+      );
+    } catch (e) {
+      setErr(
+        formatJiraActionableError(e, {
+          type: "comment",
+          issueKey,
+          fallback: "Falha ao enviar comentário ou anexo.",
+        }),
+      );
+    } finally {
+      setSavingComment(false);
     }
   }
 
@@ -5873,11 +6347,111 @@ function TicketDetailsDialog({
                       ))}
                     </div>
 
-                    <div className="flex flex-wrap gap-2 text-zinc-700">
+                    <div className="flex flex-wrap items-center gap-2 text-zinc-700">
                       <span className="font-medium text-zinc-900">
                         Responsável:
-                      </span>{" "}
-                      {f?.assignee?.displayName || "Sem responsável"}
+                      </span>
+                      <Popover open={assigneeOpen} onOpenChange={setAssigneeOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            aria-expanded={assigneeOpen}
+                            disabled={loading || !issue || assigneeSaving}
+                            className="h-7 max-w-[260px] justify-between gap-2 rounded-lg border-zinc-200 bg-white px-2 text-xs font-normal text-zinc-800 hover:bg-zinc-50"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-left">
+                              <AssigneeTriggerLabel />
+                            </span>
+                            {assigneeSaving || assigneeLoading ? (
+                              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500" />
+                            ) : (
+                              <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          align="start"
+                          className="w-[420px] max-w-[calc(100vw-3rem)] rounded-2xl border-zinc-200 p-2"
+                        >
+                          <Command shouldFilter={false}>
+                            <CommandInput
+                              value={assigneeQuery}
+                              onValueChange={setAssigneeQuery}
+                              placeholder="Buscar responsável no Jira..."
+                            />
+                            <CommandList className="max-h-[260px]">
+                              <CommandEmpty>
+                                {assigneeLoading
+                                  ? "Buscando..."
+                                  : String(assigneeQuery || "").trim().length < 2
+                                    ? "Digite 2 ou mais caracteres para buscar."
+                                    : "Nenhum usuário encontrado."}
+                              </CommandEmpty>
+                              <CommandGroup heading="Opções">
+                                <CommandItem
+                                  value="__none__"
+                                  onSelect={() => applyDetailsAssignee(null)}
+                                  className="rounded-xl"
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <UserX className="h-4 w-4 text-zinc-500" />
+                                    <span className="text-sm font-medium text-zinc-800">
+                                      Sem responsável
+                                    </span>
+                                  </span>
+                                  {!currentAssignee?.accountId ? (
+                                    <Check className="ml-auto h-4 w-4 text-emerald-600" />
+                                  ) : null}
+                                </CommandItem>
+
+                                {assigneeOptions.map((user) => {
+                                  const selected =
+                                    currentAssignee?.accountId === user.accountId;
+                                  return (
+                                    <CommandItem
+                                      key={user.accountId}
+                                      value={user.displayName}
+                                      onSelect={() => applyDetailsAssignee(user)}
+                                      className="rounded-xl"
+                                    >
+                                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                                        <Avatar className="h-7 w-7 border border-zinc-200">
+                                          {user.avatarUrl ? (
+                                            <AvatarImage src={user.avatarUrl} alt="avatar" />
+                                          ) : null}
+                                          <AvatarFallback className="bg-zinc-100 text-[10px] text-zinc-700">
+                                            {initials(user.displayName)}
+                                          </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                          <div className="truncate text-sm font-medium text-zinc-900">
+                                            {user.displayName}
+                                          </div>
+                                          {user.emailAddress ? (
+                                            <div className="truncate text-[11px] text-zinc-500">
+                                              {user.emailAddress}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </div>
+                                      {selected ? (
+                                        <Check className="ml-2 h-4 w-4 text-emerald-600" />
+                                      ) : null}
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                          {assigneeErr ? (
+                            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                              {assigneeErr}
+                            </div>
+                          ) : null}
+                        </PopoverContent>
+                      </Popover>
                       <span className="mx-2 text-zinc-300">•</span>
                       <span className="font-medium text-zinc-900">
                         Updated:
@@ -6326,6 +6900,74 @@ function TicketDetailsDialog({
               <div className="rounded-xl border border-zinc-200 bg-white p-3">
                 <div className="mb-2 text-sm font-semibold text-zinc-900">
                   Comentários (últimos {Math.min(12, comments.length)})
+                </div>
+
+                <div className="mb-3 grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+                  <Textarea
+                    value={newCommentText}
+                    onChange={(event) => setNewCommentText(event.target.value)}
+                    placeholder="Adicionar comentário no Jira..."
+                    className="min-h-[84px] rounded-xl border-zinc-200 bg-white text-sm"
+                    disabled={loading || savingComment || !issue}
+                  />
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <label
+                      className={cn(
+                        "inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition",
+                        "hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800",
+                        (loading || savingComment || !issue) &&
+                          "pointer-events-none cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      <Paperclip className="h-4 w-4 shrink-0" />
+                      <span>Anexar arquivo</span>
+                      <Input
+                        type="file"
+                        multiple
+                        className="sr-only"
+                        disabled={loading || savingComment || !issue}
+                        onChange={(event) => {
+                          setNewCommentFiles(
+                            Array.from(event.target.files || []),
+                          );
+                          event.target.value = "";
+                        }}
+                      />
+                    </label>
+
+                    <Button
+                      type="button"
+                      className="min-h-9 rounded-xl bg-red-600 text-white hover:bg-red-700"
+                      onClick={submitDetailsComment}
+                      disabled={
+                        loading ||
+                        savingComment ||
+                        !issue ||
+                        (!newCommentText.trim() && !newCommentFiles.length)
+                      }
+                    >
+                      {savingComment ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageSquareText className="mr-2 h-4 w-4" />
+                      )}
+                      {savingComment ? "Enviando..." : "Enviar"}
+                    </Button>
+                  </div>
+
+                  <div className="min-h-5 text-xs text-zinc-500">
+                    {newCommentFiles.length ? (
+                      <span className="block truncate">
+                        {newCommentFiles.length === 1
+                          ? newCommentFiles[0]?.name ||
+                            "1 arquivo selecionado"
+                          : `${newCommentFiles.length} arquivos selecionados`}
+                      </span>
+                    ) : (
+                      "Comentário e anexos serão enviados para este ticket."
+                    )}
+                  </div>
                 </div>
 
                 {loading ? (
