@@ -4,9 +4,7 @@
 
 .developer-workspace {
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 80% 0%, rgba(207, 0, 19, 0.035), transparent 28%),
-    #f8fafc;
+  background: #f8fafc;
   padding: 22px 28px 16px;
 }
 
@@ -30,12 +28,12 @@
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(260px, 1fr) auto;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .developer-workspace__headline h2 {
   color: #09090b;
-  font-size: 1.95rem;
+  font-size: 1.55rem;
   font-weight: 850;
   line-height: 1.05;
   margin: 16px 0 6px;
@@ -43,7 +41,7 @@
 
 .developer-workspace__headline p {
   color: #6b7280;
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   margin: 0;
 }
 
@@ -121,7 +119,7 @@
 }
 
 .developer-action-button--red {
-  border-color: #ef4444;
+  border-color: #e1e5ea;
   color: #cf0013;
 }
 
@@ -131,13 +129,13 @@
 }
 
 .developer-action-button--solid {
-  background: #cf0013;
+  background: #111827;
   border-color: #cf0013;
   color: #fff;
 }
 
 .developer-action-button--solid:hover {
-  background: #a90010;
+  background: #cf0013;
   color: #fff;
 }
 
@@ -165,7 +163,7 @@
   background: #fff;
   border: 1px solid #e1e5ea;
   border-radius: 8px;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.07);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.045);
 }
 
 .developer-metric .p-4 {
@@ -173,13 +171,13 @@
   display: grid;
   gap: 14px;
   grid-template-columns: 62px 1fr auto;
-  min-height: 98px;
-  padding: 18px;
+  min-height: 88px;
+  padding: 14px;
 }
 
 .developer-metric__icon {
   align-items: center;
-  border-radius: 14px;
+  border-radius: 8px;
   display: inline-flex;
   height: 52px;
   justify-content: center;
@@ -295,11 +293,97 @@
   padding: 10px 12px;
 }
 
+.developer-next-best {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e1e5ea;
+  border-left: 4px solid #cf0013;
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.045);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  margin: 0 auto 14px;
+  max-width: 1500px;
+  padding: 12px 14px;
+}
+
+.developer-next-best--clear {
+  border-left-color: #059669;
+}
+
+.developer-next-best__icon {
+  align-items: center;
+  background: #fff1f2;
+  border-radius: 8px;
+  color: #cf0013;
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.developer-next-best--clear .developer-next-best__icon {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.developer-next-best__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.developer-next-best__copy span {
+  color: #6b7280;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.developer-next-best__copy strong {
+  color: #111827;
+  font-size: 0.98rem;
+  font-weight: 850;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.developer-next-best__copy p {
+  color: #6b7280;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.developer-next-best__button {
+  border-radius: 8px;
+  font-weight: 850;
+  min-width: 116px;
+}
+
+.developer-next-best:not(.developer-next-best--clear) .developer-next-best__button {
+  background: #111827;
+  border-color: #111827;
+  color: #fff;
+}
+
+.developer-next-best:not(.developer-next-best--clear) .developer-next-best__button:hover {
+  background: #cf0013;
+  border-color: #cf0013;
+}
+
 .developer-widget {
   background: #fff;
   border: 1px solid #e1e5ea;
   border-radius: 8px;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.075);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.045);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -311,7 +395,7 @@
   border-bottom: 1px solid #edf0f4;
   display: flex;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 11px 13px;
 }
 
 .developer-widget__header-main,
@@ -327,7 +411,7 @@
 
 .developer-widget__title {
   color: #111827;
-  font-size: 1rem;
+  font-size: 0.9rem;
   font-weight: 850;
   gap: 8px;
 }
@@ -341,7 +425,7 @@
   align-items: center;
   background: transparent;
   border: 0;
-  color: #111827;
+  color: #9ca3af;
   display: inline-flex;
   height: 26px;
   justify-content: center;
@@ -351,6 +435,11 @@
 
 .developer-widget__drag {
   cursor: grab;
+}
+
+.developer-widget:hover .developer-widget__drag,
+.developer-widget:hover .developer-widget__menu {
+  color: #4b5563;
 }
 
 .developer-widget__content {
@@ -389,10 +478,70 @@
   outline: none;
 }
 
+.developer-portfolio-map {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 180px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.developer-portfolio-map__toolbar {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.developer-portfolio-map__toolbar span {
+  color: #4b5563;
+  font-size: 0.74rem;
+  font-weight: 800;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.developer-portfolio-map__toolbar button {
+  background: #fff;
+  border: 1px solid #e1e5ea;
+  border-radius: 7px;
+  color: #374151;
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  font-weight: 850;
+  height: 28px;
+  padding: 0 9px;
+}
+
+.developer-portfolio-map__toolbar button:hover {
+  border-color: #fecaca;
+  color: #cf0013;
+}
+
+.developer-portfolio-map__chart {
+  min-height: 0;
+  min-width: 0;
+}
+
 @container (max-width: 340px) {
   .developer-status-queue {
     padding-left: 6px;
     padding-right: 4px;
+  }
+
+  .developer-portfolio-map {
+    padding: 8px;
+  }
+
+  .developer-portfolio-map__toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
@@ -1931,8 +2080,18 @@
   }
 
   .developer-stats,
-  .developer-quick-actions {
+  .developer-quick-actions,
+  .developer-next-best {
     grid-template-columns: 1fr;
+  }
+
+  .developer-next-best__button {
+    width: 100%;
+  }
+
+  .developer-next-best__copy strong,
+  .developer-next-best__copy p {
+    white-space: normal;
   }
 
   .developer-command-search {

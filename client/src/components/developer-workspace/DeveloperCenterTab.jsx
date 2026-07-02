@@ -18,6 +18,7 @@ import DeveloperWorkspace from "./DeveloperWorkspace";
 import { useDeveloperWorkspaceData } from "./hooks/useDeveloperWorkspaceData";
 import {
   findTicketByKey,
+  getIssueKey,
   getPriority,
   getStatus,
   getSummary,
@@ -48,6 +49,7 @@ export default function DeveloperCenterTab({
   onProgressChange,
   onRdmTitleChange,
   onRdmDueDateChange,
+  onActiveWorkContextChange,
 }) {
   const [mode, setMode] = useState("workspace");
   const [selectedTicketKey, setSelectedTicketKey] = useState("");
@@ -76,6 +78,46 @@ export default function DeveloperCenterTab({
     () => findTicketByKey(personalRows, selectedTicketKey),
     [personalRows, selectedTicketKey],
   );
+
+  const activeWorkContext = useMemo(() => {
+    if (mode === "execution" && selectedTicketKey) {
+      return {
+        ticketKey: selectedTicketKey,
+        summary: selectedTicket ? getSummary(selectedTicket) : "",
+        status: selectedTicket ? getStatus(selectedTicket) : "",
+        progress: executionContext.progress || 0,
+        activeTab: executionContext.activeTab || "",
+      };
+    }
+
+    const recent = workspace.recentTickets?.[0];
+    const fallbackIssue = personalRows?.[0];
+    const ticketKey = normalizeTicketKey(
+      recent?.ticketKey || getIssueKey(fallbackIssue),
+    );
+
+    if (!ticketKey) return null;
+
+    return {
+      ticketKey,
+      summary: recent?.summary || getSummary(fallbackIssue),
+      status: recent?.status || getStatus(fallbackIssue),
+      progress: Number(recent?.progress || 0),
+      activeTab: recent?.activeTab || "",
+    };
+  }, [
+    executionContext.activeTab,
+    executionContext.progress,
+    mode,
+    personalRows,
+    selectedTicket,
+    selectedTicketKey,
+    workspace.recentTickets,
+  ]);
+
+  useEffect(() => {
+    onActiveWorkContextChange?.(activeWorkContext);
+  }, [activeWorkContext, onActiveWorkContextChange]);
 
   const registerRecent = useCallback(
     async (ticketKey, patch = {}) => {

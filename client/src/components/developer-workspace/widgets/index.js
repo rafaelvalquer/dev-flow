@@ -8,3 +8,4 @@ export { RecentWidget } from "./RecentWidget";
 export { NotesWidget } from "./NotesWidget";
 export { QuickActionsWidget } from "./QuickActionsWidget";
 export { RhythmWidget } from "./RhythmWidget";
+export { PortfolioTreemapWidget } from "./PortfolioTreemapWidget";

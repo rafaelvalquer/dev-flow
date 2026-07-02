@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
+  CheckCircle2,
   Clock,
   FileText,
   Settings2,
+  Sparkles,
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -439,6 +441,43 @@ export default function DeveloperWorkspace({
       source: "developer-next-actions",
     });
   }
+
+  const nextBestAction = nextActions[0] || null;
+
+  function handleNextBestAction() {
+    if (!nextBestAction) return;
+
+    if (nextBestAction.type === "startTicket") {
+      handleStartTicketAction(nextBestAction);
+      return;
+    }
+
+    if (nextBestAction.openDetails) {
+      openDetailsAction(nextBestAction);
+      return;
+    }
+
+    const key = normalizeTicketKey(nextBestAction.key || nextBestAction.issue?.key);
+    if (!key) return;
+
+    onOpenExecution?.(key, {
+      activeTab: nextBestAction.activeTab || "",
+    });
+  }
+
+  function applyPortfolioMapFilter({ status = "all", priority = "all" } = {}) {
+    setSearch("");
+    setStatusFilter(status || "all");
+    setPriorityFilter(priority || "all");
+    setDueFilter("all");
+    setPendencyFilter("all");
+  }
+
+  function clearPortfolioMapFilter() {
+    setStatusFilter("all");
+    setPriorityFilter("all");
+  }
+
   return (
     <section
       className={cn(
@@ -505,6 +544,45 @@ export default function DeveloperWorkspace({
 
       {error ? <div className="developer-error">{error}</div> : null}
 
+      <section
+        className={cn(
+          "developer-next-best",
+          !nextBestAction && "developer-next-best--clear",
+        )}
+      >
+        <div className="developer-next-best__icon">
+          {nextBestAction ? (
+            <Sparkles className="h-5 w-5" />
+          ) : (
+            <CheckCircle2 className="h-5 w-5" />
+          )}
+        </div>
+
+        <div className="developer-next-best__copy">
+          <span>Próxima melhor ação</span>
+          <strong>
+            {nextBestAction
+              ? `${nextBestAction.label} - ${nextBestAction.key}`
+              : "Fila sem pendências imediatas"}
+          </strong>
+          <p>
+            {nextBestAction
+              ? nextBestAction.description
+              : "Continue monitorando riscos, prazos e evidências da sua carteira."}
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          className="developer-next-best__button"
+          variant={nextBestAction ? "default" : "outline"}
+          disabled={!nextBestAction}
+          onClick={handleNextBestAction}
+        >
+          {nextBestAction ? "Agir agora" : "Tudo certo"}
+        </Button>
+      </section>
+
       <DeveloperWorkspaceGrid
         containerRef={containerRef}
         mounted={mounted}
@@ -541,6 +619,8 @@ export default function DeveloperWorkspace({
         onConvertStickyToJiraComment={convertStickyToJiraComment}
         deleteStickyNote={deleteStickyNote}
         stickyRefs={stickyRefs}
+        onApplyPortfolioMapFilter={applyPortfolioMapFilter}
+        onClearPortfolioMapFilter={clearPortfolioMapFilter}
       />
 
       <div className="developer-workspace__hint">

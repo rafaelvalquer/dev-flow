@@ -45,6 +45,7 @@ const DeveloperWorkspaceSchema = new mongoose.Schema(
         type: [String],
         default: () => [
           "queue",
+          "portfolioMap",
           "statusQueue",
           "daily",
           "nextActions",

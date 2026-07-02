@@ -86,6 +86,7 @@ import { Cell } from "recharts";
 import ReactECharts from "echarts-for-react";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
+import PortfolioTreemapPanel from "@/components/am-panel/PortfolioTreemapPanel";
 
 import "/node_modules/react-grid-layout/css/styles.css";
 import "/node_modules/react-resizable/css/styles.css";
@@ -1493,6 +1494,13 @@ export default function AMDashboardTab({
     [normalizedAll]
   );
 
+  const openPortfolioDrill = useCallback(({ title, items }) => {
+    const list = Array.isArray(items) ? items : [];
+    setDrillItems(list);
+    setDrillTitle(title || `Mapa da carteira: ${list.length} ticket(s)`);
+    setDrillOpen(true);
+  }, []);
+
   function ymdLocal(iso) {
     if (!iso) return "";
     const d = new Date(iso);
@@ -2187,6 +2195,7 @@ export default function AMDashboardTab({
                   { id: "summary", label: "Resumo" },
                   { id: "benchmark", label: "Benchmark" },
                   { id: "trends", label: "Tendencias" },
+                  { id: "portfolioMap", label: "Mapa da carteira" },
                 ].map((view) => (
                   <Button
                     key={view.id}
@@ -2265,11 +2274,18 @@ export default function AMDashboardTab({
                   periodDays={periodDays}
                   onOpenDetails={onOpenDetails}
                 />
-              ) : (
+              ) : dashboardView === "trends" ? (
                 <OperationalTrendsView
                   data={benchmarkData}
                   loading={isBusy}
                   periodDays={periodDays}
+                />
+              ) : (
+                <PortfolioTreemapPanel
+                  rows={normalizedOpen}
+                  loading={isBusy}
+                  onOpenDrill={openPortfolioDrill}
+                  variant="full"
                 />
               )}
             </CardContent>

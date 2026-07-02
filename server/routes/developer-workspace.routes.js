@@ -8,6 +8,7 @@ const router = Router();
 const MAX_RECENT_TICKETS = 12;
 const VALID_WIDGETS = new Set([
   "queue",
+  "portfolioMap",
   "statusQueue",
   "daily",
   "nextActions",

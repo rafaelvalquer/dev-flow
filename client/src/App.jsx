@@ -137,6 +137,7 @@ function isSameOriginApiRequest(input) {
 const MAIN_TABS = [
   {
     id: "gmud",
+    navLabel: "Central",
     title: "Central do Desenvolvedor",
     eyebrow: "Fluxo operacional assistido",
     subtitle:
@@ -147,6 +148,7 @@ const MAIN_TABS = [
   },
   {
     id: "rdm",
+    navLabel: "RDM",
     title: "RDM • Requisição de Mudança",
     eyebrow: "Documentação pronta para entrega",
     subtitle:
@@ -158,6 +160,7 @@ const MAIN_TABS = [
   },
   {
     id: "am",
+    navLabel: "PO",
     title: "Painel de Acompanhamento (PO)",
     eyebrow: "Operação com visão executiva",
     subtitle:
@@ -169,6 +172,7 @@ const MAIN_TABS = [
   },
   {
     id: "my",
+    navLabel: "Minha Carteira",
     title: "Minha Carteira",
     eyebrow: "Foco pessoal",
     subtitle:
@@ -179,6 +183,7 @@ const MAIN_TABS = [
   },
   {
     id: "versioning",
+    navLabel: "Versionamentos",
     title: "Versionamentos",
     eyebrow: "Histórico de URAs",
     subtitle:
@@ -189,6 +194,7 @@ const MAIN_TABS = [
   },
   {
     id: "tools",
+    navLabel: "Ferramentas",
     title: "Ferramentas",
     eyebrow: "Utilitários essenciais",
     subtitle:
@@ -199,6 +205,7 @@ const MAIN_TABS = [
   },
   {
     id: "settings",
+    navLabel: "Sistema",
     title: "Configurações do Sistema",
     eyebrow: "Administração global",
     subtitle:
@@ -207,6 +214,13 @@ const MAIN_TABS = [
     icon: Settings2,
     nextStep: "Revise o calendário global antes de recalcular cronogramas.",
   },
+];
+
+const APP_NAV_GROUPS = [
+  { label: "Operação", tabs: ["gmud", "am", "my"] },
+  { label: "Desenvolvimento", tabs: ["rdm", "versioning"] },
+  { label: "Ferramentas", tabs: ["tools"] },
+  { label: "Sistema", tabs: ["settings"] },
 ];
 
 const MAIN_TAB_IDS = new Set(MAIN_TABS.map((tab) => tab.id));
@@ -376,6 +390,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
   const [gmudProgressPct, setGmudProgressPct] = useState(0);
   const [rdmTitle, setRdmTitle] = useState("");
   const [rdmDueDate, setRdmDueDate] = useState("");
+  const [activeWorkContext, setActiveWorkContext] = useState(null);
   const [calendarSettings, setCalendarSettings] = useState(
     DEFAULT_CALENDAR_SETTINGS,
   );
@@ -504,6 +519,66 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 
   const CurrentIcon = currentTab.icon;
   const ToggleSidebarIcon = sidebarCollapsed ? PanelLeftOpen : PanelLeftClose;
+  const activeContext = useMemo(() => {
+    if (mainTab === "gmud") {
+      if (activeWorkContext?.ticketKey) {
+        return {
+          label: "Ticket ativo",
+          value: activeWorkContext.ticketKey,
+          helper:
+            activeWorkContext.summary ||
+            activeWorkContext.status ||
+            tabMeta.gmud.helper,
+        };
+      }
+
+      return {
+        label: "Central",
+        value: tabMeta.gmud.status,
+        helper: tabMeta.gmud.helper,
+      };
+    }
+
+    if (mainTab === "rdm") {
+      return {
+        label: "RDM",
+        value: rdmTitle || "Sem título definido",
+        helper: rdmDueDate ? `Janela: ${rdmDueDate}` : tabMeta.rdm.helper,
+      };
+    }
+
+    if (mainTab === "my") {
+      return {
+        label: "Jira pessoal",
+        value: currentUser?.jiraDisplayName || tabMeta.my.status,
+        helper: tabMeta.my.helper,
+      };
+    }
+
+    if (mainTab === "settings") {
+      return {
+        label: "Sistema",
+        value: tabMeta.settings.status,
+        helper: tabMeta.settings.helper,
+      };
+    }
+
+    return {
+      label: currentTab.badge,
+      value: tabMeta[mainTab]?.status || currentTab.eyebrow,
+      helper: tabMeta[mainTab]?.helper || currentTab.nextStep,
+    };
+  }, [
+    activeWorkContext,
+    currentTab.badge,
+    currentTab.eyebrow,
+    currentTab.nextStep,
+    currentUser?.jiraDisplayName,
+    mainTab,
+    rdmDueDate,
+    rdmTitle,
+    tabMeta,
+  ]);
 
   function selectMainTab(tabId) {
     setMainTab(tabId);
@@ -644,38 +719,72 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
             </div>
 
             <nav className="app-nav" role="tablist" aria-label="Módulos">
-              {MAIN_TABS.map((tab) => {
-                const TabIcon = tab.icon;
-                const isActive = tab.id === mainTab;
-                const meta = tabMeta[tab.id];
+              {APP_NAV_GROUPS.map((group) => (
+                <div className="app-nav__group" key={group.label}>
+                  <span className="app-nav__group-label">{group.label}</span>
 
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    className={`app-nav__item ${isActive ? "is-active" : ""}`}
-                    onClick={() => selectMainTab(tab.id)}
-                    title={sidebarCollapsed ? tab.title : undefined}
-                  >
-                    <span className="app-nav__icon">
-                      <TabIcon className="h-5 w-5" />
-                    </span>
+                  <div className="app-nav__group-items">
+                    {group.tabs.map((tabId) => {
+                      const tab = MAIN_TABS.find((item) => item.id === tabId);
+                      if (!tab) return null;
 
-                    <span className="app-nav__content">
-                      <span className="app-nav__label">{tab.title}</span>
-                      <span className="app-nav__caption">{meta.status}</span>
-                    </span>
+                      const TabIcon = tab.icon;
+                      const isActive = tab.id === mainTab;
+                      const meta = tabMeta[tab.id];
 
-                    <ChevronRight className="app-nav__chevron h-4 w-4" />
-                  </button>
-                );
-              })}
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          className={`app-nav__item ${
+                            isActive ? "is-active" : ""
+                          }`}
+                          onClick={() => selectMainTab(tab.id)}
+                          title={sidebarCollapsed ? tab.title : undefined}
+                        >
+                          <span className="app-nav__icon">
+                            <TabIcon className="h-5 w-5" />
+                          </span>
+
+                          <span className="app-nav__content">
+                            <span className="app-nav__label">
+                              {tab.navLabel || tab.title}
+                            </span>
+                            <span className="app-nav__caption">
+                              {meta.status}
+                            </span>
+                          </span>
+
+                          <ChevronRight className="app-nav__chevron h-4 w-4" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </nav>
           </aside>
 
           <main className="app-main">
+            <section className="app-topbar app-topbar--minimal">
+              <div className="app-topbar__identity">
+                <div className="app-topbar__icon">
+                  <CurrentIcon className="h-5 w-5" />
+                </div>
+
+                <div className="app-topbar__title">
+                  <h2>{currentTab.navLabel || currentTab.title}</h2>
+                </div>
+              </div>
+
+              <div className="app-topbar__context">
+                <span>{activeContext.label}</span>
+                <strong title={activeContext.value}>{activeContext.value}</strong>
+              </div>
+            </section>
+
             <section className="app-hero app-hero--compact">
               <div className="app-hero__copy">
                 <span className="app-hero__eyebrow">{currentTab.eyebrow}</span>
@@ -757,6 +866,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                       onProgressChange={setGmudProgressPct}
                       onRdmTitleChange={setRdmTitle}
                       onRdmDueDateChange={setRdmDueDate}
+                      onActiveWorkContextChange={setActiveWorkContext}
                     />
                   ) : null}
 

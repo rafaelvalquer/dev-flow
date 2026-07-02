@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Flame,
   Grid2X2,
+  LayoutGrid,
   ListChecks,
   NotebookPen,
   Sparkles,
@@ -22,6 +23,7 @@ import {
   DailyWidget,
   NextActionsWidget,
   NotesWidget,
+  PortfolioTreemapWidget,
   QueueWidget,
   QuickActionsWidget,
   RecentWidget,
@@ -67,6 +69,8 @@ export default function DeveloperWorkspaceGrid({
   onConvertStickyToJiraComment,
   deleteStickyNote,
   stickyRefs,
+  onApplyPortfolioMapFilter,
+  onClearPortfolioMapFilter,
 }) {
   const stickyNotes = useMemo(
     () =>
@@ -116,6 +120,18 @@ export default function DeveloperWorkspaceGrid({
             <div key="statusQueue">
               <WidgetCard title="Fila por status" icon={BarChart3}>
                 <StatusQueueWidget rows={sortedRows} />
+              </WidgetCard>
+            </div>
+          ) : null}
+
+          {visibleWidgetSet.has("portfolioMap") ? (
+            <div key="portfolioMap">
+              <WidgetCard title="Mapa da carteira" icon={LayoutGrid}>
+                <PortfolioTreemapWidget
+                  rows={sortedRows}
+                  onApplyFilter={onApplyPortfolioMapFilter}
+                  onClearFilter={onClearPortfolioMapFilter}
+                />
               </WidgetCard>
             </div>
           ) : null}

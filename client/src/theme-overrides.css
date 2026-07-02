@@ -123,10 +123,11 @@ textarea {
   border-radius: 14px;
 }
 
+.app-shell[data-density="compact"] .app-topbar,
 .app-shell[data-density="compact"] .app-hero {
   margin-bottom: 12px;
   padding: 14px;
-  border-radius: 18px;
+  border-radius: 8px;
 }
 
 .app-shell[data-density="compact"] .app-module {
@@ -254,10 +255,7 @@ textarea {
 }
 
 .app-shell__orb {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(14px);
-  opacity: 0.45;
+  display: none;
 }
 
 .app-shell__orb--primary {
@@ -299,10 +297,10 @@ textarea {
   gap: 12px;
   padding: 16px;
   border: 1px solid var(--line-soft);
-  border-radius: 22px;
-  background: var(--surface-card);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.055);
+  backdrop-filter: none;
   transition:
     padding 180ms ease,
     border-radius 180ms ease;
@@ -315,7 +313,7 @@ textarea {
   width: 34px;
   height: 34px;
   border: 1px solid var(--line-soft);
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--surface-strong);
   color: var(--claro-red);
   transition:
@@ -341,7 +339,7 @@ textarea {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 999px;
-  background: var(--claro-red-soft);
+  background: #fff;
   border: 1px solid var(--line-soft);
   color: var(--claro-red);
   font-size: 10px;
@@ -361,7 +359,7 @@ textarea {
   height: 52px;
   object-fit: contain;
   padding: 8px;
-  border-radius: 16px;
+  border-radius: 8px;
   background: rgba(255, 249, 249, 0.96);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
@@ -390,7 +388,26 @@ textarea {
 
 .app-nav {
   display: grid;
+  gap: 14px;
+}
+
+.app-nav__group {
+  display: grid;
   gap: 6px;
+}
+
+.app-nav__group-label {
+  color: var(--ink-500);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  padding: 0 8px;
+  text-transform: uppercase;
+}
+
+.app-nav__group-items {
+  display: grid;
+  gap: 4px;
 }
 
 .app-nav__item {
@@ -398,9 +415,10 @@ textarea {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  min-height: 46px;
+  padding: 8px 10px;
   border: 1px solid transparent;
-  border-radius: 16px;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -418,8 +436,8 @@ textarea {
 
 .app-nav__item.is-active {
   border-color: var(--line-strong);
-  background: var(--claro-red-soft);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+  background: #fff;
+  box-shadow: inset 3px 0 0 var(--claro-red);
 }
 
 .app-nav__icon {
@@ -427,7 +445,7 @@ textarea {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--surface-strong);
   color: var(--claro-red);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
@@ -476,6 +494,7 @@ textarea {
 .app-shell--sidebar-collapsed .app-brand__row > div,
 .app-shell--sidebar-collapsed .app-nav__content,
 .app-shell--sidebar-collapsed .app-nav__chevron,
+.app-shell--sidebar-collapsed .app-nav__group-label,
 .app-shell--sidebar-collapsed .app-sidebar__note {
   display: none;
 }
@@ -495,6 +514,14 @@ textarea {
   grid-template-columns: 1fr;
   justify-items: center;
   padding: 10px;
+}
+
+.app-shell--sidebar-collapsed .app-nav {
+  gap: 8px;
+}
+
+.app-shell--sidebar-collapsed .app-nav__group {
+  gap: 4px;
 }
 
 .app-shell--sidebar-collapsed .app-nav__icon {
@@ -601,6 +628,111 @@ textarea {
 .app-main {
   display: grid;
   gap: 16px;
+}
+
+.app-topbar {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+}
+
+.app-topbar__identity,
+.app-topbar__context,
+.app-topbar__status,
+.app-topbar__action {
+  min-width: 0;
+}
+
+.app-topbar__identity {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.app-topbar__icon {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  color: var(--claro-red);
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.app-topbar__title {
+  min-width: 0;
+}
+
+.app-topbar__title span,
+.app-topbar__context span,
+.app-topbar__status span,
+.app-topbar__action span {
+  color: var(--ink-500);
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.app-topbar__title h2,
+.app-topbar__context strong,
+.app-topbar__status strong,
+.app-topbar__action strong {
+  color: var(--ink-900);
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 850;
+  line-height: 1.25;
+  margin: 4px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-topbar__title h2 {
+  font-size: 1rem;
+}
+
+.app-topbar__context {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 8px;
+  max-width: min(360px, 38vw);
+  min-width: 0;
+  padding: 6px 10px;
+}
+
+.app-topbar__context span {
+  color: var(--ink-500);
+  flex: 0 0 auto;
+  font-size: 0.66rem;
+  margin: 0;
+}
+
+.app-topbar__context strong {
+  color: var(--ink-900);
+  font-size: 0.78rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.app-hero.app-hero--compact {
+  display: none;
 }
 
 .app-hero {
@@ -1743,6 +1875,10 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .app-topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
 }
 
 @media (max-width: 900px) {
@@ -1755,13 +1891,14 @@ textarea {
   }
 
   .app-sidebar,
+  .app-topbar,
   .app-hero,
   .gmud-module .gmud-main,
   .rdm-module,
   .tools-shell,
   .am-panel-page {
     padding: 18px;
-    border-radius: 24px;
+    border-radius: 8px;
   }
 
   .app-nav {
@@ -1774,6 +1911,12 @@ textarea {
 
   .app-hero__heading {
     flex-direction: column;
+  }
+
+  .app-topbar__context,
+  .app-topbar__status,
+  .app-topbar__action {
+    max-width: 100%;
   }
 
   .rdm-grid {
@@ -1828,6 +1971,7 @@ textarea {
 
 @media print {
   .app-sidebar,
+  .app-topbar,
   .app-hero {
     display: none !important;
   }

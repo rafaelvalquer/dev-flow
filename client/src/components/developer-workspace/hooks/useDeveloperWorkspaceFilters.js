@@ -48,6 +48,19 @@ function buildActiveTicketsHelper(stats) {
   return `${updatedSinceYesterday} atualizados desde ontem`;
 }
 
+function isKnownPriority(priority) {
+  const normalized = norm(priority);
+  return (
+    normalized.includes("highest") ||
+    normalized.includes("high") ||
+    normalized.includes("alta") ||
+    normalized.includes("medium") ||
+    normalized.includes("media") ||
+    normalized.includes("low") ||
+    normalized.includes("baixa")
+  );
+}
+
 export function useDeveloperWorkspaceFilters({
   rows,
   preferences,
@@ -98,7 +111,11 @@ export function useDeveloperWorkspaceFilters({
       }
 
       if (priorityFilter !== "all") {
-        if (!norm(getPriority(issue)).includes(priorityFilter)) return false;
+        if (priorityFilter === "other") {
+          if (isKnownPriority(getPriority(issue))) return false;
+        } else if (!norm(getPriority(issue)).includes(priorityFilter)) {
+          return false;
+        }
       }
 
       const due = getDueYmd(issue);
