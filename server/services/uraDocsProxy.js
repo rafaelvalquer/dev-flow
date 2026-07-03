@@ -2,10 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
+import zlib from "node:zlib";
 import {
   analyzeUraContext,
   buildUraAiFailureWarning,
 } from "../lib/uraOpenAiAnalyzer.js";
+import { organizeUraFlowWithAi } from "../lib/uraOpenAiOrganizer.js";
 import { emptyUraAiEnrichment } from "../lib/uraAiSchemas.js";
 
 function safeFileName(name) {
@@ -27,6 +29,156 @@ function parseOptions(raw) {
 
 function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function buildRawActions(normalizedFlow) {
+  const actions = Array.isArray(normalizedFlow?.actions) ? normalizedFlow.actions : [];
+  return {
+    project: {
+      ...(normalizedFlow?.project || {}),
+      source: "NICE Studio XML",
+    },
+    actions: actions.map((action) => ({
+      actionId: String(action?.actionId || "").trim(),
+      type: String(action?.type || "").trim(),
+      caption: String(action?.caption || "").trim(),
+      parameters: Array.isArray(action?.parameters) ? action.parameters : [],
+      defaultNextAction: String(action?.defaultNextAction || "").trim(),
+      branches: Array.isArray(action?.branches) ? action.branches : [],
+      cases: Array.isArray(action?.cases) ? action.cases : [],
+      x: action?.x ?? null,
+      y: action?.y ?? null,
+      raw: action?.raw || {},
+    })),
+    edges: Array.isArray(normalizedFlow?.edges) ? normalizedFlow.edges : [],
+  };
+}
+
+function buildPromptsDetected(normalizedFlow) {
+  return {
+    items: (Array.isArray(normalizedFlow?.prompts) ? normalizedFlow.prompts : []).map(
+      (prompt) => ({
+        fileName: prompt?.fileName || "",
+        fullPath: prompt?.fullPath || "",
+        sourceActionId: prompt?.sourceActionId || "",
+        transcription: prompt?.transcription || "",
+      })
+    ),
+  };
+}
+
+function buildAudioMatching(normalizedFlow, transcriptions) {
+  const prompts = Array.isArray(normalizedFlow?.prompts) ? normalizedFlow.prompts : [];
+  const items = Array.isArray(transcriptions?.items) ? transcriptions.items : [];
+  const promptNames = new Set(
+    prompts.map((prompt) => String(prompt?.fileName || "").toLowerCase()).filter(Boolean)
+  );
+  const audioNames = new Set(
+    items.map((item) => String(item?.fileName || "").toLowerCase()).filter(Boolean)
+  );
+  const matched = prompts.map((prompt) => {
+    const name = String(prompt?.fileName || "").toLowerCase();
+    const audio = items.find((item) => String(item?.fileName || "").toLowerCase() === name);
+    return {
+      fileName: prompt?.fileName || "",
+      sourceActionId: prompt?.sourceActionId || "",
+      status: audio
+        ? audio.status === "transcribed"
+          ? "matched_transcribed"
+          : "matched_failed"
+        : "missing_audio",
+      transcription: audio?.rawTranscription || prompt?.transcription || "",
+    };
+  });
+  const unused = items
+    .filter((item) => !promptNames.has(String(item?.fileName || "").toLowerCase()))
+    .map((item) => ({
+      fileName: item?.fileName || "",
+      sourceActionId: "",
+      status: "unused_audio",
+      transcription: item?.rawTranscription || "",
+    }));
+  return {
+    items: [...matched, ...unused],
+    summary: {
+      prompts: prompts.length,
+      audioFiles: items.length,
+      matched: matched.filter((item) => item.status.startsWith("matched")).length,
+      missingAudio: matched.filter((item) => item.status === "missing_audio").length,
+      unusedAudio: unused.length,
+      uniquePromptFiles: promptNames.size,
+      uniqueAudioFiles: audioNames.size,
+    },
+  };
+}
+
+function isSafeZipPath(name) {
+  const normalized = String(name || "").replace(/\\/g, "/");
+  return (
+    normalized &&
+    !normalized.startsWith("/") &&
+    !normalized.includes("../") &&
+    !/^[A-Za-z]:/.test(normalized)
+  );
+}
+
+function readUInt16(buffer, offset) {
+  return buffer.readUInt16LE(offset);
+}
+
+function readUInt32(buffer, offset) {
+  return buffer.readUInt32LE(offset);
+}
+
+function extractWavFilesFromZip(buffer) {
+  const files = [];
+  const eocdSignature = 0x06054b50;
+  let eocd = -1;
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65557); offset -= 1) {
+    if (readUInt32(buffer, offset) === eocdSignature) {
+      eocd = offset;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("ZIP de audio invalido: diretorio central nao encontrado.");
+  const totalEntries = readUInt16(buffer, eocd + 10);
+  let cursor = readUInt32(buffer, eocd + 16);
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (readUInt32(buffer, cursor) !== 0x02014b50) break;
+    const method = readUInt16(buffer, cursor + 10);
+    const compressedSize = readUInt32(buffer, cursor + 20);
+    const fileNameLength = readUInt16(buffer, cursor + 28);
+    const extraLength = readUInt16(buffer, cursor + 30);
+    const commentLength = readUInt16(buffer, cursor + 32);
+    const localHeaderOffset = readUInt32(buffer, cursor + 42);
+    const fileName = buffer
+      .subarray(cursor + 46, cursor + 46 + fileNameLength)
+      .toString("utf8");
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+    if (!/\.wav$/i.test(fileName) || !isSafeZipPath(fileName)) continue;
+    if (readUInt32(buffer, localHeaderOffset) !== 0x04034b50) continue;
+    const localNameLength = readUInt16(buffer, localHeaderOffset + 26);
+    const localExtraLength = readUInt16(buffer, localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+    let data;
+    if (method === 0) {
+      data = Buffer.from(compressed);
+    } else if (method === 8) {
+      data = zlib.inflateRawSync(compressed);
+    } else {
+      continue;
+    }
+    files.push({
+      originalname: path.basename(fileName),
+      buffer: data,
+      mimetype: "audio/wav",
+      size: data.length,
+      fromZip: true,
+      zipPath: fileName,
+    });
+  }
+  return files;
 }
 
 async function readJsonResponse(response, fallbackMessage) {
@@ -223,6 +375,10 @@ function summarizeFlow(normalizedFlow, packageResult, aiAnalysis) {
       menus: normalizedFlow?.menus?.length || 0,
       skills: normalizedFlow?.skills?.length || 0,
       prompts: normalizedFlow?.prompts?.length || 0,
+      semanticRoutes: packageResult?.summary?.semanticRoutes || 0,
+      drawioPages: packageResult?.summary?.drawioPages || 0,
+      promptsDetected: packageResult?.summary?.promptsDetected || 0,
+      promptsTranscribed: packageResult?.summary?.promptsTranscribed || 0,
       issues: aiAnalysis?.issues?.length || 0,
       testCases: aiAnalysis?.testCases?.length || 0,
       runbookItems: aiAnalysis?.runbook?.length || 0,
@@ -260,7 +416,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       niceFile.buffer
     );
 
-    const audioFiles = files.audio_files || [];
+    let audioFiles = files.audio_files || [];
     for (const audio of audioFiles) {
       await store.writeBuffer(
         job,
@@ -274,7 +430,20 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
         path.join("uploads", safeFileName(files.audio_zip[0].originalname)),
         files.audio_zip[0].buffer
       );
-      store.addWarning(jobId, "audio_zip recebido e armazenado; extracao automatica sera tratada pelo microservico em evolucao futura.");
+      try {
+        const zipAudios = extractWavFilesFromZip(files.audio_zip[0].buffer);
+        for (const audio of zipAudios) {
+          await store.writeBuffer(
+            job,
+            path.join("uploads", "audio", safeFileName(audio.originalname)),
+            audio.buffer
+          );
+        }
+        audioFiles = [...audioFiles, ...zipAudios];
+        store.addWarning(jobId, `audio_zip extraido: ${zipAudios.length} WAV(s) adicionados para matching/transcricao.`);
+      } catch (error) {
+        store.addWarning(jobId, `Falha ao extrair audio_zip. A geracao continuou com WAVs enviados fora do ZIP. Detalhe: ${error?.message || String(error)}`);
+      }
     }
 
     store.updateJob(jobId, {
@@ -323,9 +492,31 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     }
     const transcriptions = { items: transcriptionItems };
     normalizedFlow = matchPromptsWithAudio(normalizedFlow, transcriptions);
+    const rawActions = buildRawActions(normalizedFlow);
+    const promptsDetected = buildPromptsDetected(normalizedFlow);
+    const audioMatching = buildAudioMatching(normalizedFlow, transcriptions);
 
+    await store.writeJson(job, "01_raw_actions.json", rawActions);
     await store.writeJson(job, "normalized_flow.json", normalizedFlow);
+    await store.writeJson(job, "prompts_detected.json", promptsDetected);
+    await store.writeJson(job, "audio_matching.json", audioMatching);
     await store.writeJson(job, "transcricoes.json", transcriptions);
+
+    store.updateJob(jobId, {
+      step: "ai_organizer",
+      progress: 55,
+      message: "Organizando semanticamente o fluxo antes do draw.io...",
+    });
+
+    const organizerResult = await organizeUraFlowWithAi({
+      rawActions,
+      transcriptions,
+      projectName: projectName || normalizedFlow?.project?.name || "URA",
+      options,
+      env,
+    });
+    for (const warning of organizerResult.warnings || []) store.addWarning(jobId, warning);
+    await store.writeJson(job, "02_ai_organizer.json", organizerResult.organizer);
 
     store.updateJob(jobId, {
       step: "ai_enrichment",
@@ -361,6 +552,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       emptyUraAiEnrichment({
         reason: "Falha no enriquecimento por IA.",
       });
+    aiEnrichment.organizer = organizerResult.organizer;
 
     await store.writeJson(job, "ai_enrichment.json", aiEnrichment);
 
@@ -401,6 +593,11 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       normalizedFlow: path.join(job.jobDir, "normalized_flow.json"),
       transcriptions: path.join(job.jobDir, "transcricoes.json"),
       aiEnrichment: path.join(job.jobDir, "ai_enrichment.json"),
+      rawActions: path.join(job.jobDir, "01_raw_actions.json"),
+      aiOrganizer: path.join(job.jobDir, "02_ai_organizer.json"),
+      semanticModel: path.join(job.jobDir, "03_semantic_model.json"),
+      semanticRoutes: path.join(job.jobDir, "04_semantic_routes.json"),
+      drawioPlan: path.join(job.jobDir, "05_drawio_plan.json"),
     };
 
     const summary = summarizeFlow(normalizedFlow, packageResult, aiEnrichment);

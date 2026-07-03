@@ -2629,7 +2629,7 @@ def build_functional_journey_pages(flow: Dict[str, Any], ai: Optional[Dict[str, 
             continue
 
         page_prefix = f"journey_{menu_index}_{safe_drawio_id(menu_id)}"
-        page_name = "Fluxo Funcional" if menu_index == 1 else f"Fluxo Funcional {menu_index}"
+        page_name = "Jornada Funcional" if menu_index == 1 else f"Jornada Funcional {menu_index}"
         cells = [
             mx_node(f"{page_prefix}_title", f"{page_name} - {short_label(menu.get('caption') or 'Menu', 60)}", 300, 25, 1000, 42, "title"),
             mx_node(f"{page_prefix}_sub", "Jornada humanizada com menu, opcoes, audios, regras, integracoes e saidas principais.", 250, 68, 1100, 30, "subtitle"),
@@ -3212,7 +3212,7 @@ def build_single_technical_page(flow: Dict[str, Any], ai: Dict[str, Any]) -> str
     actions_map = action_by_id(flow)
     groups = technical_groups(flow)
     cells = [
-        mx_node("single_tech_title", "Acoes NICE completas", 420, 25, 900, 42, "title"),
+        mx_node("single_tech_title", "Fluxograma Técnico Editável", 420, 25, 900, 42, "title"),
         mx_node(
             "single_tech_sub",
             "Todas as actions e conexoes reais do XML NICE em uma unica pagina tecnica, agrupadas por tipo funcional.",
@@ -3289,11 +3289,371 @@ def build_single_technical_page(flow: Dict[str, Any], ai: Dict[str, Any]) -> str
 
     if not node_ids:
         cells.append(mx_node("single_tech_empty", "Nenhuma action tecnica encontrada.", 560, 180, 480, 80, "warning"))
-    return mx_diagram("Acoes NICE completas", cells, 1800, max(1000, y_cursor + 80))
+    return mx_diagram("Fluxograma Técnico Editável", cells, 1800, max(1000, y_cursor + 80))
+
+
+def build_raw_actions(flow: Dict[str, Any]) -> Dict[str, Any]:
+    actions = []
+    for action in flow.get("actions", []):
+        if not isinstance(action, dict):
+            continue
+        actions.append(
+            {
+                "actionId": clean_text(action.get("actionId")),
+                "type": clean_text(action.get("type")),
+                "caption": clean_text(action.get("caption")),
+                "parameters": action.get("parameters") or [],
+                "defaultNextAction": clean_text(action.get("defaultNextAction")),
+                "branches": action.get("branches") or [],
+                "cases": action.get("cases") or [],
+                "x": action.get("x"),
+                "y": action.get("y"),
+                "raw": action.get("raw") or {},
+            }
+        )
+    return {
+        "project": {
+            **(flow.get("project") or {}),
+            "source": "NICE Studio XML",
+        },
+        "actions": actions,
+        "edges": flow.get("edges", []),
+    }
+
+
+def ai_organizer_indexes(ai_organizer: Dict[str, Any]) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    action_index = {
+        clean_text(item.get("actionId")): item
+        for item in ai_organizer.get("actionAnnotations", [])
+        if isinstance(item, dict) and clean_text(item.get("actionId"))
+    }
+    menu_index = {
+        clean_text(item.get("menuActionId")): item
+        for item in ai_organizer.get("menuLabels", [])
+        if isinstance(item, dict) and clean_text(item.get("menuActionId"))
+    }
+    return action_index, menu_index
+
+
+def deterministic_ai_organizer(flow: Dict[str, Any]) -> Dict[str, Any]:
+    actions = flow.get("actions", [])
+    menus = [action for action in actions if isinstance(action, dict) and clean_text(action.get("type")).upper() == "MENU"]
+    annotations = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        label = clean_text(action.get("caption")) or clean_text(action.get("type")) or f"Action {action.get('actionId')}"
+        annotations.append(
+            {
+                "actionId": clean_text(action.get("actionId")),
+                "businessLabel": short_label(label, 80),
+                "shortLabel": short_label(label, 42),
+                "description": f"{clean_text(action.get('type'))} extraida deterministicamente do XML NICE.",
+                "category": clean_text(action.get("type")).lower(),
+                "group": technical_group_for_action(action),
+                "riskLevel": "low",
+                "confidence": 0.75,
+                "evidence": [f"ActionID {action.get('actionId')}", f"type {action.get('type')}"],
+            }
+        )
+    menu_labels = []
+    for menu in menus:
+        options = []
+        for case in menu.get("cases") or []:
+            digit = clean_text(case.get("value") or case.get("name"))
+            target = clean_text(case.get("target"))
+            if digit or target:
+                options.append(
+                    {
+                        "digit": digit,
+                        "label": f"Opcao {digit}" if digit else "Opcao",
+                        "description": "Opcao extraida do CASE do menu.",
+                        "targetActionId": target,
+                        "confidence": 0.8,
+                        "evidence": [f"MENU ActionID {menu.get('actionId')}", f"CASE {digit}"],
+                    }
+                )
+        menu_labels.append(
+            {
+                "menuActionId": clean_text(menu.get("actionId")),
+                "menuName": clean_text(menu.get("caption")) or "Menu",
+                "captureVariable": menu_variable(menu.get("parameters")),
+                "options": options,
+            }
+        )
+    return {
+        "flowContext": {
+            "flowName": flow.get("project", {}).get("name", "URA"),
+            "flowType": "URA NICE",
+            "businessPurpose": "Documentacao funcional gerada deterministicamente.",
+            "audience": ["Negocio", "Desenvolvimento", "Sustentacao"],
+            "mainDomains": [],
+            "mainJourneys": [clean_text(menu.get("caption")) for menu in menus[:8]],
+        },
+        "actionAnnotations": annotations,
+        "menuLabels": menu_labels,
+        "visualGroups": [],
+        "routeHints": [],
+        "drawioRecommendations": {
+            "mainPageTitle": "Fluxo principal da URA",
+            "maxMainBlocks": 18,
+            "suggestedPages": [
+                "Fluxo Principal",
+                "Mapa de Menus",
+                "Mapa de Skills",
+                "Fluxograma Tecnico Editavel",
+            ],
+        },
+        "issues": [],
+    }
+
+
+def build_semantic_model(raw_actions: Dict[str, Any], ai_organizer: Dict[str, Any], transcriptions: Dict[str, Any], flow: Dict[str, Any]) -> Dict[str, Any]:
+    action_index, _menu_index = ai_organizer_indexes(ai_organizer)
+    prompts_by_action = prompt_index_by_action(flow)
+    actions = []
+    for action in flow.get("actions", []):
+        if not isinstance(action, dict):
+            continue
+        aid = clean_text(action.get("actionId"))
+        ann = action_index.get(aid, {})
+        actions.append(
+            {
+                **action,
+                "businessLabel": clean_text(ann.get("businessLabel") or ann.get("title") or action.get("caption")),
+                "shortLabel": clean_text(ann.get("shortLabel") or ann.get("businessLabel") or action.get("caption")),
+                "description": clean_text(ann.get("description")),
+                "group": clean_text(ann.get("group") or technical_group_for_action(action)),
+                "category": clean_text(ann.get("category") or action.get("type")).lower(),
+                "prompts": prompts_by_action.get(aid, []),
+            }
+        )
+    return {
+        "project": raw_actions.get("project") or flow.get("project") or {},
+        "actions": actions,
+        "edges": flow.get("edges", []),
+        "menus": flow.get("menus", []),
+        "prompts": flow.get("prompts", []),
+        "skills": flow.get("skills", []),
+        "snippetSemantics": semantic_rows(flow),
+        "events": flow.get("events", []),
+        "timeouts": flow.get("timeouts", []),
+        "cdrVariables": flow.get("cdrVariables", []),
+        "externalTargets": flow.get("externalTargets", []),
+        "aiOrganizer": ai_organizer,
+        "transcriptions": transcriptions,
+    }
+
+
+def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+    flow = semantic_model
+    rows = semantic_rows(flow)
+    routes = []
+    seen = set()
+    for index, row in enumerate(rows, start=1):
+        if row.get("kind") == "prompt":
+            continue
+        path = [clean_text(item) for item in row.get("caseValues") or [] if clean_text(item)]
+        if not path:
+            path = [str(index)]
+        subject = clean_text(row.get("treatment") or row.get("category") or row.get("skillName") or row.get("nextStep") or row.get("audio") or "Rota")
+        key = (">".join(path), clean_text(row.get("sourceActionId")), subject, clean_text(row.get("skillId")), clean_text(row.get("nextStep")))
+        if key in seen:
+            continue
+        seen.add(key)
+        target_type = "skill" if row.get("skillId") or row.get("skillName") else "next_step" if row.get("nextStep") else "action"
+        routes.append(
+            {
+                "routeId": f"R{len(routes) + 1:03d}",
+                "path": path,
+                "pathLabel": " > ".join([*path, subject]) if path else subject,
+                "originMenuActionId": clean_text(row.get("sourceActionId")),
+                "actions": [clean_text(row.get("sourceActionId"))] if clean_text(row.get("sourceActionId")) else [],
+                "group": clean_text(row.get("category") or "Jornada"),
+                "domain": clean_text(row.get("category")),
+                "treatment": subject,
+                "prompts": [
+                    prompt
+                    for prompt in flow.get("prompts", [])
+                    if clean_text(prompt.get("sourceActionId")) == clean_text(row.get("sourceActionId"))
+                ],
+                "target": {
+                    "type": target_type,
+                    "skillId": clean_text(row.get("skillId")),
+                    "skillName": clean_text(row.get("skillName")),
+                    "actionId": clean_text(row.get("target")),
+                },
+                "nextStep": clean_text(row.get("nextStep")),
+                "scriptpoint": clean_text(row.get("scriptpoint")),
+                "mapaDna": clean_text(row.get("mapaDna")),
+                "transferCode": clean_text(row.get("transferCode")),
+                "confidence": clean_text(row.get("confidence") or "deterministic"),
+                "evidence": [f"ActionID {row.get('sourceActionId')}", f"CASE {'/'.join(path)}"],
+            }
+        )
+    if not routes:
+        for index, action in enumerate(flow.get("actions", [])[:40], start=1):
+            if clean_text(action.get("nextStep")) or action.get("skills") or clean_text(action.get("type")).upper() in {"RUNSCRIPT", "RUNSUB", "REST_API", "REQAGENT"}:
+                routes.append(
+                    {
+                        "routeId": f"R{len(routes) + 1:03d}",
+                        "path": [str(index)],
+                        "pathLabel": clean_text(action.get("businessLabel") or action.get("caption") or action.get("type")),
+                        "originMenuActionId": clean_text(action.get("actionId")),
+                        "actions": [clean_text(action.get("actionId"))],
+                        "group": clean_text(action.get("group") or "Fluxo tecnico"),
+                        "domain": clean_text(action.get("category")),
+                        "treatment": clean_text(action.get("businessLabel") or action.get("caption")),
+                        "prompts": action.get("prompts") or [],
+                        "target": {"type": clean_text(action.get("type")).lower()},
+                        "nextStep": clean_text(action.get("nextStep")),
+                        "scriptpoint": clean_text(action.get("scriptpoint")),
+                        "mapaDna": clean_text(action.get("mapaDna")),
+                        "transferCode": clean_text(action.get("transferCode")),
+                        "confidence": "deterministic",
+                        "evidence": [f"ActionID {action.get('actionId')}"],
+                    }
+                )
+    return {"routes": routes}
+
+
+def build_drawio_plan(semantic_model: Dict[str, Any], semantic_routes: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    routes = semantic_routes.get("routes", [])
+    return {
+        "pages": [
+            {"name": "Fluxo Principal", "type": "functional_overview", "routes": routes[:25], "context": ai_organizer.get("flowContext", {})},
+            {"name": "Mapa de Menus", "type": "menu_map", "rows": routes},
+            {"name": "Mapa de Skills", "type": "skill_map", "rows": routes},
+            {"name": "Fluxograma Técnico Editável", "type": "technical_graph", "group": "all"},
+        ]
+    }
+
+
+def plan_table_page(name: str, headers: List[str], rows: List[List[Any]], width: int = 1600) -> str:
+    cells = [mx_node(f"{safe_drawio_id(name)}_title", name, 350, 25, 900, 42, "title")]
+    col_width = max(120, (width - 80) // max(len(headers), 1))
+    y = 95
+    x = 40
+    for col, header in enumerate(headers):
+        cells.append(table_cell(f"{safe_drawio_id(name)}_h_{col}", header, x + col * col_width, y, col_width, 34, True))
+    for row_index, row in enumerate(rows[:120]):
+        for col, value in enumerate(row[: len(headers)]):
+            cells.append(table_cell(f"{safe_drawio_id(name)}_{row_index}_{col}", short_label(value, 120), x + col * col_width, y + 34 + row_index * 34, col_width, 34))
+    return mx_diagram(name, cells, width, max(900, y + 110 + len(rows[:120]) * 34))
+
+
+def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any], ai: Dict[str, Any]) -> str:
+    diagrams = []
+    actions_by_group: Dict[str, List[Dict[str, Any]]] = {}
+    for action in semantic_model.get("actions", []):
+        actions_by_group.setdefault(clean_text(action.get("group") or technical_group_for_action(action)), []).append(action)
+
+    for page in plan.get("pages", []):
+        name = page.get("name")
+        ptype = page.get("type")
+        if ptype == "functional_overview":
+            routes = page.get("routes", [])
+            context = page.get("context", {})
+            cells = [
+                mx_node("plan_main_title", clean_text(context.get("flowName") or name or "Fluxo Principal"), 330, 25, 900, 42, "title"),
+                mx_node("plan_main_context", short_label(context.get("businessPurpose") or "Visao funcional humanizada gerada a partir do XML NICE.", 180), 230, 70, 1100, 34, "subtitle"),
+                mx_node("plan_start", "Inicio da URA", 680, 130, 220, 60, "terminal_start"),
+            ]
+            previous = "plan_start"
+            y = 235
+            for index, route in enumerate(routes[:25]):
+                node_id = f"plan_route_{index}"
+                label = "\n".join(
+                    [
+                        short_label(route.get("pathLabel") or route.get("treatment"), 54),
+                        "Caminho: " + short_label(" > ".join(route.get("path") or []), 40),
+                        "Destino: " + short_label(route.get("target", {}).get("skillName") or route.get("nextStep") or route.get("target", {}).get("actionId") or "-", 50),
+                    ]
+                )
+                x = 210 + (index % 3) * 410
+                cells.append(mx_node(node_id, label, x, y, 330, 118, "process"))
+                cells.append(mx_edge(f"plan_main_e_{index}", previous if index == 0 else "plan_start", node_id, short_label(" > ".join(route.get("path") or []), 18)))
+                if index % 3 == 2:
+                    y += 185
+            cells.append(mx_node("plan_end", "Detalhes nos mapas e no tecnico editavel", 650, y + 170, 280, 70, "terminal_end"))
+            diagrams.append(mx_diagram("Fluxo Principal", cells, 1600, max(1000, y + 300)))
+        elif ptype == "menu_map":
+            rows = [
+                [
+                    " > ".join(r.get("path") or []),
+                    (r.get("path") or [""])[-1],
+                    r.get("treatment") or r.get("pathLabel"),
+                    r.get("originMenuActionId"),
+                    (r.get("prompts") or [{}])[0].get("fileName", ""),
+                    (r.get("prompts") or [{}])[0].get("transcription", ""),
+                    r.get("target", {}).get("skillName") or r.get("nextStep") or r.get("target", {}).get("actionId"),
+                    r.get("originMenuActionId"),
+                    "; ".join(r.get("evidence") or []),
+                ]
+                for r in page.get("rows", [])
+            ]
+            diagrams.append(plan_table_page("Mapa de Menus", ["Caminho digitado", "Opcao", "Label humano", "Menu origem", "Prompt", "Transcricao", "Destino", "ActionID", "Evidencia"], rows, 1900))
+        elif ptype == "skill_map":
+            rows = [
+                [
+                    " > ".join(r.get("path") or []),
+                    r.get("treatment"),
+                    r.get("target", {}).get("skillId"),
+                    r.get("target", {}).get("skillName"),
+                    r.get("originMenuActionId"),
+                    "; ".join(r.get("evidence") or []),
+                    (r.get("prompts") or [{}])[0].get("transcription") or (r.get("prompts") or [{}])[0].get("fileName", ""),
+                ]
+                for r in page.get("rows", [])
+                if r.get("target", {}).get("skillId") or r.get("target", {}).get("skillName")
+            ]
+            diagrams.append(plan_table_page("Mapa de Skills", ["Caminho digitado", "Assunto", "Skill ID", "Skill Name", "ActionID", "Evidencia", "Prompt/Fala"], rows, 1800))
+        elif ptype == "technical_graph":
+            group = clean_text(page.get("group"))
+            group_actions = semantic_model.get("actions", []) if group == "all" else actions_by_group.get(group, [])
+            cells = [
+                mx_node("tech_full_title", "Fluxograma Técnico Editável", 350, 25, 900, 42, "title"),
+                mx_node("tech_full_sub", "Grafo tecnico completo do NICE com todas as actions e conexoes reais extraidas do XML.", 230, 70, 1100, 34, "subtitle"),
+            ]
+            node_ids = {}
+            columns = 5
+            node_w = 285
+            x_gap = 335
+            y_gap = 140
+            for index, action in enumerate(group_actions):
+                aid = clean_text(action.get("actionId"))
+                node_id = f"tech_full_{safe_drawio_id(aid)}"
+                node_ids[aid] = node_id
+                cells.append(
+                    mx_node(
+                        node_id,
+                        compact_action_summary(action, prompt_index_by_action(semantic_model)),
+                        50 + (index % columns) * x_gap,
+                        125 + (index // columns) * y_gap,
+                        node_w,
+                        100,
+                        action_style(action),
+                    )
+                )
+            edge_index = 0
+            for edge in semantic_model.get("edges", []):
+                source = clean_text(edge.get("source"))
+                target = clean_text(edge.get("target"))
+                if source in node_ids and target in node_ids:
+                    edge_index += 1
+                    cells.append(mx_edge(f"tech_full_e_{edge_index}", node_ids[source], node_ids[target], edge_label(edge)))
+            diagrams.append(mx_diagram("Fluxograma Técnico Editável", cells, 1800, max(1000, 260 + ((len(group_actions) + columns - 1) // columns) * y_gap)))
+    return "".join(diagrams)
 
 
 def build_drawio(flow: Dict[str, Any], ai: Dict[str, Any]) -> str:
     modified = html.escape(datetime.now(timezone.utc).isoformat())
+    semantic_model = flow.get("semanticModel")
+    semantic_routes = flow.get("semanticRoutes")
+    drawio_plan = flow.get("drawioPlan")
+    if semantic_model and semantic_routes and drawio_plan:
+        diagrams = render_drawio_from_plan(drawio_plan, semantic_model, ai)
+        return f'<mxfile host="app.diagrams.net" modified="{modified}" agent="Dev Flow" version="24.7.17" type="device">{diagrams}</mxfile>'
     return (
         f'<mxfile host="app.diagrams.net" modified="{modified}" agent="Dev Flow" version="24.7.17" type="device">'
         + build_main_flow_page(flow, ai)
@@ -3302,6 +3662,80 @@ def build_drawio(flow: Dict[str, Any], ai: Dict[str, Any]) -> str:
         + build_single_technical_page(flow, ai)
         + "</mxfile>"
     )
+
+
+def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    raw_actions = build_raw_actions(flow)
+    ai_organizer = ai.get("organizer") if isinstance(ai.get("organizer"), dict) else {}
+    if not ai_organizer:
+        ai_organizer = deterministic_ai_organizer(flow)
+    semantic_model = build_semantic_model(raw_actions, ai_organizer, transcriptions, flow)
+    semantic_routes = build_semantic_routes(semantic_model)
+    drawio_plan = build_drawio_plan(semantic_model, semantic_routes, ai_organizer)
+    planned_flow = {
+        **flow,
+        "rawActions": raw_actions,
+        "aiOrganizer": ai_organizer,
+        "semanticModel": semantic_model,
+        "semanticRoutes": semantic_routes,
+        "drawioPlan": drawio_plan,
+    }
+    return raw_actions, ai_organizer, semantic_model, semantic_routes, drawio_plan, planned_flow
+
+
+def build_prompts_detected(flow: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "items": [
+            {
+                "fileName": prompt.get("fileName", ""),
+                "fullPath": prompt.get("fullPath", ""),
+                "sourceActionId": prompt.get("sourceActionId", ""),
+                "transcription": prompt.get("transcription", ""),
+            }
+            for prompt in flow.get("prompts", [])
+            if isinstance(prompt, dict)
+        ]
+    }
+
+
+def build_audio_matching(flow: Dict[str, Any], transcriptions: Dict[str, Any]) -> Dict[str, Any]:
+    prompts = [prompt for prompt in flow.get("prompts", []) if isinstance(prompt, dict)]
+    items = [item for item in transcriptions.get("items", []) if isinstance(item, dict)]
+    by_name = {clean_text(item.get("fileName")).lower(): item for item in items if clean_text(item.get("fileName"))}
+    prompt_names = {clean_text(prompt.get("fileName")).lower() for prompt in prompts if clean_text(prompt.get("fileName"))}
+    matched = []
+    for prompt in prompts:
+        name = clean_text(prompt.get("fileName")).lower()
+        audio = by_name.get(name)
+        matched.append(
+            {
+                "fileName": prompt.get("fileName", ""),
+                "sourceActionId": prompt.get("sourceActionId", ""),
+                "status": "matched_transcribed" if audio and audio.get("status") == "transcribed" else "matched_failed" if audio else "missing_audio",
+                "transcription": clean_text((audio or {}).get("rawTranscription") or prompt.get("transcription")),
+            }
+        )
+    for item in items:
+        name = clean_text(item.get("fileName")).lower()
+        if name and name not in prompt_names:
+            matched.append(
+                {
+                    "fileName": item.get("fileName", ""),
+                    "sourceActionId": "",
+                    "status": "unused_audio",
+                    "transcription": clean_text(item.get("rawTranscription")),
+                }
+            )
+    return {
+        "items": matched,
+        "summary": {
+            "prompts": len(prompts),
+            "audioFiles": len(items),
+            "matched": len([item for item in matched if clean_text(item.get("status")).startswith("matched")]),
+            "missingAudio": len([item for item in matched if item.get("status") == "missing_audio"]),
+            "unusedAudio": len([item for item in matched if item.get("status") == "unused_audio"]),
+        },
+    }
 
 
 def build_markdown(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dict[str, Any]) -> str:
@@ -3472,8 +3906,11 @@ async def generate_package(request: PackageRequest):
     validate_package_flow(flow)
     transcriptions = request.transcriptions or {}
     ai = request.ai_enrichment or {}
-    drawio = build_drawio(flow, ai)
-    md = build_markdown(flow, transcriptions, ai)
+    raw_actions, ai_organizer, semantic_model, semantic_routes, drawio_plan, planned_flow = build_processing_artifacts(flow, transcriptions, ai)
+    prompts_detected = build_prompts_detected(planned_flow)
+    audio_matching = build_audio_matching(planned_flow, transcriptions)
+    drawio = build_drawio(planned_flow, ai)
+    md = build_markdown(planned_flow, transcriptions, ai)
     html_doc = build_html(md)
 
     route_rows = []
@@ -3530,6 +3967,13 @@ async def generate_package(request: PackageRequest):
         "fluxo_ura.drawio": drawio.encode("utf-8"),
         "documentacao_ura.html": html_doc.encode("utf-8"),
         "documentacao_ura.md": md.encode("utf-8"),
+        "01_raw_actions.json": json.dumps(raw_actions, ensure_ascii=False, indent=2).encode("utf-8"),
+        "02_ai_organizer.json": json.dumps(ai_organizer, ensure_ascii=False, indent=2).encode("utf-8"),
+        "03_semantic_model.json": json.dumps(semantic_model, ensure_ascii=False, indent=2).encode("utf-8"),
+        "04_semantic_routes.json": json.dumps(semantic_routes, ensure_ascii=False, indent=2).encode("utf-8"),
+        "05_drawio_plan.json": json.dumps(drawio_plan, ensure_ascii=False, indent=2).encode("utf-8"),
+        "prompts_detected.json": json.dumps(prompts_detected, ensure_ascii=False, indent=2).encode("utf-8"),
+        "audio_matching.json": json.dumps(audio_matching, ensure_ascii=False, indent=2).encode("utf-8"),
         "normalized_flow.json": json.dumps(flow, ensure_ascii=False, indent=2).encode("utf-8"),
         "transcricoes.json": json.dumps(transcriptions, ensure_ascii=False, indent=2).encode("utf-8"),
         "ai_enrichment.json": json.dumps(ai, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -3547,6 +3991,10 @@ async def generate_package(request: PackageRequest):
         "summary": {
             "files": len(files),
             "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "semanticRoutes": len(semantic_routes.get("routes", [])),
+            "drawioPages": len(drawio_plan.get("pages", [])),
+            "promptsDetected": len(prompts_detected.get("items", [])),
+            "promptsTranscribed": len([item for item in audio_matching.get("items", []) if item.get("status") == "matched_transcribed"]),
         },
         "files": {
             name: {"fileName": name, "contentBase64": encode_file(content)}

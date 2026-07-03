@@ -7,9 +7,6 @@ const OPTION_LABELS = {
   includeAiAnalysis: "Analise IA",
   includeTestPlan: "Plano de testes",
   includeRunbook: "Runbook",
-  drawioPagesByCompany: "Paginas por empresa",
-  drawioIncludeAiDescriptions: "Descricoes IA no draw.io",
-  drawioIncludeAudioTranscript: "Audio no draw.io",
 };
 
 export const DEFAULT_URA_DOCS_OPTIONS = {
@@ -19,9 +16,6 @@ export const DEFAULT_URA_DOCS_OPTIONS = {
   includeAiAnalysis: true,
   includeTestPlan: true,
   includeRunbook: true,
-  drawioPagesByCompany: true,
-  drawioIncludeAiDescriptions: true,
-  drawioIncludeAudioTranscript: true,
   language: "pt-BR",
 };
 
@@ -62,6 +56,9 @@ export default function UraOptionsPanel({ options, onChange }) {
           </label>
         ))}
       </div>
+      <p className="mt-3 text-xs text-zinc-500">
+        Audios aparecem automaticamente no draw.io: usa a transcricao local quando existir; caso contrario, mostra apenas o nome do arquivo.
+      </p>
     </section>
   );
 }

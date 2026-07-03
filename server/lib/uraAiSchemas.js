@@ -150,6 +150,162 @@ export const URA_AI_ENRICHMENT_SCHEMA = {
   },
 };
 
+export const URA_AI_ORGANIZER_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "flowContext",
+    "actionAnnotations",
+    "menuLabels",
+    "visualGroups",
+    "routeHints",
+    "drawioRecommendations",
+    "issues",
+  ],
+  properties: {
+    flowContext: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "flowName",
+        "flowType",
+        "businessPurpose",
+        "audience",
+        "mainDomains",
+        "mainJourneys",
+      ],
+      properties: {
+        flowName: { type: "string" },
+        flowType: { type: "string" },
+        businessPurpose: { type: "string" },
+        audience: { type: "array", items: { type: "string" } },
+        mainDomains: { type: "array", items: { type: "string" } },
+        mainJourneys: { type: "array", items: { type: "string" } },
+      },
+    },
+    actionAnnotations: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "actionId",
+          "businessLabel",
+          "shortLabel",
+          "description",
+          "category",
+          "group",
+          "riskLevel",
+          "confidence",
+          "evidence",
+        ],
+        properties: {
+          actionId: { type: "string" },
+          businessLabel: { type: "string" },
+          shortLabel: { type: "string" },
+          description: { type: "string" },
+          category: { type: "string" },
+          group: { type: "string" },
+          riskLevel: { type: "string" },
+          confidence: { type: "number" },
+          evidence: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    menuLabels: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["menuActionId", "menuName", "captureVariable", "options"],
+        properties: {
+          menuActionId: { type: "string" },
+          menuName: { type: "string" },
+          captureVariable: { type: "string" },
+          options: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: [
+                "digit",
+                "label",
+                "description",
+                "targetActionId",
+                "confidence",
+                "evidence",
+              ],
+              properties: {
+                digit: { type: "string" },
+                label: { type: "string" },
+                description: { type: "string" },
+                targetActionId: { type: "string" },
+                confidence: { type: "number" },
+                evidence: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
+        },
+      },
+    },
+    visualGroups: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["groupId", "title", "description", "actionIds"],
+        properties: {
+          groupId: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          actionIds: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    routeHints: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["originActionId", "path", "label", "group", "targetActionId", "evidence"],
+        properties: {
+          originActionId: { type: "string" },
+          path: { type: "array", items: { type: "string" } },
+          label: { type: "string" },
+          group: { type: "string" },
+          targetActionId: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    drawioRecommendations: {
+      type: "object",
+      additionalProperties: false,
+      required: ["mainPageTitle", "maxMainBlocks", "suggestedPages"],
+      properties: {
+        mainPageTitle: { type: "string" },
+        maxMainBlocks: { type: "number" },
+        suggestedPages: { type: "array", items: { type: "string" } },
+      },
+    },
+    issues: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["severity", "title", "description", "evidence", "suggestion"],
+        properties: {
+          severity: { type: "string" },
+          title: { type: "string" },
+          description: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
+          suggestion: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
 export function emptyUraAiEnrichment({ reason = "" } = {}) {
   return {
     context: {
