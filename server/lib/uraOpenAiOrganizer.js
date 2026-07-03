@@ -227,6 +227,9 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
         "Use apenas ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, skills, prompts e destinos presentes no payload.",
         "Nao invente conexoes, ActionID, Skill ID, prompts, destinos ou opcoes DTMF.",
         "Classifique as actions em pre-menu, menu principal, submenu, coleta, validacao, audio/play, API, transferencia, encerramento ou evento lateral.",
+        "Identifique o significado das opcoes do menu principal usando transcricao do audio, nome do audio, destino tecnico, caption de actions posteriores, skillName, NEXT_STEP e contexto do XML.",
+        "Nunca retorne labels genericos como 'Opcao 1' se houver evidencia de contexto.",
+        "Retorne labels curtos e dinamicos para o draw.io, sem assumir nomes fixos de uma URA especifica.",
       ],
       expectedFields: [
         "mainMenuCandidate",
@@ -263,7 +266,9 @@ export async function organizeUraFlowWithAi({
   if (!enabled || !clean(env.OPENAI_API_KEY)) {
     return {
       organizer: deterministicOrganizer({ rawActions, projectName }),
-      warnings: enabled ? ["Organizer IA indisponivel: OPENAI_API_KEY nao configurado."] : [],
+      warnings: [
+        "IA nao utilizada: usando fallback deterministico. Verifique OPENAI_API_KEY e URA_DOCS_ENABLE_AI.",
+      ],
       cacheHit: false,
       fallback: true,
     };
@@ -291,6 +296,10 @@ export async function organizeUraFlowWithAi({
             "Para PLAY/MENU, identifique o audio executado e a intencao da mensagem.",
             "Para SNIPPET, explique o que ele faz em linguagem funcional.",
             "Para RUNSCRIPT/NEXT_STEP, informe o destino funcional quando existir.",
+            "Identifique o significado das opcoes do menu principal usando transcricao do audio, nome do audio, destino tecnico, caption de menus posteriores, skillName, NEXT_STEP e contexto do XML.",
+            "Exemplos apenas ilustrativos, nao chumbados: target com nome de empresa vira label da empresa; target com cancelamento vira Cancelamento; target com segunda via vira Segunda via; target com renegociacao vira Renegociacao.",
+            "Nunca retorne labels genericos como Opcao 1, Opcao 2 ou Opcao 3 quando houver evidencia de contexto no payload.",
+            "menuOptionLabels e menuLabels.options devem conter labels curtos e humanos para o draw.io.",
             "ActionID deve ser usado apenas como evidencia, nunca como displayLabel.",
             "Gere labels curtos para draw.io.",
             "Nao use frases longas quando a condicao tecnica for clara.",
