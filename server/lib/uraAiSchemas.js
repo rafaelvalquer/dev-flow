@@ -159,8 +159,11 @@ export const URA_AI_ORGANIZER_SCHEMA = {
     "preMenuLabels",
     "ifLabels",
     "collectLabels",
+    "navigationLabels",
     "actionAnnotations",
     "menuLabels",
+    "menuOptionLabels",
+    "audioLabels",
     "subflowLabels",
     "visualGroups",
     "routeHints",
@@ -271,6 +274,22 @@ export const URA_AI_ORGANIZER_SCHEMA = {
         },
       },
     },
+    navigationLabels: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["nodeKey", "actionId", "humanLabel", "description", "category", "evidence"],
+        properties: {
+          nodeKey: { type: "string" },
+          actionId: { type: "string" },
+          humanLabel: { type: "string" },
+          description: { type: "string" },
+          category: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
     actionAnnotations: {
       type: "array",
       items: {
@@ -348,6 +367,35 @@ export const URA_AI_ORGANIZER_SCHEMA = {
               },
             },
           },
+        },
+      },
+    },
+    menuOptionLabels: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["menuActionId", "digit", "label", "description", "evidence"],
+        properties: {
+          menuActionId: { type: "string" },
+          digit: { type: "string" },
+          label: { type: "string" },
+          description: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    audioLabels: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["actionId", "fileName", "purpose", "evidence"],
+        properties: {
+          actionId: { type: "string" },
+          fileName: { type: "string" },
+          purpose: { type: "string" },
+          evidence: { type: "array", items: { type: "string" } },
         },
       },
     },

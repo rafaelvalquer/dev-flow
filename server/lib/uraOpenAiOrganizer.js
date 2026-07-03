@@ -67,6 +67,7 @@ function deterministicOrganizer({ rawActions, projectName }) {
         timeoutActionIds: [],
         evidence: [`ActionID ${action.actionId}`],
       })),
+    navigationLabels: [],
     actionAnnotations: actions.slice(0, 260).map((action) => ({
       actionId: clean(action.actionId),
       businessLabel: short(action.caption || action.type || `Action ${action.actionId}`, 80),
@@ -91,6 +92,16 @@ function deterministicOrganizer({ rawActions, projectName }) {
         evidence: [`MENU ActionID ${menu.actionId}`, `CASE ${clean(item.value || item.name)}`],
       })),
     })),
+    menuOptionLabels: [],
+    audioLabels: actions
+      .filter((action) => /\.wav/i.test(JSON.stringify(action)))
+      .slice(0, 80)
+      .map((action) => ({
+        actionId: clean(action.actionId),
+        fileName: short(JSON.stringify(action).match(/[^"\\\/]+\.wav/i)?.[0] || "", 120),
+        purpose: short(action.caption || "Audio da URA", 100),
+        evidence: [`ActionID ${action.actionId}`],
+      })),
     subflowLabels: [],
     visualGroups: [],
     routeHints: [],
@@ -154,7 +165,10 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
         "preMenuLabels",
         "ifLabels",
         "collectLabels",
+        "navigationLabels",
         "menuLabels",
+        "menuOptionLabels",
+        "audioLabels",
         "subflowLabels",
       ],
     },
@@ -197,8 +211,8 @@ export async function organizeUraFlowWithAi({
         {
           role: "system",
           content: [
-            "Voce organiza a navegacao de uma URA NICE em forma de arvore humanizada, clara e objetiva em PT-BR.",
-            "Use a IA para nomes, grupos, perguntas de IF, contexto de menus e descricao de subfluxos.",
+            "Voce organiza scripts NICE Studio em uma arvore de navegacao de URA, clara e objetiva em PT-BR.",
+            "A topologia vem dos dados deterministicos; use a IA apenas para humanizar nomes, condicoes, descricoes, audios e contexto.",
             "Preserve ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, prompts, skills e destinos reais do payload.",
             "NUNCA invente conexoes, ActionID, prompts, skills, destinos ou opcoes DTMF.",
             "Identifique pre-menu, menu principal, submenus, coletas de dados, validacoes, audios/PLAY, APIs, transferencias, encerramentos, timeout/invalido e eventos laterais.",
