@@ -1027,7 +1027,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <h3 style={{ margin: 0, flex: 1 }}>
-                Co-pilot (Gemini) — preencher RDM
+                Co-pilot (OpenAI) — preencher RDM
               </h3>
 
               <Button

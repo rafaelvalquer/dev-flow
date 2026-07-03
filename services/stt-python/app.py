@@ -49,6 +49,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from faster_whisper import WhisperModel
 from pydantic import BaseModel, field_validator
+from ura_docs import app as ura_docs_app
 
 load_dotenv()
 
@@ -151,6 +152,9 @@ model = None
 model_load_error = None
 
 app = FastAPI(title="Whisper Local STT API")
+for route in ura_docs_app.router.routes:
+    if getattr(route, "path", "") != "/health":
+        app.router.routes.append(route)
 logger = logging.getLogger("stt-python")
 
 

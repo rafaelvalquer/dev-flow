@@ -4,7 +4,7 @@ export async function rdmCopilot({ files, title = "" }) {
   for (const f of files || []) form.append("files", f, f.name);
   form.append("title", title);
 
-  const r = await fetch("/api/gemini/rdm-copilot", {
+  const r = await fetch("/api/openai/rdm-copilot", {
     method: "POST",
     body: form,
   });

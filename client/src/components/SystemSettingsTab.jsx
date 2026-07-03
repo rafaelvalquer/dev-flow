@@ -286,10 +286,10 @@ function diagnosticMessage(service, type) {
       ? "Automação desativada por configuração."
       : `Última execução: ${formatDateTime(service.lastRunAt)}.`;
   }
-  if (type === "gemini") {
+  if (type === "openai") {
     return service.configured
       ? `Modelo: ${service.model || "configurado"}.`
-      : "Chave Gemini nao configurada.";
+      : "Chave OpenAI nao configurada.";
   }
   return "Diagnóstico coletado.";
 }
@@ -485,11 +485,11 @@ function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
             type="automation"
           />
           <DiagnosticCard
-            title="Gemini"
+            title="OpenAI"
             description="Configuração do recurso de IA."
             icon={Bot}
-            service={services.gemini}
-            type="gemini"
+            service={services.openai}
+            type="openai"
           />
         </div>
       </CardContent>

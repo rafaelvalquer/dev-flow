@@ -26,4 +26,4 @@ sendUpstream.js
 jiraAuth.js
 
 lib/
-rdmCopilotGemini.js
+rdmCopilotOpenAi.js

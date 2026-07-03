@@ -21,8 +21,9 @@ import healthRoutes from "./routes/health.routes.js";
 import settingsRouter from "./routes/settings.routes.js";
 import uraVersioningRouter from "./routes/ura-versioning.routes.js";
 import toolsCdrRoutes from "./routes/tools-cdr.routes.js";
+import uraDocsRoutes from "./routes/ura-docs.routes.js";
 
-import { registerRdmCopilotRoutes } from "./lib/rdmCopilotGemini.js";
+import { registerRdmCopilotRoutes } from "./lib/rdmCopilotOpenAi.js";
 import { startAutomationJob } from "./jobs/automationJob.js";
 import { AppError, createErrorPayload } from "./utils/http.js";
 
@@ -64,7 +65,9 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   );
   app.use(attachUser);
 
-  const upload = createUpload();
+  const upload = createUpload({
+    fileSizeMb: Number(env.URA_DOCS_MAX_UPLOAD_MB || 200),
+  });
 
   app.set("trust proxy", 1);
 
@@ -81,6 +84,7 @@ export default function createApp({ startJobs = true, clientDist } = {}) {
   app.use("/api/automation", automationRouter);
   app.use("/api/ura-versioning", uraVersioningRouter);
   app.use("/api/tools/cdr", toolsCdrRoutes({ env }));
+  app.use("/api/ura-docs", uraDocsRoutes({ upload, env }));
 
   if (startJobs) startAutomationJobOnce();
 

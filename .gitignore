@@ -6,3 +6,9 @@ build/
 desktop/app/
 desktop/release/
 desktop/dist/
+server/storage/
+services/stt-python/uploads/*.wav
+services/stt-python/uploads/*.mp3
+services/stt-python/uploads/*.tmp
+__pycache__/
+*.pyc

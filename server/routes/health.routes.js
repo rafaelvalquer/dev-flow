@@ -479,7 +479,7 @@ export default function healthRoutes({ env }) {
         ? jiraDiagnostics.checks
         : [];
       const jiraConfigured = Boolean(jiraDiagnostics?.jira?.configured);
-      const geminiConfigured = Boolean(String(env.GEMINI_API_KEY || "").trim());
+      const openAiConfigured = Boolean(String(env.OPENAI_API_KEY || "").trim());
       const services = {
         api: {
           ok: true,
@@ -518,10 +518,10 @@ export default function healthRoutes({ env }) {
           ...getAutomationJobStatus(),
           checkedAt,
         },
-        gemini: {
-          ok: geminiConfigured,
-          configured: geminiConfigured,
-          model: env.GEMINI_MODEL || "gemini-2.5-flash",
+        openai: {
+          ok: openAiConfigured,
+          configured: openAiConfigured,
+          model: env.OPENAI_MODEL || "gpt-4.1-mini",
           checkedAt,
         },
       };
@@ -594,7 +594,7 @@ export default function healthRoutes({ env }) {
         String(env.JIRA_EMAIL || "").trim() &&
         String(env.JIRA_API_TOKEN || "").trim(),
       );
-      const geminiConfigured = Boolean(String(env.GEMINI_API_KEY || "").trim());
+      const openAiConfigured = Boolean(String(env.OPENAI_API_KEY || "").trim());
 
       const dependencies = {
         api: { ok: true },
@@ -608,10 +608,10 @@ export default function healthRoutes({ env }) {
           configured: jiraConfigured,
           base: env.JIRA_BASE || null,
         },
-        gemini: {
-          ok: geminiConfigured,
-          configured: geminiConfigured,
-          model: env.GEMINI_MODEL || "gemini-2.5-flash",
+        openai: {
+          ok: openAiConfigured,
+          configured: openAiConfigured,
+          model: env.OPENAI_MODEL || "gpt-4.1-mini",
         },
         stt: checks.find((item) => item.name === "stt"),
       };

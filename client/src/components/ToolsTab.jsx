@@ -16,7 +16,7 @@ import AutomationTool from "@/components/tools/AutomationTool";
 import AudioComparatorTool from "@/components/tools/AudioComparatorTool";
 import AudioValidatorTool from "@/components/tools/AudioValidatorTool";
 
-import { BarChart3, CalendarClock, ChevronDown, Database, FileAudio, FileSearch, Mic, Sparkles, Workflow } from "lucide-react";
+import { BarChart3, CalendarClock, ChevronDown, Database, FileAudio, FileSearch, FileText, Mic, Sparkles, Workflow } from "lucide-react";
 
 import AudioTranscriptionTool from "@/components/tools/AudioTranscriptionTool";
 import TextToSpeechTool from "@/components/tools/TextToSpeechTool";
@@ -24,10 +24,18 @@ import CdrSearchTool from "@/components/tools/CdrSearchTool";
 import CdrAnalyticsTool from "@/components/tools/CdrAnalyticsTool";
 import TaskFileSearchTool from "@/components/tools/TaskFileSearchTool";
 import BusinessHoursTool from "@/components/tools/BusinessHoursTool";
+import UraDocsTab from "@/components/UraDocsTab/UraDocsTab";
 
 const MotionSection = motion.section;
 
 const TOOL_DEFS = [
+  {
+    id: "ura-docs",
+    title: "Documentador URA NICE",
+    desc: "Gere documentacao, draw.io, matrizes e analise inteligente a partir do NICE Studio.",
+    icon: FileText,
+    status: "ativo",
+  },
   {
     id: "transcricao",
     title: "Transcrição de Áudio",
@@ -393,6 +401,10 @@ export default function ToolsTab() {
 
     if (activeTool === "business-hours") {
       return <BusinessHoursTool />;
+    }
+
+    if (activeTool === "ura-docs") {
+      return <UraDocsTab />;
     }
 
     return (

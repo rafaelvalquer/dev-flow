@@ -1,4 +1,4 @@
-// server/config/env.js
+﻿// server/config/env.js
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -51,6 +51,28 @@ export const env = {
     30 * 60 * 1000
   ),
   PORTAL_ICC_PROXY: rawEnv.PORTAL_ICC_PROXY || "",
+  URA_DOCS_PY_BASE:
+    rawEnv.URA_DOCS_PY_BASE ||
+    rawEnv.STT_PY_BASE ||
+    "http://127.0.0.1:8000",
+  URA_DOCS_OUTPUT_DIR: rawEnv.URA_DOCS_OUTPUT_DIR || "./storage/ura-docs",
+  URA_DOCS_MAX_UPLOAD_MB: normalizeNumber(rawEnv.URA_DOCS_MAX_UPLOAD_MB, 200),
+  URA_DOCS_JOB_TTL_HOURS: normalizeNumber(rawEnv.URA_DOCS_JOB_TTL_HOURS, 24),
+  URA_DOCS_ENABLE_AI: normalizeBoolean(rawEnv.URA_DOCS_ENABLE_AI, true),
+  URA_DOCS_ENABLE_AI_CACHE: normalizeBoolean(rawEnv.URA_DOCS_ENABLE_AI_CACHE, true),
+  URA_DOCS_AI_MAX_ACTIONS_PER_CHUNK: normalizeNumber(
+    rawEnv.URA_DOCS_AI_MAX_ACTIONS_PER_CHUNK,
+    80
+  ),
+  URA_DOCS_AI_MODE: rawEnv.URA_DOCS_AI_MODE || "summary",
+  URA_DOCS_AI_MODEL: rawEnv.URA_DOCS_AI_MODEL || rawEnv.OPENAI_MODEL || "",
+  OPENAI_API_KEY: rawEnv.OPENAI_API_KEY || "",
+  OPENAI_MODEL: rawEnv.OPENAI_MODEL || "gpt-4.1-mini",
+  URA_DOCS_TIMEOUT_MS: normalizeNumber(rawEnv.URA_DOCS_TIMEOUT_MS, 300000),
+  URA_DOCS_STT_TIMEOUT_MS: normalizeNumber(
+    rawEnv.URA_DOCS_STT_TIMEOUT_MS,
+    300000
+  ),
 };
 
 export function validateEnv(runtimeEnv = env) {
@@ -67,7 +89,7 @@ export function validateEnv(runtimeEnv = env) {
         level: runtimeEnv.NODE_ENV === "production" ? "error" : "warning",
         key: "MONGO_URI",
         message:
-          "MongoDB não configurado. Defina MONGO_URI ou MONGO_HOST/DB_USER/DB_PASSWORD.",
+          "MongoDB nÃ£o configurado. Defina MONGO_URI ou MONGO_HOST/DB_USER/DB_PASSWORD.",
       });
     }
   }
@@ -77,7 +99,7 @@ export function validateEnv(runtimeEnv = env) {
       level: runtimeEnv.NODE_ENV === "production" ? "error" : "warning",
       key: "SESSION_SECRET",
       message:
-        "SESSION_SECRET está usando o valor padrão. Defina um segredo próprio para evitar sessões previsíveis.",
+        "SESSION_SECRET estÃ¡ usando o valor padrÃ£o. Defina um segredo prÃ³prio para evitar sessÃµes previsÃ­veis.",
     });
   }
 
@@ -89,16 +111,16 @@ export function validateEnv(runtimeEnv = env) {
       level: "warning",
       key: "JIRA_API_TOKEN",
       message:
-        "Integrações com Jira podem falhar sem JIRA_EMAIL e JIRA_API_TOKEN configurados.",
+        "IntegraÃ§Ãµes com Jira podem falhar sem JIRA_EMAIL e JIRA_API_TOKEN configurados.",
     });
   }
 
-  if (!String(runtimeEnv.GEMINI_API_KEY || "").trim()) {
+  if (!String(runtimeEnv.OPENAI_API_KEY || "").trim()) {
     issues.push({
       level: "warning",
-      key: "GEMINI_API_KEY",
+      key: "OPENAI_API_KEY",
       message:
-        "O Co-pilot de RDM ficará indisponível sem GEMINI_API_KEY configurado.",
+        "Recursos de IA ficarao indisponiveis sem OPENAI_API_KEY configurado.",
     });
   }
 
@@ -110,3 +132,4 @@ export function validateEnv(runtimeEnv = env) {
     warnings: issues.filter((issue) => issue.level === "warning"),
   };
 }
+
