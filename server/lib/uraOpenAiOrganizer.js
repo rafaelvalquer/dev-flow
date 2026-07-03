@@ -11,6 +11,44 @@ function short(value, limit = 220) {
   return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
 }
 
+function actionCode(action) {
+  return Array.isArray(action?.parameters) ? action.parameters.join("\n") : clean(action?.parameters);
+}
+
+function deterministicDisplayLabel(action) {
+  const type = clean(action.type).toUpperCase();
+  const text = `${clean(action.caption)}\n${actionCode(action)}`.toLowerCase();
+  if (type === "BEGIN") return "Inicio da URA";
+  if (type === "HOURS") return "Validacao de horario";
+  if (type === "PLAY") return "Mensagem de audio";
+  if (type === "MENU") return /cpf|celular|cartao|protocolo|collect|digita|pede/i.test(text) ? "Menu de coleta" : "Menu principal";
+  if (type === "IF") {
+    if (/checkmobile|celcancel|celular/.test(text)) return "Celular informado e valido?";
+    if (/checkcpf|cpfcancel|cpf/.test(text)) return "CPF informado e valido?";
+    if (/ani/.test(text) && /(bloq|block|=)/.test(text)) return "ANI bloqueado?";
+    if (/feriado|horario|finaldesemana|indispon|closed|holiday/.test(text)) return "URA indisponivel?";
+    if (/consulta/.test(text) && /ok/.test(text)) return "Consulta retornou OK?";
+    return "Validacao da regra?";
+  }
+  if (type === "SNIPPET") {
+    if (/scriptpoint|mapa_dna|cdr/.test(text)) return "Registra CDR / rastreio";
+    if (/next_step/.test(text) && /audio/.test(text)) return "Define mensagem e proximo destino";
+    if (/next_step/.test(text)) return "Define proximo destino";
+    if (/audio/.test(text)) return "Define audio da navegacao";
+    return "Processamento da regra";
+  }
+  if (type === "RUNSCRIPT") return "Executa proximo destino";
+  if (["RUNSUB", "REST_API"].includes(type)) return "Consulta API / integracao";
+  if (type === "REQAGENT") return "Transfere para atendimento";
+  if (type === "END") return "Encerrar chamada";
+  return short(action.caption || type || `Action ${action.actionId}`, 80);
+}
+
+function audioCandidates(action) {
+  const matches = actionCode(action).match(/[^"'\s\\\/]+\.wav/gi) || [];
+  return [...new Set(matches)].slice(0, 8);
+}
+
 function extractOpenAiText(data) {
   return clean(data?.choices?.[0]?.message?.content);
 }
@@ -67,6 +105,23 @@ function deterministicOrganizer({ rawActions, projectName }) {
         timeoutActionIds: [],
         evidence: [`ActionID ${action.actionId}`],
       })),
+    displayLabels: actions.slice(0, 260).map((action) => ({
+      actionId: clean(action.actionId),
+      type: clean(action.type),
+      displayLabel: deterministicDisplayLabel(action),
+      conditionLabel: clean(action.type).toUpperCase() === "IF" ? short(actionCode(action), 180) : "",
+      businessDescription: `${deterministicDisplayLabel(action)} extraido do XML NICE.`,
+      audioFile: audioCandidates(action)[0] || "",
+      audioPurpose: audioCandidates(action)[0] ? "Audio executado pela navegacao." : "",
+      trueLabel: "Sim",
+      falseLabel: "Nao",
+      branchLabels: (Array.isArray(action.branches) ? action.branches : []).slice(0, 8).map((branch) => ({
+        raw: clean(branch.name || branch.label || branch.value),
+        label: clean(branch.name || branch.label || branch.value),
+        meaning: "Saida real extraida do XML.",
+      })),
+      evidence: [`ActionID ${action.actionId}`, `type ${action.type}`],
+    })),
     navigationLabels: [],
     actionAnnotations: actions.slice(0, 260).map((action) => ({
       actionId: clean(action.actionId),
@@ -150,6 +205,7 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
       defaultNextAction: clean(action.defaultNextAction),
       cases: (Array.isArray(action.cases) ? action.cases : []).slice(0, 20),
       branches: (Array.isArray(action.branches) ? action.branches : []).slice(0, 10),
+      audioCandidates: audioCandidates(action),
     })),
     edges: edges.slice(0, 260),
     preSemanticExtract: preSemanticExtract || {},
@@ -165,6 +221,7 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
         "preMenuLabels",
         "ifLabels",
         "collectLabels",
+        "displayLabels",
         "navigationLabels",
         "menuLabels",
         "menuOptionLabels",
@@ -216,6 +273,13 @@ export async function organizeUraFlowWithAi({
             "Preserve ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, prompts, skills e destinos reais do payload.",
             "NUNCA invente conexoes, ActionID, prompts, skills, destinos ou opcoes DTMF.",
             "Identifique pre-menu, menu principal, submenus, coletas de dados, validacoes, audios/PLAY, APIs, transferencias, encerramentos, timeout/invalido e eventos laterais.",
+            "Sua saida sera usada diretamente em um fluxograma de negocio.",
+            "Nao use nomes tecnicos como If, Play, Snippet, Begin, Case, Menu ou RunScript como label principal.",
+            "Para IF, gere uma pergunta de negocio clara e preencha conditionLabel.",
+            "Para PLAY/MENU, identifique o audio executado e a intencao da mensagem.",
+            "Para SNIPPET, explique o que ele faz em linguagem funcional.",
+            "Para RUNSCRIPT/NEXT_STEP, informe o destino funcional quando existir.",
+            "ActionID deve ser usado apenas como evidencia, nunca como displayLabel.",
             "Toda evidencia deve apontar para ActionID, CASE, branch, prompt ou transcricao fornecida.",
             "Retorne somente JSON no schema solicitado.",
           ].join("\n"),

@@ -3513,6 +3513,10 @@ def build_semantic_model(raw_actions: Dict[str, Any], ai_organizer: Dict[str, An
 
 
 def humanize_if_condition(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
+    return humanize_if_for_display(action, ai_organizer)[0]
+
+
+def _legacy_humanize_if_condition(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
     aid = clean_text(action.get("actionId"))
     for item in ai_organizer.get("ifLabels", []) or []:
         if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
@@ -3551,7 +3555,175 @@ def human_branch_label(label: Any) -> str:
         return "Timeout entre digitos"
     if "maxdigit" in low or "invalid" in low or "inval" in low:
         return "Opcao invalida"
+    if low == "open":
+        return "Aberto"
+    if low == "closed":
+        return "Fechado"
+    if low == "holiday":
+        return "Feriado"
+    if low in {"meeting", "emergency"}:
+        return "Reuniao/Emergencia"
     return edge_label({"label": raw})
+
+
+GENERIC_TECHNICAL_LABELS = {
+    "if",
+    "play",
+    "begin",
+    "snippet",
+    "case",
+    "menu",
+    "runscript",
+    "runsub",
+    "restapi",
+    "rest_api",
+    "action",
+    "locate",
+    "loop",
+    "assign",
+    "hours",
+    "end",
+}
+
+
+def is_generic_technical_label(label: Any) -> bool:
+    text = re.sub(r"[^a-z0-9_]+", "", clean_text(label).lower())
+    return (
+        not text
+        or text in GENERIC_TECHNICAL_LABELS
+        or text.startswith("nextstep")
+        or text.startswith("next_step")
+        or re.fullmatch(r"(if|play|begin|snippet|case|menu|action)\d*", text) is not None
+    )
+
+
+def ai_display_label_for_action(action_id: str, ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    for item in ai_organizer.get("displayLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == action_id:
+            return item
+    for item in ai_organizer.get("navigationLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == action_id:
+            return {
+                "displayLabel": clean_text(item.get("humanLabel")),
+                "businessDescription": clean_text(item.get("description")),
+                "evidence": item.get("evidence") or [],
+            }
+    return {}
+
+
+def condition_label_for_action(action: Dict[str, Any]) -> str:
+    code = action_code(action)
+    lines = [clean_text(line) for line in code.splitlines() if clean_text(line)]
+    condition = lines[0] if lines else clean_text(action.get("caption"))
+    condition = re.sub(r"\s+", " ", condition)
+    return short_label(condition, 120)
+
+
+def humanize_if_for_display(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Tuple[str, str]:
+    aid = clean_text(action.get("actionId"))
+    ai_label = ai_display_label_for_action(aid, ai_organizer)
+    if clean_text(ai_label.get("displayLabel")) and not is_generic_technical_label(ai_label.get("displayLabel")):
+        return clean_text(ai_label.get("displayLabel")), clean_text(ai_label.get("conditionLabel")) or condition_label_for_action(action)
+    for item in ai_organizer.get("ifLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
+            value = clean_text(item.get("humanQuestion"))
+            if value and not is_generic_technical_label(value):
+                return value, clean_text(item.get("rawCondition")) or condition_label_for_action(action)
+    code = action_code(action)
+    text = " ".join([clean_text(action.get("caption")), code]).lower()
+    condition = condition_label_for_action(action)
+    if "checkmobile" in text or "celcancel" in text or "celular" in text:
+        return "Celular informado e valido?", condition
+    if "checkcpf" in text or "cpfcancel" in text or "cpf" in text:
+        return "CPF informado e valido?", condition
+    if "transfer_skill" in text or "transfer skill" in text:
+        return "Deve transferir direto para a skill?", condition
+    if "portal_renegociacao" in text or "renegociacao" in text:
+        return "Cliente esta elegivel para renegociacao?", condition
+    if "antifraude" in text:
+        return "Cliente passa na validacao antifraude?", condition
+    if "consulta" in text and "ret" in text and "ok" in text:
+        return "Consulta retornou OK?", condition
+    if "ani" in text and ("bloq" in text or "block" in text or "=" in text):
+        return "ANI bloqueado?", condition
+    if any(token in text for token in ["finaldesemana", "feriado", "horario", "indispon", "closed", "holiday"]):
+        return "URA indisponivel?", condition
+    return short_label(clean_text(action.get("caption")) or "Validacao", 70) + "?", condition
+
+
+def friendly_action_label(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
+    aid = clean_text(action.get("actionId"))
+    atype = clean_text(action.get("type")).upper()
+    ai_label = ai_display_label_for_action(aid, ai_organizer)
+    value = clean_text(ai_label.get("displayLabel"))
+    if value and not is_generic_technical_label(value):
+        return value
+    if atype == "IF":
+        return humanize_if_for_display(action, ai_organizer)[0]
+    if atype == "BEGIN":
+        return "Inicio da URA"
+    if atype == "HOURS":
+        return "Validacao de horario"
+    if atype == "PLAY":
+        return "Mensagem de audio"
+    if atype == "MENU":
+        return "Menu de coleta" if is_collect_action(action) else "Menu principal"
+    output = summarize_action_output(action)
+    if atype == "CASE":
+        return "Direciona opcao escolhida"
+    if atype == "LOCATE":
+        return "Valida opcao digitada"
+    if atype == "LOOP":
+        return "Controle de tentativas"
+    if atype == "ASSIGN":
+        if output.get("nextStep"):
+            return "Define proximo destino"
+        return "Atualiza variaveis do fluxo"
+    if atype == "SNIPPET":
+        if output.get("scriptpoint") or output.get("mapaDna"):
+            return "Registra CDR / rastreio"
+        if output.get("nextStep") and output.get("audio"):
+            return "Define mensagem e proximo destino"
+        if output.get("nextStep"):
+            return "Define proximo destino"
+        if output.get("audio"):
+            return "Define audio da navegacao"
+        return "Processamento da regra"
+    if atype == "RUNSCRIPT":
+        return "Executa proximo destino"
+    if atype in {"RUNSUB", "REST_API"}:
+        return "Consulta API / integracao"
+    if atype == "REQAGENT":
+        return "Transfere para atendimento"
+    if atype == "END":
+        return "Encerrar chamada"
+    for item in ai_organizer.get("actionAnnotations", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
+            candidate = clean_text(item.get("businessLabel") or item.get("shortLabel"))
+            if candidate and not is_generic_technical_label(candidate):
+                return candidate
+    caption = clean_text(action.get("caption"))
+    return short_label(caption if caption and not is_generic_technical_label(caption) else atype.title(), 70)
+
+
+def branch_meaning(raw_label: Any, semantic_model: Dict[str, Any], target_action_id: str) -> str:
+    label = human_branch_label(raw_label)
+    action = action_by_id(semantic_model).get(clean_text(target_action_id))
+    target_type = clean_text((action or {}).get("type")).upper()
+    target_text = action_search_text(action)
+    if target_type == "END" or "desliga" in target_text or "tchau" in target_text:
+        return f"{label}: encerra chamada"
+    if target_type == "PLAY":
+        return f"{label}: executa mensagem"
+    if target_type in {"RUNSCRIPT", "RUNSUB", "REST_API"}:
+        return f"{label}: direciona para integracao/proximo fluxo"
+    if target_type == "MENU":
+        return f"{label}: segue para menu"
+    if label in {"Sim", "Aberto"}:
+        return f"{label}: segue no fluxo"
+    if label in {"Nao", "Fechado", "Feriado", "Reuniao/Emergencia"}:
+        return f"{label}: tratamento alternativo"
+    return label
 
 
 def build_pre_semantic_extract(raw_actions: Dict[str, Any]) -> Dict[str, Any]:
@@ -3806,15 +3978,18 @@ def reachable_action_ids(start_id: str, semantic_model: Dict[str, Any], limit: i
 
 def action_story_label(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
     aid = clean_text(action.get("actionId"))
+    friendly = friendly_action_label(action, ai_organizer)
+    if friendly and not is_generic_technical_label(friendly):
+        return friendly
     for item in ai_organizer.get("preMenuLabels", []) or []:
         if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
             value = clean_text(item.get("humanLabel") or item.get("humanQuestion"))
-            if value:
+            if value and not is_generic_technical_label(value):
                 return value
     for item in ai_organizer.get("actionAnnotations", []) or ai_organizer.get("actionLabels", []) or []:
         if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
             value = clean_text(item.get("shortLabel") or item.get("businessLabel"))
-            if value:
+            if value and not is_generic_technical_label(value):
                 return value
     atype = clean_text(action.get("type")).upper()
     if atype == "BEGIN":
@@ -3933,10 +4108,18 @@ def trace_pre_menu_path(semantic_model: Dict[str, Any], main_menu_action_id: str
                     "actionId": current_id,
                     "type": atype,
                     "label": action_story_label(action, ai_organizer),
+                    "displayLabel": friendly_action_label(action, ai_organizer),
+                    "technicalLabel": f"{atype} ActionID {current_id}",
+                    "conditionLabel": humanize_if_for_display(action, ai_organizer)[1] if atype == "IF" else "",
+                    "businessDescription": clean_text(ai_display_label_for_action(current_id, ai_organizer).get("businessDescription")),
                     "shape": "decision" if atype in {"IF", "HOURS"} else "terminal_end" if atype == "END" else "terminal_start" if atype == "BEGIN" else "process",
                     "audio": audio_context_for_action(action, semantic_model),
                     "branches": [
-                        {"label": human_branch_label(edge_label_text(edge)), "targetActionId": clean_text(edge.get("target"))}
+                        {
+                            "label": human_branch_label(edge_label_text(edge)),
+                            "targetActionId": clean_text(edge.get("target")),
+                            "meaning": branch_meaning(edge_label_text(edge), semantic_model, clean_text(edge.get("target"))),
+                        }
                         for edge in adjacency.get(current_id, [])
                         if edge_label_text(edge).lower() not in {"", "default"}
                     ][:4],
@@ -4088,7 +4271,10 @@ def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_
     audio = audio_context_for_action(action, semantic_model)
     if not audio.get("fileName") and output.get("audio"):
         audio = {"fileName": resolve_audio_reference(aid, output.get("audio"), semantic_model), "transcription": "", "origin": f"ActionID {aid}"}
-    label = humanize_if_condition(action, ai_organizer) if atype == "IF" else action_story_label(action, ai_organizer)
+    label = friendly_action_label(action, ai_organizer)
+    condition_label = ""
+    if atype == "IF":
+        label, condition_label = humanize_if_for_display(action, ai_organizer)
     if atype == "RUNSCRIPT":
         label = "Executa proximo passo"
     elif atype in {"RUNSUB", "REST_API"}:
@@ -4099,6 +4285,10 @@ def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_
         "type": atype.lower() or "action",
         "actionId": aid,
         "label": label,
+        "displayLabel": label,
+        "technicalLabel": f"{atype} ActionID {aid}",
+        "conditionLabel": condition_label,
+        "businessDescription": clean_text(ai_display_label_for_action(aid, ai_organizer).get("businessDescription")),
         "edgeLabel": human_branch_label(edge_label_value),
         "audio": audio,
         "nextStep": output.get("nextStep"),
@@ -4125,6 +4315,10 @@ def trace_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, An
                 "type": "snippet_case",
                 "actionId": dispatcher_id,
                 "label": f"Define saida da opcao {digit}",
+                "displayLabel": "Define saida da opcao",
+                "technicalLabel": f"SNIPPET ActionID {dispatcher_id}",
+                "conditionLabel": f"CASE {digit}",
+                "businessDescription": "Define audio, proximo destino e parametros da opcao escolhida.",
                 "source": option.get("source"),
                 "audio": {"fileName": resolve_audio_reference(dispatcher_id, audio, semantic_model), "transcription": "", "origin": f"CASE {digit}"} if audio else {},
                 "nextStep": option.get("nextStep"),
@@ -4313,7 +4507,9 @@ def build_navigation_story(raw_actions: Dict[str, Any], pre_semantic_extract: Di
         "preMenu": trace_pre_menu_path(semantic_model, main_id, ai_organizer),
         "mainMenu": {
             "actionId": main_id,
-            "label": clean_text((main_menu or {}).get("businessLabel") or (main_menu or {}).get("caption") or "Menu Principal"),
+            "label": friendly_action_label(main_menu or {}, ai_organizer) if main_menu else "Menu principal",
+            "displayLabel": friendly_action_label(main_menu or {}, ai_organizer) if main_menu else "Menu principal",
+            "technicalLabel": f"MENU ActionID {main_id}" if main_id else "",
             "captureVariable": menu_variable((main_menu or {}).get("parameters")),
             "audio": main_audio,
             "options": main_options,
@@ -4462,27 +4658,48 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             for index, item in enumerate(pre_nodes[:8]):
                 node_id = f"story_pre_{index}_{safe_drawio_id(item.get('actionId'))}"
                 audio = item.get("audio") or {}
-                audio_line = ""
+                label_lines = [short_label(item.get("displayLabel") or item.get("label"), 70)]
+                if clean_text(item.get("conditionLabel")):
+                    label_lines.append("Condicao: " + short_label(item.get("conditionLabel"), 76))
+                if clean_text(item.get("businessDescription")):
+                    label_lines.append(short_label(item.get("businessDescription"), 76))
                 if clean_text(audio.get("fileName")):
-                    audio_line = "\nAudio: " + short_label(audio.get("fileName"), 45)
+                    label_lines.append("Audio: " + short_label(audio.get("fileName"), 54))
                 if clean_text(audio.get("transcription")):
-                    audio_line += "\nFala: " + short_label(audio.get("transcription"), 70)
-                label = short_label(item.get("label"), 70) + (f"\nActionID {item.get('actionId')}" if clean_text(item.get("actionId")) else "") + audio_line
+                    label_lines.append("Fala: " + short_label(audio.get("transcription"), 70))
+                if clean_text(item.get("actionId")):
+                    label_lines.append(f"Ref.: ActionID {item.get('actionId')}")
+                label = "\n".join(line for line in label_lines if clean_text(line))
                 cells.append(
                     mx_node(
                         node_id,
                         label,
                         center_x,
                         y,
-                        260,
-                        88 if clean_text(audio.get("fileName")) else 70,
+                        300,
+                        118 if clean_text(item.get("conditionLabel")) or clean_text(audio.get("fileName")) else 84,
                         clean_text(item.get("shape")) or ("decision" if item.get("type") == "IF" else "process"),
                     )
                 )
                 if previous:
                     cells.append(mx_edge(f"story_pre_e_{index}", previous, node_id, "segue"))
+                branches = item.get("branches") or []
+                if clean_text(item.get("type")).upper() in {"IF", "HOURS"} and branches:
+                    for branch_index, branch in enumerate(branches[:2]):
+                        branch_id = f"{node_id}_branch_{branch_index}"
+                        branch_x = 1020 if branch_index == 0 else 325
+                        branch_y = y + branch_index * 82
+                        branch_label = "\n".join(
+                            [
+                                short_label(branch.get("label"), 34),
+                                short_label(branch.get("meaning"), 58),
+                                f"Destino: {short_label(branch.get('targetActionId'), 24)}" if clean_text(branch.get("targetActionId")) else "",
+                            ]
+                        )
+                        cells.append(mx_node(branch_id, branch_label, branch_x, branch_y, 250, 76, "warning"))
+                        cells.append(mx_edge(f"{branch_id}_edge", node_id, branch_id, clean_text(branch.get("label"))))
                 previous = node_id
-                y += 120
+                y += 145
 
             main_menu = story.get("mainMenu") or {}
             menu_audio = main_menu.get("audio") or {}
@@ -4490,13 +4707,13 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             option_lines = [f"{opt.get('digit')} - {short_label(opt.get('label'), 34)}" for opt in menu_options[:8]]
             menu_label = "\n".join(
                 [
-                    short_label(main_menu.get("label") or "Menu Principal", 58),
-                    f"ActionID {main_menu.get('actionId')}" if clean_text(main_menu.get("actionId")) else "",
+                    short_label(main_menu.get("displayLabel") or main_menu.get("label") or "Menu Principal", 58),
                     f"Captura: {main_menu.get('captureVariable')}" if clean_text(main_menu.get("captureVariable")) else "",
                     f"Audio: {short_label(menu_audio.get('fileName'), 45)}" if clean_text(menu_audio.get("fileName")) else "",
                     f"Fala: {short_label(menu_audio.get('transcription'), 75)}" if clean_text(menu_audio.get("transcription")) else "",
                     "Opcoes:",
                     *option_lines[:6],
+                    f"Ref.: ActionID {main_menu.get('actionId')}" if clean_text(main_menu.get("actionId")) else "",
                 ]
             )
             cells.append(mx_node("story_main_menu", menu_label, 610, y + 10, 390, 190, "decision"))
@@ -4519,8 +4736,8 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 option_label = "\n".join(
                     [
                         f"{clean_text(flow_item.get('digit'))} - {short_label(flow_item.get('label'), 44)}",
-                        short_label(flow_item.get("source"), 58),
-                        f"Destino: ActionID {short_label(flow_item.get('targetActionId'), 28)}" if clean_text(flow_item.get("targetActionId")) else "",
+                        "Origem: " + short_label(flow_item.get("source"), 48) if clean_text(flow_item.get("source")) else "",
+                        f"Ref. destino: {short_label(flow_item.get('targetActionId'), 28)}" if clean_text(flow_item.get("targetActionId")) else "",
                     ]
                 )
                 cells.append(mx_node(option_id, option_label, x, base_y, lane_w, 105, "process"))
@@ -4532,9 +4749,12 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                     step_id = f"story_option_{index}_step_{step_index}_{safe_drawio_id(step.get('actionId'))}"
                     audio = step.get("audio") or {}
                     step_lines = [
-                        short_label(step.get("label"), 54),
-                        f"ActionID {step.get('actionId')}" if clean_text(step.get("actionId")) else "",
+                        short_label(step.get("displayLabel") or step.get("label"), 58),
                     ]
+                    if clean_text(step.get("conditionLabel")):
+                        step_lines.append("Condicao: " + short_label(step.get("conditionLabel"), 50))
+                    if clean_text(step.get("businessDescription")):
+                        step_lines.append(short_label(step.get("businessDescription"), 58))
                     if clean_text(audio.get("fileName")):
                         step_lines.append("Audio: " + short_label(audio.get("fileName"), 48))
                     if clean_text(audio.get("transcription")):
@@ -4545,8 +4765,10 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                         step_lines.append("Transfer: " + short_label(step.get("transferCode"), 44))
                     if clean_text(step.get("resolvedTarget")) and not clean_text(step.get("nextStep")) and not clean_text(step.get("transferCode")):
                         step_lines.append("Destino: " + short_label(step.get("resolvedTarget"), 44))
+                    if clean_text(step.get("actionId")):
+                        step_lines.append(f"Ref.: ActionID {step.get('actionId')}")
                     style = "decision" if clean_text(step.get("type")).upper() in {"IF", "HOURS", "CASE"} else "transfer" if clean_text(step.get("type")).upper() in {"RUNSCRIPT", "RUNSUB", "REST_API", "REQAGENT"} else "process"
-                    cells.append(mx_node(step_id, "\n".join(line for line in step_lines if clean_text(line)), x, base_y + 140 + step_index * row_h, lane_w, 105, style))
+                    cells.append(mx_node(step_id, "\n".join(line for line in step_lines if clean_text(line)), x, base_y + 140 + step_index * row_h, lane_w, 120, style))
                     cells.append(mx_edge(f"story_option_{index}_step_e_{step_index}", previous_node, step_id, clean_text(step.get("edgeLabel")) or "segue"))
                     previous_node = step_id
                 treatments = flow_item.get("sideTreatments") or []
