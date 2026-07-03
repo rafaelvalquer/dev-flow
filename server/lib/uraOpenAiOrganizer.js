@@ -44,6 +44,16 @@ function deterministicDisplayLabel(action) {
   return short(action.caption || type || `Action ${action.actionId}`, 80);
 }
 
+function shouldHideFromMainFlow(action) {
+  const type = clean(action.type).toUpperCase();
+  const text = `${clean(action.caption)}\n${actionCode(action)}`.toLowerCase();
+  const hasFunctionalOutput = /audio|next_step|skill_id|skill_name|transfercode|\.wav/.test(text);
+  if (["ONRELEASE", "ONANSWER"].includes(type)) return true;
+  if (type === "SNIPPET" && /scriptpoint|mapa_dna|marca_cdr|dados_cdr/.test(text) && !hasFunctionalOutput) return true;
+  if (type === "SNIPPET" && /config_menu|set_params/.test(text) && !hasFunctionalOutput) return true;
+  return false;
+}
+
 function audioCandidates(action) {
   const matches = actionCode(action).match(/[^"'\s\\\/]+\.wav/gi) || [];
   return [...new Set(matches)].slice(0, 8);
@@ -109,10 +119,12 @@ function deterministicOrganizer({ rawActions, projectName }) {
       actionId: clean(action.actionId),
       type: clean(action.type),
       displayLabel: deterministicDisplayLabel(action),
+      secondaryLabel: "",
       conditionLabel: clean(action.type).toUpperCase() === "IF" ? short(actionCode(action), 180) : "",
       businessDescription: `${deterministicDisplayLabel(action)} extraido do XML NICE.`,
       audioFile: audioCandidates(action)[0] || "",
       audioPurpose: audioCandidates(action)[0] ? "Audio executado pela navegacao." : "",
+      hideFromMainFlow: shouldHideFromMainFlow(action),
       trueLabel: "Sim",
       falseLabel: "Nao",
       branchLabels: (Array.isArray(action.branches) ? action.branches : []).slice(0, 8).map((branch) => ({
@@ -280,6 +292,12 @@ export async function organizeUraFlowWithAi({
             "Para SNIPPET, explique o que ele faz em linguagem funcional.",
             "Para RUNSCRIPT/NEXT_STEP, informe o destino funcional quando existir.",
             "ActionID deve ser usado apenas como evidencia, nunca como displayLabel.",
+            "Gere labels curtos para draw.io.",
+            "Nao use frases longas quando a condicao tecnica for clara.",
+            "Para IF simples, retorne apenas a condicao ou uma pergunta curta.",
+            "Exemplos: ANI=+5512992379575 -> ANI=+5512992379575; CheckCPF(CpfCancel) -> CPF valido?; CheckMobile(CelCancel) -> Celular valido?; HOURS profile 68 -> Horario 68; PLAY com semexpediente.wav -> Audio fechado/feriado; MENU de CPF -> Digitar CPF.",
+            "Nao inclua ActionID, Ref., Condicao: ou Destino: ActionID no displayLabel.",
+            "Use hideFromMainFlow=true para ScriptPoint/CDR puro ou configuracoes tecnicas sem audio, NEXT_STEP, skill ou transferencia.",
             "Toda evidencia deve apontar para ActionID, CASE, branch, prompt ou transcricao fornecida.",
             "Retorne somente JSON no schema solicitado.",
           ].join("\n"),
