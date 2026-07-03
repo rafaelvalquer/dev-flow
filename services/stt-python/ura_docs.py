@@ -3709,6 +3709,335 @@ def build_human_routes(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[s
     return {"routes": routes, "source": "human_routes"}
 
 
+def action_search_text(action: Optional[Dict[str, Any]]) -> str:
+    if not action:
+        return ""
+    return " ".join(
+        [
+            clean_text(action.get("type")),
+            clean_text(action.get("caption")),
+            clean_text(action.get("businessLabel")),
+            clean_text(action.get("shortLabel")),
+            clean_text(action.get("audio")),
+            clean_text(action.get("nextStep")),
+            action_code(action),
+        ]
+    ).lower()
+
+
+def is_collect_action(action: Optional[Dict[str, Any]]) -> bool:
+    text = action_search_text(action)
+    return any(token in text for token in ["cpf", "celular", "celcancel", "cartao", "cartão", "protocolo", "collect", "collecnum", "digita", "pede"])
+
+
+def is_technical_noise_action(action: Optional[Dict[str, Any]]) -> bool:
+    text = action_search_text(action)
+    if clean_text((action or {}).get("type")).upper() in {"ONANSWER", "ONRELEASE"}:
+        return True
+    return any(token in text for token in ["scriptpoint", "mapa_dna", "dados_cdr", "grava_cdr", "marcacdr", "marca_cdr"])
+
+
+def audio_context_for_action(action: Optional[Dict[str, Any]], semantic_model: Dict[str, Any], transcriptions: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    if not action:
+        return {"fileName": "", "transcription": "", "origin": ""}
+    aid = clean_text(action.get("actionId"))
+    for prompt in semantic_model.get("prompts", []):
+        if clean_text(prompt.get("sourceActionId")) == aid:
+            return {
+                "fileName": clean_text(prompt.get("fileName") or prompt.get("fullPath")),
+                "transcription": clean_text(prompt.get("transcription") or prompt.get("rawTranscription")),
+                "origin": f"ActionID {aid}",
+            }
+    for path in iter_action_audio_paths(action):
+        return {"fileName": re.split(r"[\\/]", clean_text(path))[-1], "transcription": "", "origin": f"ActionID {aid}"}
+    output = summarize_action_output(action)
+    for key in ["audio"]:
+        if output.get(key):
+            return {"fileName": output[key], "transcription": "", "origin": f"definido em ActionID {aid}"}
+    return {"fileName": "", "transcription": "", "origin": ""}
+
+
+def find_main_menu_for_story(semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    actions_map = action_by_id(semantic_model)
+    candidate_id = clean_text((ai_organizer.get("mainMenuCandidate") or {}).get("actionId")) if isinstance(ai_organizer.get("mainMenuCandidate"), dict) else ""
+    if candidate_id in actions_map and clean_text(actions_map[candidate_id].get("type")).upper() == "MENU" and not is_collect_action(actions_map[candidate_id]):
+        return actions_map[candidate_id]
+
+    order, levels = navigation_order(semantic_model)
+    menus = [actions_map[aid] for aid in order if aid in actions_map and clean_text(actions_map[aid].get("type")).upper() == "MENU" and not is_collect_action(actions_map[aid])]
+    if not menus:
+        menus = [action for action in semantic_model.get("actions", []) if isinstance(action, dict) and clean_text(action.get("type")).upper() == "MENU"]
+    if not menus:
+        return None
+
+    def score(menu: Dict[str, Any]) -> int:
+        text = action_search_text(menu)
+        value = 100 - levels.get(clean_text(menu.get("actionId")), 50)
+        if menu.get("cases"):
+            value += 40
+        if menu_variable(menu.get("parameters")).lower() in {"mres", "mres1", "mres2", "mresf", "op_escolhida", "opcao"}:
+            value += 25
+        if any(token in text for token in ["principal", "inicial", "menuinicial", "sauda", "menu"]):
+            value += 20
+        if is_collect_action(menu):
+            value -= 100
+        return value
+
+    return sorted(menus, key=score, reverse=True)[0]
+
+
+def reachable_action_ids(start_id: str, semantic_model: Dict[str, Any], limit: int = 80) -> List[str]:
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    if start_id not in actions_map:
+        return []
+    result: List[str] = []
+    queue = [start_id]
+    visited = set()
+    while queue and len(result) < limit:
+        aid = queue.pop(0)
+        if aid in visited or aid not in actions_map:
+            continue
+        visited.add(aid)
+        result.append(aid)
+        for edge in adjacency.get(aid, []):
+            target = clean_text(edge.get("target"))
+            if target and target not in visited:
+                queue.append(target)
+    return result
+
+
+def action_story_label(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
+    aid = clean_text(action.get("actionId"))
+    for item in ai_organizer.get("preMenuLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
+            value = clean_text(item.get("humanLabel") or item.get("humanQuestion"))
+            if value:
+                return value
+    for item in ai_organizer.get("actionAnnotations", []) or ai_organizer.get("actionLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
+            value = clean_text(item.get("shortLabel") or item.get("businessLabel"))
+            if value:
+                return value
+    atype = clean_text(action.get("type")).upper()
+    if atype == "BEGIN":
+        return "Inicio da URA"
+    if atype == "HOURS":
+        return "Validacao de horario"
+    if atype == "IF":
+        return humanize_if_condition(action, ai_organizer)
+    if atype == "PLAY":
+        return "Mensagem de audio"
+    if atype in {"RUNSUB", "REST_API"}:
+        return "Consulta API / integracao"
+    if atype == "RUNSCRIPT":
+        output = summarize_action_output(action)
+        return "Direciona para " + short_label(output.get("nextStep") or action.get("caption") or "proximo script", 40)
+    if is_technical_noise_action(action):
+        return "Preparacao tecnica / CDR"
+    return short_label(clean_text(action.get("businessLabel") or action.get("caption") or atype), 70)
+
+
+def build_pre_menu_story(semantic_model: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], main_menu: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    main_id = clean_text((main_menu or {}).get("actionId"))
+    order, _levels = navigation_order(semantic_model)
+    story: List[Dict[str, Any]] = []
+    for aid in order:
+        if aid == main_id:
+            break
+        action = actions_map.get(aid)
+        if not action:
+            continue
+        atype = clean_text(action.get("type")).upper()
+        if atype not in {"BEGIN", "IF", "HOURS", "PLAY", "SNIPPET", "RUNSUB", "REST_API", "RUNSCRIPT"} and not is_technical_noise_action(action):
+            continue
+        if atype == "SNIPPET" and not is_technical_noise_action(action) and not summarize_action_output(action).get("audio"):
+            continue
+        audio = audio_context_for_action(action, semantic_model)
+        story.append(
+            {
+                "actionId": aid,
+                "type": atype,
+                "label": action_story_label(action, ai_organizer),
+                "shape": "decision" if atype == "IF" else "process" if atype != "BEGIN" else "terminal_start",
+                "audio": audio,
+                "evidence": [f"ActionID {aid}"],
+            }
+        )
+        if len(story) >= 8:
+            break
+    if not story:
+        story.append({"actionId": "", "type": "BEGIN", "label": "Inicio da URA", "shape": "terminal_start", "audio": {}, "evidence": []})
+    return story
+
+
+def menu_options_for_story(menu: Optional[Dict[str, Any]], ai_organizer: Dict[str, Any]) -> List[Dict[str, str]]:
+    if not menu:
+        return []
+    menu_id = clean_text(menu.get("actionId"))
+    ai_menu = {}
+    for item in ai_organizer.get("menuLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("menuActionId")) == menu_id:
+            ai_menu = item
+            break
+    labels = {clean_text(opt.get("digit")): opt for opt in ai_menu.get("options", []) or [] if isinstance(opt, dict)}
+    options = []
+    for index, case in enumerate(menu.get("cases") or [], start=1):
+        digit = clean_text(case.get("value") or case.get("name") or index)
+        ai_opt = labels.get(digit, {})
+        options.append(
+            {
+                "digit": digit,
+                "label": clean_text(ai_opt.get("label") or f"Opcao {digit}"),
+                "description": clean_text(ai_opt.get("description")),
+                "targetActionId": clean_text(ai_opt.get("targetActionId") or case.get("target")),
+                "evidence": f"CASE {digit} / ActionID {menu_id}",
+            }
+        )
+    return options[:8]
+
+
+def classify_subflow_actions(action_ids: List[str], semantic_model: Dict[str, Any], routes: List[Dict[str, Any]], digit: str, ai_organizer: Dict[str, Any]) -> List[Dict[str, Any]]:
+    actions_map = action_by_id(semantic_model)
+    route_items = [route for route in routes if (route.get("path") or [""])[0] == digit]
+    children: List[Dict[str, Any]] = []
+
+    def add(kind: str, label: str, items: List[str], action_ids_value: List[str]) -> None:
+        cleaned = []
+        for item in items:
+            text = short_label(item, 55)
+            if text and text not in cleaned:
+                cleaned.append(text)
+        if cleaned or label:
+            children.append({"type": kind, "label": label, "items": cleaned[:6], "actionIds": action_ids_value[:8]})
+
+    submenu_actions = [actions_map[aid] for aid in action_ids if aid in actions_map and clean_text(actions_map[aid].get("type")).upper() == "MENU"]
+    if submenu_actions:
+        add("submenu", "Submenus", [clean_text(action.get("businessLabel") or action.get("caption") or f"Menu {action.get('actionId')}") for action in submenu_actions[:4]], [clean_text(action.get("actionId")) for action in submenu_actions])
+
+    collect_actions = [actions_map[aid] for aid in action_ids if aid in actions_map and is_collect_action(actions_map[aid])]
+    if collect_actions:
+        add("collect", "Coleta de dados", [action_story_label(action, ai_organizer) for action in collect_actions[:5]], [clean_text(action.get("actionId")) for action in collect_actions])
+
+    if_actions = [actions_map[aid] for aid in action_ids if aid in actions_map and clean_text(actions_map[aid].get("type")).upper() == "IF"]
+    if if_actions:
+        add("validation", "Validacoes", [humanize_if_condition(action, ai_organizer) for action in if_actions[:5]], [clean_text(action.get("actionId")) for action in if_actions])
+
+    audio_actions = [actions_map[aid] for aid in action_ids if aid in actions_map and audio_context_for_action(actions_map[aid], semantic_model).get("fileName")]
+    if audio_actions:
+        add("audio", "Audios / mensagens", [audio_context_for_action(action, semantic_model).get("fileName", "") for action in audio_actions[:4]], [clean_text(action.get("actionId")) for action in audio_actions])
+
+    integration_actions = [
+        actions_map[aid]
+        for aid in action_ids
+        if aid in actions_map and clean_text(actions_map[aid].get("type")).upper() in {"RUNSUB", "REST_API", "RUNSCRIPT", "REQAGENT"}
+    ]
+    route_destinations = [
+        route.get("target", {}).get("skillName") or route.get("nextStep") or route.get("transferCode") or route.get("target", {}).get("actionId")
+        for route in route_items
+    ]
+    if integration_actions or route_destinations:
+        add(
+            "transfer",
+            "Transferencia / API / proximo script",
+            [*(action_story_label(action, ai_organizer) for action in integration_actions[:4]), *(clean_text(item) for item in route_destinations if clean_text(item))],
+            [clean_text(action.get("actionId")) for action in integration_actions],
+        )
+
+    route_subjects = [route.get("treatment") or route.get("pathLabel") for route in route_items]
+    if route_subjects:
+        add("topics", "Assuntos principais", [clean_text(item) for item in route_subjects[:8]], [clean_text(route.get("originMenuActionId")) for route in route_items])
+
+    ending_actions = [
+        actions_map[aid]
+        for aid in action_ids
+        if aid in actions_map and (clean_text(actions_map[aid].get("type")).upper() in {"END", "LOOP", "ONRELEASE"} or "desliga" in action_search_text(actions_map[aid]) or "tchau" in action_search_text(actions_map[aid]))
+    ]
+    if ending_actions:
+        add("ending", "Encerramento / retorno", [action_story_label(action, ai_organizer) for action in ending_actions[:4]], [clean_text(action.get("actionId")) for action in ending_actions])
+
+    return children[:6]
+
+
+def build_subflow_tree_for_main_option(option: Dict[str, str], semantic_model: Dict[str, Any], human_routes: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    target = clean_text(option.get("targetActionId"))
+    digit = clean_text(option.get("digit"))
+    action_ids = reachable_action_ids(target, semantic_model, 70) if target else []
+    if not action_ids and clean_text(option.get("routeActionId")):
+        route_action = clean_text(option.get("routeActionId"))
+        action_ids = reachable_action_ids(route_action, semantic_model, 35) or [route_action]
+    return {
+        "digit": digit,
+        "label": clean_text(option.get("label") or f"Opcao {digit}"),
+        "description": clean_text(option.get("description")),
+        "targetActionId": target,
+        "children": classify_subflow_actions(action_ids, semantic_model, human_routes.get("routes", []), digit, ai_organizer),
+        "evidence": [clean_text(option.get("evidence"))],
+    }
+
+
+def fallback_main_options_from_routes(human_routes: Dict[str, Any], main_menu: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
+    routes = human_routes.get("routes") or []
+    options: List[Dict[str, str]] = []
+    seen = set()
+    main_id = clean_text((main_menu or {}).get("actionId"))
+    for index, route in enumerate(routes, start=1):
+        path = [clean_text(item) for item in route.get("path") or [] if clean_text(item)]
+        digit = path[0] if path else str(index)
+        route_key = digit
+        if route_key in seen:
+            continue
+        treatment = clean_text(route.get("treatment") or route.get("pathLabel"))
+        target = route.get("target") if isinstance(route.get("target"), dict) else {}
+        destination = clean_text(target.get("skillName") or route.get("nextStep") or target.get("actionId"))
+        if not treatment and not destination:
+            continue
+        seen.add(route_key)
+        options.append(
+            {
+                "digit": digit,
+                "label": short_label(treatment or destination or f"Opcao {digit}", 64),
+                "description": short_label(destination, 80),
+                "targetActionId": clean_text(target.get("actionId")),
+                "routeActionId": clean_text(route.get("originMenuActionId")) if clean_text(route.get("originMenuActionId")) != main_id else "",
+                "evidence": "; ".join(route.get("evidence") or [f"rota deterministica {route.get('routeId', index)}"]),
+            }
+        )
+        if len(options) >= 8:
+            break
+    return options
+
+
+def build_navigation_story(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+    main_menu = find_main_menu_for_story(semantic_model, ai_organizer)
+    main_options = menu_options_for_story(main_menu, ai_organizer)
+    if not main_options:
+        main_options = fallback_main_options_from_routes(human_routes, main_menu)
+    main_audio = audio_context_for_action(main_menu, semantic_model)
+    side_events = []
+    for item in pre_semantic_extract.get("integrations", []):
+        if clean_text(item.get("type")).upper() in {"ONANSWER", "ONRELEASE"} or any(token in " ".join(clean_text(item.get(k)).lower() for k in ["caption", "nextStep", "transferCode"]) for token in ["desliga", "cdr", "release"]):
+            side_events.append({"label": short_label(clean_text(item.get("caption") or item.get("type")), 70), "actionId": clean_text(item.get("actionId")), "type": clean_text(item.get("type"))})
+    for item in pre_semantic_extract.get("cdrScriptpoints", [])[:8]:
+        side_events.append({"label": "Registro CDR", "actionId": clean_text(item.get("sourceActionId")), "type": "CDR"})
+    return {
+        "preMenu": build_pre_menu_story(semantic_model, pre_semantic_extract, ai_organizer, main_menu),
+        "mainMenu": {
+            "actionId": clean_text((main_menu or {}).get("actionId")),
+            "label": clean_text((main_menu or {}).get("businessLabel") or (main_menu or {}).get("caption") or "Menu Principal"),
+            "captureVariable": menu_variable((main_menu or {}).get("parameters")),
+            "audio": main_audio,
+            "options": main_options,
+        },
+        "subFlows": [
+            build_subflow_tree_for_main_option(option, semantic_model, human_routes, ai_organizer)
+            for option in main_options
+        ],
+        "sideEvents": side_events[:10],
+        "endings": [],
+    }
+
+
 def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     flow = semantic_model
     rows = semantic_rows(flow)
@@ -3781,17 +4110,16 @@ def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     return {"routes": routes}
 
 
-def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any]) -> Dict[str, Any]:
     routes = human_routes.get("routes", [])
     return {
+        "navigationStory": navigation_story,
         "pages": [
             {
                 "name": "Fluxo Principal",
-                "type": "functional_overview",
-                "routes": routes[:25],
+                "type": "main_flow",
+                "navigationStory": navigation_story,
                 "context": ai_organizer.get("flowContext", {}),
-                "ifs": pre_semantic_extract.get("ifs", [])[:6],
-                "integrations": pre_semantic_extract.get("integrations", [])[:8],
             },
             {"name": "Mapa de Menus", "type": "menu_map", "rows": routes},
             {"name": "Mapa de Skills", "type": "skill_map", "rows": routes},
@@ -3822,65 +4150,93 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
     for page in plan.get("pages", []):
         name = page.get("name")
         ptype = page.get("type")
-        if ptype == "functional_overview":
-            routes = page.get("routes", [])
+        if ptype in {"main_flow", "functional_overview"}:
+            story = page.get("navigationStory") or plan.get("navigationStory") or {}
             context = page.get("context", {})
-            actions_map = action_by_id(semantic_model)
             cells = [
                 mx_node("plan_main_title", clean_text(context.get("flowName") or name or "Fluxo Principal"), 330, 25, 900, 42, "title"),
                 mx_node("plan_main_context", short_label(context.get("businessPurpose") or "Visao funcional humanizada gerada a partir do XML NICE.", 180), 230, 70, 1100, 34, "subtitle"),
-                mx_node("plan_start", "Inicio da URA", 680, 130, 220, 60, "terminal_start"),
             ]
-            previous = "plan_start"
-            y = 240
-            for index, item in enumerate(page.get("ifs", [])[:5]):
-                aid = clean_text(item.get("actionId"))
-                action = actions_map.get(aid) or {"actionId": aid, "caption": item.get("caption"), "type": "IF", "parameters": [item.get("condition", "")]}
-                node_id = f"plan_if_{index}_{safe_drawio_id(aid)}"
+            pre_nodes = story.get("preMenu") or []
+            previous = ""
+            center_x = 670
+            y = 125
+            for index, item in enumerate(pre_nodes[:8]):
+                node_id = f"story_pre_{index}_{safe_drawio_id(item.get('actionId'))}"
+                audio = item.get("audio") or {}
+                audio_line = ""
+                if clean_text(audio.get("fileName")):
+                    audio_line = "\nAudio: " + short_label(audio.get("fileName"), 45)
+                if clean_text(audio.get("transcription")):
+                    audio_line += "\nFala: " + short_label(audio.get("transcription"), 70)
+                label = short_label(item.get("label"), 70) + (f"\nActionID {item.get('actionId')}" if clean_text(item.get("actionId")) else "") + audio_line
                 cells.append(
                     mx_node(
                         node_id,
-                        f"{humanize_if_condition(action, semantic_model.get('aiOrganizer', {}))}\nActionID {aid}",
-                        630,
+                        label,
+                        center_x,
                         y,
-                        320,
-                        120,
-                        "decision",
+                        260,
+                        88 if clean_text(audio.get("fileName")) else 70,
+                        clean_text(item.get("shape")) or ("decision" if item.get("type") == "IF" else "process"),
                     )
                 )
-                cells.append(mx_edge(f"plan_if_e_{index}", previous, node_id, "segue"))
-                if any("timeout" in clean_text(branch.get("name")).lower() or "false" in clean_text(branch.get("name")).lower() for branch in item.get("branches", []) if isinstance(branch, dict)):
-                    side_id = f"plan_if_side_{index}"
-                    cells.append(mx_node(side_id, "Tratamento lateral\n" + short_label(clean_text(item.get("caption")), 65), 1040, y + 15, 260, 80, "warning"))
-                    cells.append(mx_edge(f"plan_if_side_e_{index}", node_id, side_id, "Nao/timeout"))
+                if previous:
+                    cells.append(mx_edge(f"story_pre_e_{index}", previous, node_id, "segue"))
                 previous = node_id
-                y += 165
-            cells.append(mx_node("plan_menu_hub", "Menu principal / roteamento\nOpcoes funcionais consolidadas", 620, y, 340, 105, "decision"))
-            cells.append(mx_edge("plan_menu_hub_e", previous, "plan_menu_hub", "segue"))
-            previous = "plan_menu_hub"
-            y += 160
-            for index, route in enumerate(routes[:25]):
-                node_id = f"plan_route_{index}"
+                y += 120
+
+            main_menu = story.get("mainMenu") or {}
+            menu_audio = main_menu.get("audio") or {}
+            menu_options = main_menu.get("options") or []
+            option_lines = [f"{opt.get('digit')} - {short_label(opt.get('label'), 34)}" for opt in menu_options[:8]]
+            menu_label = "\n".join(
+                [
+                    short_label(main_menu.get("label") or "Menu Principal", 58),
+                    f"ActionID {main_menu.get('actionId')}" if clean_text(main_menu.get("actionId")) else "",
+                    f"Captura: {main_menu.get('captureVariable')}" if clean_text(main_menu.get("captureVariable")) else "",
+                    f"Audio: {short_label(menu_audio.get('fileName'), 45)}" if clean_text(menu_audio.get("fileName")) else "",
+                    f"Fala: {short_label(menu_audio.get('transcription'), 75)}" if clean_text(menu_audio.get("transcription")) else "",
+                    "Opcoes:",
+                    *option_lines[:6],
+                ]
+            )
+            cells.append(mx_node("story_main_menu", menu_label, 610, y + 10, 390, 190, "decision"))
+            if previous:
+                cells.append(mx_edge("story_menu_in", previous, "story_main_menu", "segue"))
+            y += 270
+
+            subflows = story.get("subFlows") or []
+            lane_xs = [65, 435, 805, 1175]
+            card_w = 325
+            card_h = 220
+            for index, subflow in enumerate(subflows[:8]):
+                col = index % 4
+                row = index // 4
+                x = lane_xs[col]
+                card_y = y + row * 295
+                child_lines: List[str] = []
+                for child in subflow.get("children", [])[:5]:
+                    items = [short_label(item, 32) for item in child.get("items", [])[:3] if clean_text(item)]
+                    child_lines.append(f"{short_label(child.get('label'), 34)}: " + (", ".join(items) if items else short_label(child.get("type"), 28)))
                 label = "\n".join(
                     [
-                        short_label(route.get("pathLabel") or route.get("treatment"), 54),
-                        "Caminho: " + short_label(" > ".join(route.get("path") or []), 40),
-                        "Destino: " + short_label(route.get("target", {}).get("skillName") or route.get("nextStep") or route.get("target", {}).get("actionId") or "-", 50),
+                        f"{clean_text(subflow.get('digit'))} - {short_label(subflow.get('label'), 44)}",
+                        f"Destino: ActionID {short_label(subflow.get('targetActionId'), 32)}" if clean_text(subflow.get("targetActionId")) else "",
+                        *child_lines[:6],
                     ]
                 )
-                x = 210 + (index % 3) * 410
-                cells.append(mx_node(node_id, label, x, y, 330, 118, "process"))
-                cells.append(mx_edge(f"plan_main_e_{index}", previous, node_id, short_label(" > ".join(route.get("path") or []), 18)))
-                if index % 3 == 2:
-                    y += 185
-            if page.get("integrations"):
-                integration_lines = [
-                    f"{clean_text(item.get('type'))} {clean_text(item.get('actionId'))} - {short_label(item.get('caption') or item.get('nextStep') or item.get('transferCode'), 42)}"
-                    for item in page.get("integrations", [])[:5]
-                ]
-                cells.append(mx_node("plan_integrations", "Transferencias / APIs / encerramentos\n" + "\n".join(integration_lines), 1035, y + 145, 380, 155, "transfer"))
-            cells.append(mx_node("plan_end", "Detalhes nos mapas e no tecnico editavel", 650, y + 170, 280, 70, "terminal_end"))
-            diagrams.append(mx_diagram("Fluxo Principal", cells, 1600, max(1000, y + 300)))
+                node_id = f"story_option_{index}_{safe_drawio_id(subflow.get('digit'))}"
+                cells.append(mx_node(node_id, label, x, card_y, card_w, card_h, "process"))
+                cells.append(mx_edge(f"story_option_e_{index}", "story_main_menu", node_id, clean_text(subflow.get("digit"))))
+
+            bottom_y = y + max(1, (len(subflows[:8]) + 3) // 4) * 295 + 30
+            side_events = story.get("sideEvents") or []
+            if side_events:
+                side_lines = [f"{item.get('type')} {item.get('actionId')} - {short_label(item.get('label'), 42)}" for item in side_events[:7]]
+                cells.append(mx_node("story_side_events", "Eventos laterais / CDR\n" + "\n".join(side_lines), 60, bottom_y, 430, 145, "note"))
+            cells.append(mx_node("story_end", "Transferencia / API / encerramento\nDetalhes nos mapas e tecnico editavel", 650, bottom_y + 30, 330, 85, "terminal_end"))
+            diagrams.append(mx_diagram("Fluxo Principal", cells, 1600, max(1050, bottom_y + 230)))
         elif ptype == "menu_map":
             rows = [
                 [
@@ -3988,7 +4344,7 @@ def build_drawio(flow: Dict[str, Any], ai: Dict[str, Any]) -> str:
     )
 
 
-def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     raw_actions = build_raw_actions(flow)
     pre_semantic_extract = build_pre_semantic_extract(raw_actions)
     ai_organizer = ai.get("organizer") if isinstance(ai.get("organizer"), dict) else {}
@@ -3996,7 +4352,8 @@ def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, A
         ai_organizer = deterministic_ai_organizer(flow)
     semantic_model = build_semantic_model(raw_actions, ai_organizer, transcriptions, flow)
     human_routes = build_human_routes(raw_actions, pre_semantic_extract, ai_organizer, semantic_model)
-    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model)
+    navigation_story = build_navigation_story(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model)
+    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model, navigation_story)
     planned_flow = {
         **flow,
         "rawActions": raw_actions,
@@ -4005,9 +4362,10 @@ def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, A
         "semanticModel": semantic_model,
         "humanRoutes": human_routes,
         "semanticRoutes": human_routes,
+        "navigationStory": navigation_story,
         "drawioPlan": drawio_plan,
     }
-    return raw_actions, pre_semantic_extract, ai_organizer, semantic_model, human_routes, drawio_plan, planned_flow
+    return raw_actions, pre_semantic_extract, ai_organizer, semantic_model, human_routes, navigation_story, drawio_plan, planned_flow
 
 
 def build_prompts_detected(flow: Dict[str, Any]) -> Dict[str, Any]:
@@ -4233,7 +4591,7 @@ async def generate_package(request: PackageRequest):
     validate_package_flow(flow)
     transcriptions = request.transcriptions or {}
     ai = request.ai_enrichment or {}
-    raw_actions, pre_semantic_extract, ai_organizer, semantic_model, human_routes, drawio_plan, planned_flow = build_processing_artifacts(flow, transcriptions, ai)
+    raw_actions, pre_semantic_extract, ai_organizer, semantic_model, human_routes, navigation_story, drawio_plan, planned_flow = build_processing_artifacts(flow, transcriptions, ai)
     prompts_detected = build_prompts_detected(planned_flow)
     audio_matching = build_audio_matching(planned_flow, transcriptions)
     drawio = build_drawio(planned_flow, ai)
@@ -4313,6 +4671,7 @@ async def generate_package(request: PackageRequest):
         "02_pre_semantic_extract.json": json.dumps(pre_semantic_extract, ensure_ascii=False, indent=2).encode("utf-8"),
         "03_ai_organizer.json": json.dumps(ai_organizer, ensure_ascii=False, indent=2).encode("utf-8"),
         "04_human_routes.json": json.dumps(human_routes, ensure_ascii=False, indent=2).encode("utf-8"),
+        "navigation_story.json": json.dumps(navigation_story, ensure_ascii=False, indent=2).encode("utf-8"),
         "05_drawio_plan.json": json.dumps(drawio_plan, ensure_ascii=False, indent=2).encode("utf-8"),
         "prompts_detected.json": json.dumps(prompts_detected, ensure_ascii=False, indent=2).encode("utf-8"),
         "audio_matching.json": json.dumps(audio_matching, ensure_ascii=False, indent=2).encode("utf-8"),

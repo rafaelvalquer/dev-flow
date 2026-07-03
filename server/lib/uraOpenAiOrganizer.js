@@ -27,6 +27,46 @@ function deterministicOrganizer({ rawActions, projectName }) {
       mainDomains: [],
       mainJourneys: menus.slice(0, 8).map((menu) => clean(menu.caption) || `Menu ${menu.actionId}`),
     },
+    mainMenuCandidate: {
+      actionId: clean(menus[0]?.actionId),
+      reason: menus[0] ? "Primeiro MENU encontrado no XML NICE." : "Nenhum MENU encontrado.",
+      confidence: menus[0] ? 0.65 : 0,
+    },
+    preMenuLabels: actions
+      .filter((action) => ["BEGIN", "IF", "HOURS", "PLAY", "SNIPPET", "RUNSUB", "REST_API"].includes(clean(action.type).toUpperCase()))
+      .slice(0, 40)
+      .map((action) => ({
+        actionId: clean(action.actionId),
+        type: clean(action.type),
+        humanLabel: short(action.caption || action.type || `Action ${action.actionId}`, 80),
+        humanQuestion: clean(action.type).toUpperCase() === "IF" ? `${short(action.caption || "Condicao", 70)}?` : "",
+        audioLabel: "",
+        group: "pre-menu",
+        evidence: [`ActionID ${action.actionId}`],
+      })),
+    ifLabels: actions
+      .filter((action) => clean(action.type).toUpperCase() === "IF")
+      .slice(0, 80)
+      .map((action) => ({
+        actionId: clean(action.actionId),
+        rawCondition: short(Array.isArray(action.parameters) ? action.parameters.join(" ") : "", 180),
+        humanQuestion: `${short(action.caption || "Condicao", 70)}?`,
+        trueLabel: "Sim",
+        falseLabel: "Nao",
+        category: "validacao",
+        evidence: [`ActionID ${action.actionId}`],
+      })),
+    collectLabels: actions
+      .filter((action) => /cpf|celular|cartao|cartão|protocolo|collect|collecnum|digita|pede/i.test(JSON.stringify(action)))
+      .slice(0, 60)
+      .map((action) => ({
+        actionId: clean(action.actionId),
+        dataType: /cpf/i.test(JSON.stringify(action)) ? "cpf" : /celular|mobile/i.test(JSON.stringify(action)) ? "celular" : "outro",
+        humanLabel: short(action.caption || "Coleta de dados", 80),
+        validationActionIds: [],
+        timeoutActionIds: [],
+        evidence: [`ActionID ${action.actionId}`],
+      })),
     actionAnnotations: actions.slice(0, 260).map((action) => ({
       actionId: clean(action.actionId),
       businessLabel: short(action.caption || action.type || `Action ${action.actionId}`, 80),
@@ -51,6 +91,7 @@ function deterministicOrganizer({ rawActions, projectName }) {
         evidence: [`MENU ActionID ${menu.actionId}`, `CASE ${clean(item.value || item.name)}`],
       })),
     })),
+    subflowLabels: [],
     visualGroups: [],
     routeHints: [],
     drawioRecommendations: {
@@ -101,6 +142,22 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
     })),
     edges: edges.slice(0, 260),
     preSemanticExtract: preSemanticExtract || {},
+    organizerHints: {
+      goal: "Organizar a navegacao em arvore humanizada para a aba Fluxo Principal.",
+      preserveTopology: [
+        "Use apenas ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, skills, prompts e destinos presentes no payload.",
+        "Nao invente conexoes, ActionID, Skill ID, prompts, destinos ou opcoes DTMF.",
+        "Classifique as actions em pre-menu, menu principal, submenu, coleta, validacao, audio/play, API, transferencia, encerramento ou evento lateral.",
+      ],
+      expectedFields: [
+        "mainMenuCandidate",
+        "preMenuLabels",
+        "ifLabels",
+        "collectLabels",
+        "menuLabels",
+        "subflowLabels",
+      ],
+    },
     transcriptions: (Array.isArray(transcriptions?.items) ? transcriptions.items : [])
       .slice(0, 80)
       .map((item) => ({
@@ -140,8 +197,11 @@ export async function organizeUraFlowWithAi({
         {
           role: "system",
           content: [
-            "Voce organiza fluxos NICE para documentacao funcional em PT-BR.",
-            "Use a IA para nomes, grupos e contexto, mas NUNCA invente conexoes, ActionID, prompts, skills ou destinos.",
+            "Voce organiza a navegacao de uma URA NICE em forma de arvore humanizada, clara e objetiva em PT-BR.",
+            "Use a IA para nomes, grupos, perguntas de IF, contexto de menus e descricao de subfluxos.",
+            "Preserve ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, prompts, skills e destinos reais do payload.",
+            "NUNCA invente conexoes, ActionID, prompts, skills, destinos ou opcoes DTMF.",
+            "Identifique pre-menu, menu principal, submenus, coletas de dados, validacoes, audios/PLAY, APIs, transferencias, encerramentos, timeout/invalido e eventos laterais.",
             "Toda evidencia deve apontar para ActionID, CASE, branch, prompt ou transcricao fornecida.",
             "Retorne somente JSON no schema solicitado.",
           ].join("\n"),
