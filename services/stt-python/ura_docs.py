@@ -3926,7 +3926,9 @@ def build_display_nodes(navigation_story: Dict[str, Any], semantic_model: Dict[s
             {
                 **flow_item,
                 "displayLabel": clean_display_text(flow_item.get("label")),
-                "steps": [convert_item(step) for step in flow_item.get("steps", []) if isinstance(step, dict)],
+                "rawSteps": [convert_item(step) for step in flow_item.get("rawSteps", []) if isinstance(step, dict)],
+                "visibleSteps": [convert_item(step) for step in flow_item.get("visibleSteps", []) if isinstance(step, dict)],
+                "steps": [convert_item(step) for step in (flow_item.get("visibleSteps") or flow_item.get("steps") or []) if isinstance(step, dict)],
             }
         )
     return {
@@ -4514,17 +4516,153 @@ def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_
     }
 
 
-def trace_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, Any]], dispatcher: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+def initial_trace_context(option: Dict[str, Any]) -> Dict[str, str]:
+    digit = clean_text(option.get("digit"))
+    return {
+        "MRES": digit,
+        "MRES1": "",
+        "MRES2": "",
+        "MRES3": "",
+        "MRESF": "",
+        "MRESF1": "",
+        "audio": "",
+        "AUDIO": clean_text(option.get("audio")),
+        "audio_menu1": "",
+        "menu_audio1": "",
+        "menu_audio2": "",
+        "audio_menu2": "",
+        "audio_menu3": "",
+        "audio_aviso": "",
+        "audio_aviso2": "",
+        "SKILL_ID": "",
+        "SKILL_NAME": "",
+        "Transfer_skill": "",
+        "NEXT_STEP": clean_text(option.get("nextStep")),
+        "TransferCode": clean_text(option.get("transferCode")),
+        "scriptpoint": "",
+        "mapa_dna": "",
+    }
+
+
+def resolve_context_value(value: Any, trace_context: Dict[str, str]) -> str:
+    text = clean_assignment_value(value)
+    if not text:
+        return ""
+
+    def repl(match: re.Match) -> str:
+        key = clean_text(match.group(1))
+        return clean_text(trace_context.get(key) or trace_context.get(key.upper()) or trace_context.get(key.lower()) or match.group(0))
+
+    return re.sub(r"\{([^}]+)\}", repl, text)
+
+
+def update_trace_context_from_assignments(trace_context: Dict[str, str], assignments: Dict[str, str]) -> None:
+    for key, value in assignments.items():
+        clean_key = clean_text(key)
+        if not clean_key:
+            continue
+        resolved = resolve_context_value(value, trace_context)
+        trace_context[clean_key] = resolved
+        trace_context[clean_key.upper()] = resolved
+    mresf = "".join(clean_text(trace_context.get(key)) for key in ["MRES", "MRES1", "MRES2"])
+    if mresf:
+        trace_context.setdefault("MRESF", mresf)
+    mresf1 = clean_text(trace_context.get("MRESF")) + clean_text(trace_context.get("MRES3"))
+    if mresf1.strip():
+        trace_context.setdefault("MRESF1", mresf1)
+
+
+def case_matches_context(case_values: List[str], trace_context: Dict[str, str], switch_variable: str, option_digit: str) -> bool:
+    if not case_values:
+        return False
+    switch_value = clean_text(trace_context.get(switch_variable) or trace_context.get(switch_variable.upper()))
+    candidates = [switch_value, option_digit]
+    if not switch_value and switch_variable:
+        candidates.append(clean_text(trace_context.get(switch_variable.lower())))
+    return any(clean_text(value) in candidates for value in case_values)
+
+
+def apply_matching_switch_case(action: Dict[str, Any], trace_context: Dict[str, str], option_digit: str) -> Optional[Dict[str, Any]]:
+    cases = parse_switch_case_tree(action_code(action))
+    if not cases:
+        return None
+    selected = None
+    for item in cases:
+        if case_matches_context(item.get("caseValues") or [], trace_context, clean_text(item.get("switchVariable")), option_digit):
+            selected = item
+            break
+    if selected is None:
+        selected = next((item for item in cases if item.get("assignments")), None)
+    if selected:
+        update_trace_context_from_assignments(trace_context, selected.get("assignments") or {})
+    return selected
+
+
+def choose_main_navigation_edge(action: Dict[str, Any], outgoing_edges: List[Dict[str, Any]], trace_context: Dict[str, str], option_digit: str) -> Optional[Dict[str, Any]]:
+    if not outgoing_edges:
+        return None
+    atype = clean_text(action.get("type")).upper()
+    labels = [(edge, edge_label_text(edge).lower()) for edge in outgoing_edges]
+
+    def first_label(*wanted: str) -> Optional[Dict[str, Any]]:
+        wanted_set = {item.lower() for item in wanted}
+        return next((edge for edge, label in labels if label in wanted_set), None)
+
+    if atype == "HOURS":
+        return first_label("open", "aberto") or default_edge_from_list(outgoing_edges)
+    if atype == "LOCATE":
+        return first_label("found", "encontrado") or default_edge_from_list(outgoing_edges)
+    if atype == "IF":
+        return first_label("true", "sim") or first_label("false", "nao", "não") or default_edge_from_list(outgoing_edges)
+    if atype == "MENU":
+        return default_edge_from_list(outgoing_edges)
+    if atype == "LOOP":
+        return first_label("finished", "limit", "limite") or default_edge_from_list([edge for edge, label in labels if label != "repeat"] or outgoing_edges)
+    if atype == "CASE":
+        for case in action.get("cases") or []:
+            if clean_text(case.get("value") or case.get("name")) == option_digit:
+                target = clean_text(case.get("target"))
+                edge = next((item for item in outgoing_edges if clean_text(item.get("target")) == target), None)
+                if edge:
+                    return edge
+        return default_edge_from_list(outgoing_edges)
+    return (
+        first_label("default", "")
+        or first_label("found", "true", "open")
+        or default_edge_from_list(outgoing_edges)
+    )
+
+
+def default_edge_from_list(edges: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    return sorted(edges, key=lambda edge: 0 if edge_label_text(edge).lower() in {"", "default"} else 1)[0] if edges else None
+
+
+def collect_side_treatments(action: Dict[str, Any], outgoing_edges: List[Dict[str, Any]], main_edge: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
+    treatments = []
+    main_target = clean_text((main_edge or {}).get("target"))
+    for edge in outgoing_edges:
+        target = clean_text(edge.get("target"))
+        label = edge_label_text(edge).lower()
+        if target == main_target:
+            continue
+        if any(token in label for token in ["timeout", "invalid", "inval", "repeat", "finished", "max", "sil", "rej", "closed", "holiday", "meeting", "emergency", "false"]):
+            treatments.append({"label": human_branch_label(label), "targetActionId": target})
+    return treatments
+
+
+def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, Any]], dispatcher: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
     actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
-    steps: List[Dict[str, Any]] = []
+    raw_steps: List[Dict[str, Any]] = []
     side_treatments: List[Dict[str, str]] = []
     digit = clean_text(option.get("digit"))
     dispatcher_id = clean_text(dispatcher.get("actionId"))
+    trace_context = initial_trace_context(option)
     case_data = option.get("case") if isinstance(option.get("case"), dict) else {}
     if case_data:
         assignments = case_data.get("assignments") or {}
+        update_trace_context_from_assignments(trace_context, assignments)
         audio = assignment_value(assignments, ["AUDIO", "audio", "NOTEMENU", "noteini", "noteinc", "noteINV", "notesil", "noteREJ", "menu_audio1", "menu_audio2", "audio_menu1", "audio_menu2", "audio_menu3"])
-        steps.append(
+        raw_steps.append(
             {
                 "type": "snippet_case",
                 "actionId": dispatcher_id,
@@ -4539,55 +4677,220 @@ def trace_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, An
                 "transferCode": option.get("transferCode"),
                 "resolvedTarget": option.get("nextStep") or option.get("transferCode"),
                 "evidence": [f"ActionID {dispatcher_id}", clean_text(option.get("source"))],
+                "context": dict(trace_context),
             }
         )
     current_id = clean_text(option.get("targetActionId")) or dispatcher_id
-    visited = set()
-    while current_id and current_id not in visited and len(steps) < 10:
-        visited.add(current_id)
+    visited_counts: Dict[str, int] = {}
+    terminal: Dict[str, str] = {}
+    while current_id and len(raw_steps) < 60:
+        visited_counts[current_id] = visited_counts.get(current_id, 0) + 1
+        if visited_counts[current_id] > 2:
+            terminal = {"type": "loop", "actionId": current_id, "label": "Retorno para ponto ja visitado"}
+            break
         action = actions_map.get(current_id)
         if not action:
+            terminal = {"type": "external", "actionId": current_id, "label": clean_text(current_id)}
             break
-        if not (steps and steps[-1].get("type") == "snippet_case" and steps[-1].get("actionId") == current_id):
-            steps.append(step_from_action(action, semantic_model, ai_organizer))
+        selected_case = apply_matching_switch_case(action, trace_context, digit)
+        if not (raw_steps and raw_steps[-1].get("type") == "snippet_case" and raw_steps[-1].get("actionId") == current_id):
+            step = step_from_action(action, semantic_model, ai_organizer)
+            step["context"] = dict(trace_context)
+            if selected_case:
+                step["matchedCase"] = {
+                    "switchVariable": selected_case.get("switchVariable"),
+                    "caseValues": selected_case.get("caseValues") or [],
+                    "caseRangeLabel": selected_case.get("caseRangeLabel"),
+                }
+            raw_steps.append(step)
         atype = clean_text(action.get("type")).upper()
         output = summarize_action_output(action)
-        if atype in {"END", "REQAGENT", "REST_API", "RUNSUB"}:
+        if output:
+            update_trace_context_from_assignments(trace_context, {k: v for k, v in output.items() if clean_text(v)})
+        if atype in {"END", "REQAGENT"}:
+            terminal = {"type": atype.lower(), "actionId": current_id, "label": friendly_action_label(action, ai_organizer)}
+            break
+        if atype in {"REST_API", "RUNSUB"} and len(raw_steps) > 6:
+            terminal = {"type": atype.lower(), "actionId": current_id, "label": friendly_action_label(action, ai_organizer)}
             break
         if atype == "RUNSCRIPT" and (output.get("nextStep") or "{NEXT_STEP}" in action_code(action)):
             if output.get("nextStep"):
-                steps[-1]["resolvedTarget"] = output.get("nextStep")
-            elif len(steps) >= 2 and clean_text(steps[-2].get("resolvedTarget")):
-                steps[-1]["resolvedTarget"] = clean_text(steps[-2].get("resolvedTarget"))
+                raw_steps[-1]["resolvedTarget"] = output.get("nextStep")
+            elif clean_text(trace_context.get("NEXT_STEP")):
+                raw_steps[-1]["resolvedTarget"] = clean_text(trace_context.get("NEXT_STEP"))
+            elif len(raw_steps) >= 2 and clean_text(raw_steps[-2].get("resolvedTarget")):
+                raw_steps[-1]["resolvedTarget"] = clean_text(raw_steps[-2].get("resolvedTarget"))
+            terminal = {"type": "runscript", "actionId": current_id, "label": clean_text(raw_steps[-1].get("resolvedTarget"))}
             break
         if atype == "CASE":
             matched_target = ""
             for case in action.get("cases") or []:
-                if clean_text(case.get("value") or case.get("name")) == digit:
+                case_value = clean_text(case.get("value") or case.get("name"))
+                switch_value = clean_text(trace_context.get("MRESF1") or trace_context.get("MRESF") or trace_context.get("MRES3") or trace_context.get("MRES2") or trace_context.get("MRES1") or digit)
+                if case_value in {digit, switch_value}:
                     matched_target = clean_text(case.get("target"))
                     break
             if matched_target:
                 current_id = matched_target
                 continue
         outgoing = adjacency.get(current_id, [])
-        for edge in outgoing:
-            label = edge_label_text(edge).lower()
-            if any(token in label for token in ["timeout", "invalid", "inval", "repeat", "finished", "max", "sil", "rej"]):
-                side_treatments.append({"label": human_branch_label(label), "targetActionId": clean_text(edge.get("target"))})
-        next_edges = sorted(outgoing, key=lambda edge: 0 if edge_label_text(edge).lower() in {"", "default", "found", "true", "open"} else 1)
-        if not next_edges:
+        main_edge = choose_main_navigation_edge(action, outgoing, trace_context, digit)
+        side_treatments.extend(collect_side_treatments(action, outgoing, main_edge))
+        if not main_edge:
+            terminal = {"type": "terminal", "actionId": current_id, "label": friendly_action_label(action, ai_organizer)}
             break
-        current_id = clean_text(next_edges[0].get("target"))
+        current_id = clean_text(main_edge.get("target"))
+    visible_steps = compact_navigation_steps(raw_steps, semantic_model, ai_organizer, trace_context)
     return {
         "digit": digit,
         "label": clean_text(option.get("label") or f"Opcao {digit}"),
         "description": clean_text(option.get("description")),
         "source": clean_text(option.get("source")),
         "targetActionId": clean_text(option.get("targetActionId")),
-        "steps": steps[:10],
-        "sideTreatments": side_treatments[:5],
+        "rawSteps": raw_steps[:60],
+        "steps": raw_steps[:60],
+        "visibleSteps": visible_steps,
+        "sideTreatments": side_treatments[:12],
+        "terminal": terminal,
+        "variablesContext": trace_context,
         "evidence": option.get("evidence") or [],
     }
+
+
+def trace_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, Any]], dispatcher: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    return trace_deep_option_flow(option, menu_action, dispatcher, semantic_model, ai_organizer)
+
+
+def visible_step_key(step: Dict[str, Any]) -> Tuple[str, str, str]:
+    return (
+        clean_text(step.get("type")).lower(),
+        clean_display_text(step.get("displayLabel") or step.get("label")).lower(),
+        clean_text((step.get("audio") or {}).get("fileName")).lower(),
+    )
+
+
+def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    atype = clean_text((action or {}).get("type") or raw_step.get("type")).upper()
+    if action and should_hide_from_main_flow(action):
+        return None
+    display_node = build_display_node_from_action(action, semantic_model, ai_organizer) if action else {
+        "displayLabel": raw_step.get("displayLabel") or raw_step.get("label"),
+        "conditionLabel": raw_step.get("conditionLabel", ""),
+        "audio": raw_step.get("audio") or {},
+        "hideFromMainFlow": False,
+    }
+    if display_node.get("hideFromMainFlow"):
+        return None
+
+    context = raw_step.get("context") or {}
+    label = clean_display_text(display_node.get("displayLabel"))
+    secondary = clean_display_text(display_node.get("secondaryLabel"))
+    audio = display_node.get("audio") or raw_step.get("audio") or {}
+    kind = clean_text(raw_step.get("type") or atype).lower()
+
+    if raw_step.get("type") == "snippet_case":
+        label = "Define saida da opcao"
+        kind = "process"
+        audio = raw_step.get("audio") or {}
+    elif atype == "HOURS":
+        kind = "decision"
+        if label.lower() in {"validacao de horario", "hours"}:
+            profile = re.search(r"\b(\d{1,4})\b", action_code(action or {}))
+            label = f"Horario {profile.group(1)}" if profile else "Horario"
+    elif atype == "MENU":
+        kind = "menu"
+        if action and is_collect_action(action):
+            label = humanize_collect_menu(action, semantic_model, ai_organizer)
+            kind = "collect"
+        else:
+            caption = clean_text((action or {}).get("caption"))
+            variable = menu_variable((action or {}).get("parameters"))
+            if clean_text(variable).upper() in {"MRES1", "MRES2", "MRES3", "MRESF"}:
+                suffix = clean_text(variable).upper().replace("MRES", "")
+                label = f"Menu {suffix} / {clean_text(variable).upper()}" if suffix else f"Menu / {clean_text(variable).upper()}"
+            else:
+                label = caption if caption and not is_generic_technical_label(caption) else "Menu"
+            secondary = clean_text(variable or secondary)
+    elif atype == "IF":
+        kind = "decision"
+        label, secondary = humanize_if_short(action or {}, ai_organizer)
+        condition_text = action_search_text(action)
+        if re.search(r"\bcel\b.*==\s*[\"']?1", condition_text) or "cel==\"1\"" in condition_text:
+            label = "Digitar celular, se necessario"
+        if "transfer_skill" in action_search_text(action):
+            label = "Transfer_skill?"
+    elif atype == "PLAY":
+        kind = "play"
+        subject = audio_subject_from_path(audio.get("fileName"))
+        label = f"Play {subject}" if subject else "Play aviso"
+    elif atype in {"RUNSUB", "REST_API"}:
+        kind = "api"
+    elif atype == "REQAGENT":
+        kind = "transfer"
+        skill = clean_text(context.get("SKILL_NAME") or context.get("SkillName") or context.get("SKILL_ID") or raw_step.get("skillName") or raw_step.get("skillId"))
+        label = "Transferencia para skill"
+        secondary = skill
+    elif atype == "RUNSCRIPT":
+        kind = "transfer"
+        label = "Executa proximo destino"
+        secondary = clean_text(raw_step.get("resolvedTarget") or context.get("NEXT_STEP"))
+    elif atype == "SNIPPET":
+        output = summarize_action_output(action or {})
+        if output.get("audio") or audio.get("fileName"):
+            kind = "process"
+            subject = audio_subject_from_path(audio.get("fileName"))
+            label = f"Preparar audio de {subject}" if subject else "Preparar audio"
+        elif output.get("nextStep") or context.get("NEXT_STEP"):
+            kind = "process"
+            label = "Define proximo destino"
+            secondary = clean_text(output.get("nextStep") or context.get("NEXT_STEP"))
+        elif output.get("skillId") or output.get("skillName") or context.get("SKILL_ID") or context.get("SKILL_NAME"):
+            kind = "process"
+            label = "Define skill"
+            secondary = clean_text(output.get("skillName") or output.get("skillId") or context.get("SKILL_NAME") or context.get("SKILL_ID"))
+        else:
+            return None
+
+    if not label:
+        return None
+    return {
+        **raw_step,
+        "type": kind,
+        "displayLabel": label,
+        "secondaryLabel": secondary,
+        "conditionLabel": clean_display_text(display_node.get("conditionLabel")),
+        "audio": audio,
+        "hideFromMainFlow": False,
+    }
+
+
+def compact_navigation_steps(raw_steps: List[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], trace_context: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+    actions_map = action_by_id(semantic_model)
+    visible: List[Dict[str, Any]] = []
+    seen_consecutive: Optional[Tuple[str, str, str]] = None
+    for raw_step in raw_steps:
+        action = actions_map.get(clean_text(raw_step.get("actionId")))
+        compacted = compact_step_from_raw(raw_step, action, semantic_model, ai_organizer)
+        if not compacted:
+            continue
+        key = visible_step_key(compacted)
+        if key == seen_consecutive:
+            continue
+        seen_consecutive = key
+        visible.append(compacted)
+        if len(visible) >= 18:
+            break
+
+    if len(raw_steps) > 0 and len(visible) >= 18:
+        visible.append(
+            {
+                "type": "continuation",
+                "displayLabel": "Continua nos mapas detalhados",
+                "secondaryLabel": "Veja Mapa de Menus e Fluxograma Tecnico",
+                "audio": {},
+            }
+        )
+    return visible
 
 
 def classify_subflow_actions(action_ids: List[str], semantic_model: Dict[str, Any], routes: List[Dict[str, Any]], digit: str, ai_organizer: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -4933,7 +5236,13 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 col = index % len(lane_xs)
                 row = index // len(lane_xs)
                 x = lane_xs[col]
-                base_y = y + row * 780
+                row_flows = option_flows[row * len(lane_xs) : (row + 1) * len(lane_xs)]
+                row_max_steps = max((len(item.get("visibleSteps") or item.get("steps") or []) for item in row_flows), default=1)
+                row_block_height = 165 + min(max(row_max_steps, 1), 18) * row_h + 170
+                base_y = y + sum(
+                    165 + min(max(max((len(item.get("visibleSteps") or item.get("steps") or []) for item in option_flows[r * len(lane_xs) : (r + 1) * len(lane_xs)]), default=1), 1), 18) * row_h + 170
+                    for r in range(row)
+                )
                 option_id = f"story_option_{index}_{safe_drawio_id(flow_item.get('digit'))}"
                 option_label = "\n".join(
                     [
@@ -4943,10 +5252,10 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 cells.append(mx_node(option_id, option_label, x, base_y, lane_w, 105, "process"))
                 cells.append(mx_edge(f"story_option_e_{index}", "story_main_menu", option_id, clean_text(flow_item.get("digit"))))
                 previous_node = option_id
-                steps = flow_item.get("steps") or []
+                steps = flow_item.get("visibleSteps") or flow_item.get("steps") or []
                 max_steps = max(max_steps, len(steps))
                 visible_step_index = 0
-                for step_index, step in enumerate(steps[:5]):
+                for step_index, step in enumerate(steps[:18]):
                     step_action = actions_map_all.get(clean_text(step.get("actionId")))
                     display_node = build_display_node_from_action(step_action, semantic_model, semantic_ai) if step_action else {
                         "displayLabel": step.get("displayLabel") or step.get("label"),
@@ -4982,10 +5291,14 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 if treatments:
                     treatment_id = f"story_option_{index}_treatments"
                     treatment_lines = [f"- {short_label(item.get('label'), 34)} -> {short_label(item.get('targetActionId'), 18)}" for item in treatments[:4]]
-                    cells.append(mx_node(treatment_id, "Tratamentos laterais\n" + "\n".join(treatment_lines), x, base_y + 140 + min(len(steps), 5) * row_h, lane_w, 100, "warning"))
+                    cells.append(mx_node(treatment_id, "Tratamentos laterais\n" + "\n".join(treatment_lines), x, base_y + 140 + min(len(steps), 18) * row_h, lane_w, 100, "warning"))
                     cells.append(mx_edge(f"story_option_{index}_treatments_e", option_id, treatment_id, "timeout/invalido"))
 
-            bottom_y = y + max(1, (flow_limit + len(lane_xs) - 1) // len(lane_xs)) * 780 + max(0, min(max_steps, 5) - 3) * 20
+            rows_count = max(1, (flow_limit + len(lane_xs) - 1) // len(lane_xs))
+            bottom_y = y + sum(
+                165 + min(max(max((len(item.get("visibleSteps") or item.get("steps") or []) for item in option_flows[r * len(lane_xs) : (r + 1) * len(lane_xs)]), default=1), 1), 18) * row_h + 170
+                for r in range(rows_count)
+            )
             side_events = story.get("sideEvents") or []
             if side_events:
                 side_lines = [short_label(item.get("label") or item.get("type"), 58) for item in side_events[:7]]
