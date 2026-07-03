@@ -70,7 +70,7 @@ function deterministicOrganizer({ rawActions, projectName }) {
   };
 }
 
-function buildOrganizerPayload({ rawActions, transcriptions, projectName }) {
+function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions, projectName }) {
   const actions = Array.isArray(rawActions?.actions) ? rawActions.actions : [];
   const edges = Array.isArray(rawActions?.edges) ? rawActions.edges : [];
   const important = actions.filter((action) => {
@@ -100,6 +100,7 @@ function buildOrganizerPayload({ rawActions, transcriptions, projectName }) {
       branches: (Array.isArray(action.branches) ? action.branches : []).slice(0, 10),
     })),
     edges: edges.slice(0, 260),
+    preSemanticExtract: preSemanticExtract || {},
     transcriptions: (Array.isArray(transcriptions?.items) ? transcriptions.items : [])
       .slice(0, 80)
       .map((item) => ({
@@ -112,6 +113,7 @@ function buildOrganizerPayload({ rawActions, transcriptions, projectName }) {
 
 export async function organizeUraFlowWithAi({
   rawActions,
+  preSemanticExtract,
   transcriptions,
   projectName,
   options,
@@ -146,7 +148,7 @@ export async function organizeUraFlowWithAi({
         },
         {
           role: "user",
-          content: JSON.stringify(buildOrganizerPayload({ rawActions, transcriptions, projectName, options })),
+          content: JSON.stringify(buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions, projectName, options })),
         },
       ],
       response_format: {
@@ -195,3 +197,5 @@ export async function organizeUraFlowWithAi({
     clearTimeout(timeout);
   }
 }
+
+export const organizeUraBeforeDrawio = organizeUraFlowWithAi;

@@ -2194,6 +2194,72 @@ def parse_snippet_assignments_by_case(code: str) -> List[Dict[str, Any]]:
     return entries
 
 
+def tokenize_snippet(code: str) -> List[str]:
+    text = strip_code_comments(code)
+    return re.findall(r'"[^"]*"|\'[^\']*\'|\{|\}|[A-Za-z_][\w:.-]*|[0-9]+|==|!=|<=|>=|[=(),;]', text)
+
+
+def parse_assignments_in_block(code: str) -> Dict[str, str]:
+    return parse_assignments(code)
+
+
+def _case_range_label(values: List[str]) -> str:
+    clean_values = [clean_text(value) for value in values if clean_text(value)]
+    if not clean_values:
+        return ""
+    try:
+        numbers = [int(value) for value in clean_values]
+        if numbers == list(range(min(numbers), max(numbers) + 1)) and len(numbers) > 2:
+            return f"{min(numbers)}-{max(numbers)}"
+    except ValueError:
+        pass
+    return ",".join(clean_values)
+
+
+def parse_switch_case_tree(code: str) -> List[Dict[str, Any]]:
+    text = strip_code_comments(code)
+    switch_match = re.search(r"\bSWITCH\s+([A-Za-z_][\w:.-]*)", text, re.IGNORECASE)
+    switch_variable = clean_text(switch_match.group(1)) if switch_match else ""
+    case_matches = list(re.finditer(r"\bCASE\s+['\"]?([A-Za-z0-9_#.-]+)['\"]?", text, re.IGNORECASE))
+    if not case_matches:
+        assignments = parse_assignments_in_block(text)
+        return [
+            {
+                "switchVariable": switch_variable,
+                "caseValues": [],
+                "caseRangeLabel": "",
+                "assignments": assignments,
+                "body": text,
+            }
+        ] if assignments else []
+
+    cases: List[Dict[str, Any]] = []
+    pending_values: List[str] = []
+    for index, match in enumerate(case_matches):
+        value = clean_text(match.group(1))
+        if value:
+            pending_values.append(value)
+        next_start = case_matches[index + 1].start() if index + 1 < len(case_matches) else len(text)
+        body = text[match.end():next_start]
+        if "{" not in body and index + 1 < len(case_matches):
+            continue
+        assignments = parse_assignments_in_block(body)
+        if not assignments and "ASSIGN" not in body.upper():
+            continue
+        values = pending_values[:]
+        cases.append(
+            {
+                "switchVariable": switch_variable,
+                "caseValues": values,
+                "caseRangeLabel": _case_range_label(values),
+                "assignments": assignments,
+                "body": body,
+            }
+        )
+        pending_values = []
+    return cases
+
+
 def assignment_value(assignments: Dict[str, str], names: List[str]) -> str:
     value = first_assignment(assignments, names)
     if value.startswith("{") and "}" in value:
@@ -2255,7 +2321,7 @@ def semantic_rows(flow: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "confidence": "deterministic",
                 }
             )
-        for entry in parse_snippet_assignments_by_case(action_code(action)):
+        for entry in parse_switch_case_tree(action_code(action)):
             assignments = entry.get("assignments") or {}
             audio = assignment_value(assignments, ["AUDIO", "audio", "NOTEMENU", "notemenu", "menu_audio1", "menu_audio2", "audio_menu1", "audio_menu2", "audio_menu3"])
             next_step = assignment_value(assignments, ["NEXT_STEP", "next_step", "nextStep"])
@@ -2267,12 +2333,15 @@ def semantic_rows(flow: Dict[str, Any]) -> List[Dict[str, Any]]:
             assunto = assignment_value(assignments, ["Assunto", "assunto"])
             if any([audio, next_step, skill_id, skill_name, scriptpoint, mapa_dna, transfer_code, assunto]):
                 subject = subject_from_skill_name(skill_name) or audio_subject_from_path(audio) or normalize_human_text(assunto or caption)
+                technical_only = bool(scriptpoint or mapa_dna) and not any([audio, next_step, skill_id, skill_name, transfer_code, assunto])
                 add(
                     {
-                        "kind": "snippet_case",
+                        "kind": "technical_detail" if technical_only else "snippet_case",
                         "sourceActionId": aid,
                         "sourceCaption": caption,
                         "caseValues": entry.get("caseValues") or [],
+                        "caseRangeLabel": clean_text(entry.get("caseRangeLabel")),
+                        "switchVariable": clean_text(entry.get("switchVariable")),
                         "category": category_for_subject(subject),
                         "treatment": subject,
                         "audio": re.split(r"[\\/]", audio)[-1] if audio else "",
@@ -3445,6 +3514,201 @@ def build_semantic_model(raw_actions: Dict[str, Any], ai_organizer: Dict[str, An
     }
 
 
+def humanize_if_condition(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
+    aid = clean_text(action.get("actionId"))
+    for item in ai_organizer.get("ifLabels", []) or []:
+        if isinstance(item, dict) and clean_text(item.get("actionId")) == aid:
+            value = clean_text(item.get("humanQuestion") or item.get("condition"))
+            if value:
+                return value
+    text = " ".join([clean_text(action.get("caption")), action_code(action)]).lower()
+    if "checkmobile" in text or "celcancel" in text or "celular" in text:
+        return "Celular informado e valido?"
+    if "checkcpf" in text or "cpfcancel" in text or "cpf" in text:
+        return "CPF informado e valido?"
+    if "transfer_skill" in text or "transfer skill" in text:
+        return "Deve transferir direto para skill?"
+    if "ani" in text and ("bloq" in text or "block" in text):
+        return "ANI bloqueado?"
+    if "finaldesemana" in text or "feriado" in text or "horario" in text or "indispon" in text:
+        return "URA esta disponivel?"
+    caption = clean_text(action.get("caption")) or f"IF {aid}"
+    return short_label(caption, 80) + "?"
+
+
+def human_branch_label(label: Any) -> str:
+    raw = clean_text(label)
+    low = raw.lower()
+    if low in {"true", "verdadeiro", "sim"}:
+        return "Sim"
+    if low in {"false", "falso", "nao", "não"}:
+        return "Nao"
+    if low == "finished":
+        return "Limite atingido"
+    if low == "repeat":
+        return "Repete tentativa"
+    if "timeout" in low:
+        return "Silencio/timeout"
+    if "interdigit" in low:
+        return "Timeout entre digitos"
+    if "maxdigit" in low or "invalid" in low or "inval" in low:
+        return "Opcao invalida"
+    return edge_label({"label": raw})
+
+
+def build_pre_semantic_extract(raw_actions: Dict[str, Any]) -> Dict[str, Any]:
+    actions = raw_actions.get("actions", [])
+    menus = []
+    ifs = []
+    snippets = []
+    prompts = []
+    integrations = []
+    skills = []
+    cdr = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        aid = clean_text(action.get("actionId"))
+        atype = clean_text(action.get("type")).upper()
+        caption = clean_text(action.get("caption"))
+        code = "\n".join(clean_text(item) for item in action.get("parameters") or [])
+        output = summarize_action_output(action)
+        if atype == "MENU":
+            menus.append(
+                {
+                    "actionId": aid,
+                    "caption": caption,
+                    "captureVariable": menu_variable(action.get("parameters")),
+                    "cases": action.get("cases") or [],
+                    "branches": action.get("branches") or [],
+                    "prompts": iter_action_audio_paths(action),
+                }
+            )
+        if atype == "IF":
+            ifs.append(
+                {
+                    "actionId": aid,
+                    "caption": caption,
+                    "condition": short_label(code or caption, 300),
+                    "branches": action.get("branches") or [],
+                    "defaultNextAction": action.get("defaultNextAction"),
+                }
+            )
+        parsed_cases = parse_switch_case_tree(code)
+        if parsed_cases:
+            snippets.append(
+                {
+                    "sourceActionId": aid,
+                    "caption": caption,
+                    "type": atype,
+                    "cases": parsed_cases,
+                    "assignments": parse_assignments_in_block(code),
+                }
+            )
+        for audio_path in iter_action_audio_paths(action):
+            prompts.append({"sourceActionId": aid, "caption": caption, "fileName": re.split(r"[\\/]", clean_text(audio_path))[-1], "fullPath": audio_path})
+        if output.get("skillId") or output.get("skillName"):
+            skills.append({"sourceActionId": aid, "skillId": output.get("skillId"), "skillName": output.get("skillName"), "evidence": [f"ActionID {aid}"]})
+        if output.get("scriptpoint") or output.get("mapaDna"):
+            cdr.append({"sourceActionId": aid, "scriptpoint": output.get("scriptpoint"), "mapaDna": output.get("mapaDna")})
+        if atype in {"RUNSCRIPT", "RUNSUB", "REST_API", "REQAGENT", "ONANSWER", "ONRELEASE"} or output.get("nextStep") or output.get("transferCode"):
+            integrations.append({"actionId": aid, "type": atype, "caption": caption, **output})
+    return {
+        "project": raw_actions.get("project") or {},
+        "menus": menus,
+        "ifs": ifs,
+        "snippets": snippets,
+        "prompts": prompts,
+        "skills": skills,
+        "integrations": integrations,
+        "cdrScriptpoints": cdr,
+        "edges": raw_actions.get("edges", []),
+    }
+
+
+def is_functional_route_row(row: Dict[str, Any]) -> bool:
+    if row.get("kind") in {"prompt", "technical_detail"}:
+        return False
+    text = " ".join(
+        clean_text(row.get(key))
+        for key in ["category", "treatment", "sourceCaption", "audio", "nextStep", "skillName", "scriptpoint", "mapaDna"]
+    ).lower()
+    technical_tokens = ["scriptpoint", "mapa_dna", "set_params", "max_sil", "maxsil", "max_inv", "maxinc", "config_menu", "check-cpf", "check-mobile", "dados_cdr"]
+    if any(token in text for token in technical_tokens) and not any(row.get(key) for key in ["skillId", "skillName", "nextStep", "transferCode"]):
+        return False
+    return bool(row.get("caseValues") or row.get("skillId") or row.get("skillName") or row.get("nextStep") or row.get("transferCode") or row.get("target"))
+
+
+def build_human_routes(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+    rows = [row for row in semantic_rows(semantic_model) if is_functional_route_row(row)]
+    menu_label_index = {
+        clean_text(item.get("menuActionId")): item
+        for item in ai_organizer.get("menuLabels", []) or []
+        if isinstance(item, dict)
+    }
+    action_label_index = {
+        clean_text(item.get("actionId")): item
+        for item in ai_organizer.get("actionAnnotations", []) or ai_organizer.get("actionLabels", []) or []
+        if isinstance(item, dict)
+    }
+    routes = []
+    seen = set()
+    for row in rows:
+        case_values = [clean_text(item) for item in row.get("caseValues") or [] if clean_text(item)]
+        case_range = clean_text(row.get("caseRangeLabel"))
+        path = [case_range] if case_range and len(case_values) > 1 else case_values
+        if not path and row.get("kind") == "menu_case":
+            path = [clean_text(row.get("target")) or str(len(routes) + 1)]
+        label = clean_text(row.get("treatment") or row.get("category") or row.get("skillName") or row.get("nextStep") or "Rota")
+        action_id = clean_text(row.get("sourceActionId"))
+        ann = action_label_index.get(action_id, {})
+        if clean_text(ann.get("shortLabel")) and label.lower().startswith("opcao "):
+            label = clean_text(ann.get("shortLabel"))
+        menu_ai = menu_label_index.get(action_id, {})
+        for option in menu_ai.get("options", []) or []:
+            if clean_text(option.get("digit")) in case_values and clean_text(option.get("label")):
+                label = clean_text(option.get("label"))
+                break
+        key = (action_id, "|".join(path), label, clean_text(row.get("skillId")), clean_text(row.get("nextStep")), clean_text(row.get("target")))
+        if key in seen:
+            continue
+        seen.add(key)
+        target_type = "skill" if row.get("skillId") or row.get("skillName") else "next_step" if row.get("nextStep") else "action"
+        prompt = ""
+        prompt_transcription = ""
+        for item in semantic_model.get("prompts", []):
+            if clean_text(item.get("sourceActionId")) == action_id:
+                prompt = clean_text(item.get("fileName"))
+                prompt_transcription = clean_text(item.get("transcription"))
+                break
+        routes.append(
+            {
+                "routeId": f"R{len(routes) + 1:03d}",
+                "path": path,
+                "pathLabel": " > ".join([clean_text(item) for item in [*path, label] if clean_text(item)]),
+                "group": clean_text(row.get("category") or ann.get("group") or "Jornada"),
+                "domain": clean_text(row.get("category")),
+                "treatment": label,
+                "originMenuActionId": action_id,
+                "sourceActionIds": [action_id] if action_id else [],
+                "target": {
+                    "type": target_type,
+                    "skillId": clean_text(row.get("skillId")),
+                    "skillName": clean_text(row.get("skillName")),
+                    "actionId": clean_text(row.get("target")),
+                },
+                "prompt": {"fileName": prompt or clean_text(row.get("audio")), "transcription": prompt_transcription},
+                "nextStep": clean_text(row.get("nextStep")),
+                "scriptpoint": clean_text(row.get("scriptpoint")),
+                "mapaDna": clean_text(row.get("mapaDna")),
+                "transferCode": clean_text(row.get("transferCode")),
+                "evidence": [f"ActionID {action_id}", f"CASE {_case_range_label(case_values) or '/'.join(path)}"],
+                "confidence": clean_text(row.get("confidence") or "deterministic"),
+            }
+        )
+    return {"routes": routes, "source": "human_routes"}
+
+
 def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     flow = semantic_model
     rows = semantic_rows(flow)
@@ -3517,14 +3781,21 @@ def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     return {"routes": routes}
 
 
-def build_drawio_plan(semantic_model: Dict[str, Any], semantic_routes: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
-    routes = semantic_routes.get("routes", [])
+def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+    routes = human_routes.get("routes", [])
     return {
         "pages": [
-            {"name": "Fluxo Principal", "type": "functional_overview", "routes": routes[:25], "context": ai_organizer.get("flowContext", {})},
+            {
+                "name": "Fluxo Principal",
+                "type": "functional_overview",
+                "routes": routes[:25],
+                "context": ai_organizer.get("flowContext", {}),
+                "ifs": pre_semantic_extract.get("ifs", [])[:6],
+                "integrations": pre_semantic_extract.get("integrations", [])[:8],
+            },
             {"name": "Mapa de Menus", "type": "menu_map", "rows": routes},
             {"name": "Mapa de Skills", "type": "skill_map", "rows": routes},
-            {"name": "Fluxograma Técnico Editável", "type": "technical_graph", "group": "all"},
+            {"name": "Fluxograma Técnico Editável", "type": "technical_graph", "group": "all", "nodes": raw_actions.get("actions", []), "edges": raw_actions.get("edges", [])},
         ]
     }
 
@@ -3554,13 +3825,40 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
         if ptype == "functional_overview":
             routes = page.get("routes", [])
             context = page.get("context", {})
+            actions_map = action_by_id(semantic_model)
             cells = [
                 mx_node("plan_main_title", clean_text(context.get("flowName") or name or "Fluxo Principal"), 330, 25, 900, 42, "title"),
                 mx_node("plan_main_context", short_label(context.get("businessPurpose") or "Visao funcional humanizada gerada a partir do XML NICE.", 180), 230, 70, 1100, 34, "subtitle"),
                 mx_node("plan_start", "Inicio da URA", 680, 130, 220, 60, "terminal_start"),
             ]
             previous = "plan_start"
-            y = 235
+            y = 240
+            for index, item in enumerate(page.get("ifs", [])[:5]):
+                aid = clean_text(item.get("actionId"))
+                action = actions_map.get(aid) or {"actionId": aid, "caption": item.get("caption"), "type": "IF", "parameters": [item.get("condition", "")]}
+                node_id = f"plan_if_{index}_{safe_drawio_id(aid)}"
+                cells.append(
+                    mx_node(
+                        node_id,
+                        f"{humanize_if_condition(action, semantic_model.get('aiOrganizer', {}))}\nActionID {aid}",
+                        630,
+                        y,
+                        320,
+                        120,
+                        "decision",
+                    )
+                )
+                cells.append(mx_edge(f"plan_if_e_{index}", previous, node_id, "segue"))
+                if any("timeout" in clean_text(branch.get("name")).lower() or "false" in clean_text(branch.get("name")).lower() for branch in item.get("branches", []) if isinstance(branch, dict)):
+                    side_id = f"plan_if_side_{index}"
+                    cells.append(mx_node(side_id, "Tratamento lateral\n" + short_label(clean_text(item.get("caption")), 65), 1040, y + 15, 260, 80, "warning"))
+                    cells.append(mx_edge(f"plan_if_side_e_{index}", node_id, side_id, "Nao/timeout"))
+                previous = node_id
+                y += 165
+            cells.append(mx_node("plan_menu_hub", "Menu principal / roteamento\nOpcoes funcionais consolidadas", 620, y, 340, 105, "decision"))
+            cells.append(mx_edge("plan_menu_hub_e", previous, "plan_menu_hub", "segue"))
+            previous = "plan_menu_hub"
+            y += 160
             for index, route in enumerate(routes[:25]):
                 node_id = f"plan_route_{index}"
                 label = "\n".join(
@@ -3572,9 +3870,15 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 )
                 x = 210 + (index % 3) * 410
                 cells.append(mx_node(node_id, label, x, y, 330, 118, "process"))
-                cells.append(mx_edge(f"plan_main_e_{index}", previous if index == 0 else "plan_start", node_id, short_label(" > ".join(route.get("path") or []), 18)))
+                cells.append(mx_edge(f"plan_main_e_{index}", previous, node_id, short_label(" > ".join(route.get("path") or []), 18)))
                 if index % 3 == 2:
                     y += 185
+            if page.get("integrations"):
+                integration_lines = [
+                    f"{clean_text(item.get('type'))} {clean_text(item.get('actionId'))} - {short_label(item.get('caption') or item.get('nextStep') or item.get('transferCode'), 42)}"
+                    for item in page.get("integrations", [])[:5]
+                ]
+                cells.append(mx_node("plan_integrations", "Transferencias / APIs / encerramentos\n" + "\n".join(integration_lines), 1035, y + 145, 380, 155, "transfer"))
             cells.append(mx_node("plan_end", "Detalhes nos mapas e no tecnico editavel", 650, y + 170, 280, 70, "terminal_end"))
             diagrams.append(mx_diagram("Fluxo Principal", cells, 1600, max(1000, y + 300)))
         elif ptype == "menu_map":
@@ -3584,8 +3888,8 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                     (r.get("path") or [""])[-1],
                     r.get("treatment") or r.get("pathLabel"),
                     r.get("originMenuActionId"),
-                    (r.get("prompts") or [{}])[0].get("fileName", ""),
-                    (r.get("prompts") or [{}])[0].get("transcription", ""),
+                    (r.get("prompt") or {}).get("fileName", ""),
+                    (r.get("prompt") or {}).get("transcription", ""),
                     r.get("target", {}).get("skillName") or r.get("nextStep") or r.get("target", {}).get("actionId"),
                     r.get("originMenuActionId"),
                     "; ".join(r.get("evidence") or []),
@@ -3602,7 +3906,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                     r.get("target", {}).get("skillName"),
                     r.get("originMenuActionId"),
                     "; ".join(r.get("evidence") or []),
-                    (r.get("prompts") or [{}])[0].get("transcription") or (r.get("prompts") or [{}])[0].get("fileName", ""),
+                    (r.get("prompt") or {}).get("transcription") or (r.get("prompt") or {}).get("fileName", ""),
                 ]
                 for r in page.get("rows", [])
                 if r.get("target", {}).get("skillId") or r.get("target", {}).get("skillName")
@@ -3610,7 +3914,13 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             diagrams.append(plan_table_page("Mapa de Skills", ["Caminho digitado", "Assunto", "Skill ID", "Skill Name", "ActionID", "Evidencia", "Prompt/Fala"], rows, 1800))
         elif ptype == "technical_graph":
             group = clean_text(page.get("group"))
-            group_actions = semantic_model.get("actions", []) if group == "all" else actions_by_group.get(group, [])
+            if group == "all":
+                order, levels = navigation_order(semantic_model)
+                action_lookup = action_by_id(semantic_model)
+                group_actions = [action_lookup[aid] for aid in order if aid in action_lookup]
+            else:
+                group_actions = actions_by_group.get(group, [])
+                levels = {clean_text(action.get("actionId")): index // 5 for index, action in enumerate(group_actions)}
             cells = [
                 mx_node("tech_full_title", "Fluxograma Técnico Editável", 350, 25, 900, 42, "title"),
                 mx_node("tech_full_sub", "Grafo tecnico completo do NICE com todas as actions e conexoes reais extraidas do XML.", 230, 70, 1100, 34, "subtitle"),
@@ -3620,16 +3930,30 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             node_w = 285
             x_gap = 335
             y_gap = 140
-            for index, action in enumerate(group_actions):
+            level_sizes: Dict[int, int] = {}
+            for action in group_actions:
                 aid = clean_text(action.get("actionId"))
+                level_sizes[levels.get(aid, 0)] = level_sizes.get(levels.get(aid, 0), 0) + 1
+            level_y: Dict[int, int] = {}
+            cursor_y = 125
+            for level in sorted(level_sizes):
+                level_y[level] = cursor_y
+                rows_in_level = max(1, (level_sizes[level] + columns - 1) // columns)
+                cursor_y += rows_in_level * y_gap + 35
+            level_counts: Dict[int, int] = {}
+            for action in group_actions:
+                aid = clean_text(action.get("actionId"))
+                level = levels.get(aid, 0)
+                col = level_counts.get(level, 0)
+                level_counts[level] = col + 1
                 node_id = f"tech_full_{safe_drawio_id(aid)}"
                 node_ids[aid] = node_id
                 cells.append(
                     mx_node(
                         node_id,
                         compact_action_summary(action, prompt_index_by_action(semantic_model)),
-                        50 + (index % columns) * x_gap,
-                        125 + (index // columns) * y_gap,
+                        50 + min(col, columns - 1) * x_gap,
+                        level_y.get(level, 125) + (col // columns) * y_gap,
                         node_w,
                         100,
                         action_style(action),
@@ -3642,7 +3966,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 if source in node_ids and target in node_ids:
                     edge_index += 1
                     cells.append(mx_edge(f"tech_full_e_{edge_index}", node_ids[source], node_ids[target], edge_label(edge)))
-            diagrams.append(mx_diagram("Fluxograma Técnico Editável", cells, 1800, max(1000, 260 + ((len(group_actions) + columns - 1) // columns) * y_gap)))
+            diagrams.append(mx_diagram("Fluxograma Técnico Editável", cells, 1800, max(1000, cursor_y + 140)))
     return "".join(diagrams)
 
 
@@ -3664,23 +3988,26 @@ def build_drawio(flow: Dict[str, Any], ai: Dict[str, Any]) -> str:
     )
 
 
-def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     raw_actions = build_raw_actions(flow)
+    pre_semantic_extract = build_pre_semantic_extract(raw_actions)
     ai_organizer = ai.get("organizer") if isinstance(ai.get("organizer"), dict) else {}
     if not ai_organizer:
         ai_organizer = deterministic_ai_organizer(flow)
     semantic_model = build_semantic_model(raw_actions, ai_organizer, transcriptions, flow)
-    semantic_routes = build_semantic_routes(semantic_model)
-    drawio_plan = build_drawio_plan(semantic_model, semantic_routes, ai_organizer)
+    human_routes = build_human_routes(raw_actions, pre_semantic_extract, ai_organizer, semantic_model)
+    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model)
     planned_flow = {
         **flow,
         "rawActions": raw_actions,
+        "preSemanticExtract": pre_semantic_extract,
         "aiOrganizer": ai_organizer,
         "semanticModel": semantic_model,
-        "semanticRoutes": semantic_routes,
+        "humanRoutes": human_routes,
+        "semanticRoutes": human_routes,
         "drawioPlan": drawio_plan,
     }
-    return raw_actions, ai_organizer, semantic_model, semantic_routes, drawio_plan, planned_flow
+    return raw_actions, pre_semantic_extract, ai_organizer, semantic_model, human_routes, drawio_plan, planned_flow
 
 
 def build_prompts_detected(flow: Dict[str, Any]) -> Dict[str, Any]:
@@ -3906,7 +4233,7 @@ async def generate_package(request: PackageRequest):
     validate_package_flow(flow)
     transcriptions = request.transcriptions or {}
     ai = request.ai_enrichment or {}
-    raw_actions, ai_organizer, semantic_model, semantic_routes, drawio_plan, planned_flow = build_processing_artifacts(flow, transcriptions, ai)
+    raw_actions, pre_semantic_extract, ai_organizer, semantic_model, human_routes, drawio_plan, planned_flow = build_processing_artifacts(flow, transcriptions, ai)
     prompts_detected = build_prompts_detected(planned_flow)
     audio_matching = build_audio_matching(planned_flow, transcriptions)
     drawio = build_drawio(planned_flow, ai)
@@ -3962,15 +4289,30 @@ async def generate_package(request: PackageRequest):
     tests_csv = csv_text(["id", "title", "expectedResult", "priority", "evidence"], [[c.get("id"), c.get("title"), c.get("expectedResult"), c.get("priority"), "; ".join(c.get("evidence", []))] for c in ai.get("testCases", [])])
     runbook_csv = csv_text(["problem", "whereToCheck", "technicalCheck", "businessImpact"], [[r.get("problem"), r.get("whereToCheck"), r.get("technicalCheck"), r.get("businessImpact")] for r in ai.get("runbook", [])])
     validations_csv = csv_text(["actionId", "caption", "type"], [[v.get("actionId"), v.get("caption"), v.get("type")] for v in flow.get("validations", [])])
+    technical_csv = csv_text(
+        ["actionId", "type", "caption", "defaultNextAction", "branches", "cases"],
+        [
+            [
+                action.get("actionId"),
+                action.get("type"),
+                action.get("caption"),
+                action.get("defaultNextAction"),
+                "; ".join(f"{branch.get('name')}->{branch.get('target')}" for branch in action.get("branches", []) if isinstance(branch, dict)),
+                "; ".join(f"{case.get('value')}->{case.get('target')}" for case in action.get("cases", []) if isinstance(case, dict)),
+            ]
+            for action in flow.get("actions", [])
+            if isinstance(action, dict)
+        ],
+    )
 
     files = {
         "fluxo_ura.drawio": drawio.encode("utf-8"),
         "documentacao_ura.html": html_doc.encode("utf-8"),
         "documentacao_ura.md": md.encode("utf-8"),
         "01_raw_actions.json": json.dumps(raw_actions, ensure_ascii=False, indent=2).encode("utf-8"),
-        "02_ai_organizer.json": json.dumps(ai_organizer, ensure_ascii=False, indent=2).encode("utf-8"),
-        "03_semantic_model.json": json.dumps(semantic_model, ensure_ascii=False, indent=2).encode("utf-8"),
-        "04_semantic_routes.json": json.dumps(semantic_routes, ensure_ascii=False, indent=2).encode("utf-8"),
+        "02_pre_semantic_extract.json": json.dumps(pre_semantic_extract, ensure_ascii=False, indent=2).encode("utf-8"),
+        "03_ai_organizer.json": json.dumps(ai_organizer, ensure_ascii=False, indent=2).encode("utf-8"),
+        "04_human_routes.json": json.dumps(human_routes, ensure_ascii=False, indent=2).encode("utf-8"),
         "05_drawio_plan.json": json.dumps(drawio_plan, ensure_ascii=False, indent=2).encode("utf-8"),
         "prompts_detected.json": json.dumps(prompts_detected, ensure_ascii=False, indent=2).encode("utf-8"),
         "audio_matching.json": json.dumps(audio_matching, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -3982,6 +4324,7 @@ async def generate_package(request: PackageRequest):
         "matriz_transferencias.csv": transfers_csv.encode("utf-8-sig"),
         "matriz_prompts.csv": prompts_csv.encode("utf-8-sig"),
         "matriz_cdr.csv": cdr_csv.encode("utf-8-sig"),
+        "matriz_tecnica.csv": technical_csv.encode("utf-8-sig"),
         "plano_testes.csv": tests_csv.encode("utf-8-sig"),
         "runbook.csv": runbook_csv.encode("utf-8-sig"),
         "validacoes.csv": validations_csv.encode("utf-8-sig"),
@@ -3991,7 +4334,7 @@ async def generate_package(request: PackageRequest):
         "summary": {
             "files": len(files),
             "generatedAt": datetime.now(timezone.utc).isoformat(),
-            "semanticRoutes": len(semantic_routes.get("routes", [])),
+            "semanticRoutes": len(human_routes.get("routes", [])),
             "drawioPages": len(drawio_plan.get("pages", [])),
             "promptsDetected": len(prompts_detected.get("items", [])),
             "promptsTranscribed": len([item for item in audio_matching.get("items", []) if item.get("status") == "matched_transcribed"]),

@@ -7,7 +7,7 @@ import {
   analyzeUraContext,
   buildUraAiFailureWarning,
 } from "../lib/uraOpenAiAnalyzer.js";
-import { organizeUraFlowWithAi } from "../lib/uraOpenAiOrganizer.js";
+import { organizeUraBeforeDrawio } from "../lib/uraOpenAiOrganizer.js";
 import { emptyUraAiEnrichment } from "../lib/uraAiSchemas.js";
 
 function safeFileName(name) {
@@ -50,6 +50,63 @@ function buildRawActions(normalizedFlow) {
       y: action?.y ?? null,
       raw: action?.raw || {},
     })),
+    edges: Array.isArray(normalizedFlow?.edges) ? normalizedFlow.edges : [],
+  };
+}
+
+function buildPreSemanticExtract(normalizedFlow) {
+  const actions = Array.isArray(normalizedFlow?.actions) ? normalizedFlow.actions : [];
+  const pickOutput = (action) => ({
+    nextStep: action?.nextStep || "",
+    transferCode: action?.transferCode || "",
+    audio: action?.audio || "",
+    scriptpoint: action?.scriptpoint || "",
+    mapaDna: action?.mapaDna || "",
+    skills: Array.isArray(action?.skills) ? action.skills : [],
+  });
+  return {
+    project: normalizedFlow?.project || {},
+    menus: actions
+      .filter((action) => String(action?.type || "").toUpperCase() === "MENU")
+      .map((action) => ({
+        actionId: String(action?.actionId || ""),
+        caption: action?.caption || "",
+        cases: Array.isArray(action?.cases) ? action.cases : [],
+        branches: Array.isArray(action?.branches) ? action.branches : [],
+        prompts: (normalizedFlow?.prompts || []).filter(
+          (prompt) => String(prompt?.sourceActionId || "") === String(action?.actionId || "")
+        ),
+      })),
+    ifs: actions
+      .filter((action) => String(action?.type || "").toUpperCase() === "IF")
+      .map((action) => ({
+        actionId: String(action?.actionId || ""),
+        caption: action?.caption || "",
+        branches: Array.isArray(action?.branches) ? action.branches : [],
+        defaultNextAction: action?.defaultNextAction || "",
+      })),
+    snippets: actions
+      .filter((action) => String(action?.type || "").toUpperCase() === "SNIPPET")
+      .slice(0, 120)
+      .map((action) => ({
+        actionId: String(action?.actionId || ""),
+        caption: action?.caption || "",
+        output: pickOutput(action),
+      })),
+    prompts: Array.isArray(normalizedFlow?.prompts) ? normalizedFlow.prompts : [],
+    skills: Array.isArray(normalizedFlow?.skills) ? normalizedFlow.skills : [],
+    integrations: actions
+      .filter((action) =>
+        ["RUNSCRIPT", "RUNSUB", "REST_API", "REQAGENT", "ONANSWER", "ONRELEASE"].includes(
+          String(action?.type || "").toUpperCase()
+        )
+      )
+      .map((action) => ({
+        actionId: String(action?.actionId || ""),
+        type: action?.type || "",
+        caption: action?.caption || "",
+        output: pickOutput(action),
+      })),
     edges: Array.isArray(normalizedFlow?.edges) ? normalizedFlow.edges : [],
   };
 }
@@ -493,10 +550,12 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     const transcriptions = { items: transcriptionItems };
     normalizedFlow = matchPromptsWithAudio(normalizedFlow, transcriptions);
     const rawActions = buildRawActions(normalizedFlow);
+    const preSemanticExtract = buildPreSemanticExtract(normalizedFlow);
     const promptsDetected = buildPromptsDetected(normalizedFlow);
     const audioMatching = buildAudioMatching(normalizedFlow, transcriptions);
 
     await store.writeJson(job, "01_raw_actions.json", rawActions);
+    await store.writeJson(job, "02_pre_semantic_extract.json", preSemanticExtract);
     await store.writeJson(job, "normalized_flow.json", normalizedFlow);
     await store.writeJson(job, "prompts_detected.json", promptsDetected);
     await store.writeJson(job, "audio_matching.json", audioMatching);
@@ -508,15 +567,16 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       message: "Organizando semanticamente o fluxo antes do draw.io...",
     });
 
-    const organizerResult = await organizeUraFlowWithAi({
+    const organizerResult = await organizeUraBeforeDrawio({
       rawActions,
+      preSemanticExtract,
       transcriptions,
       projectName: projectName || normalizedFlow?.project?.name || "URA",
       options,
       env,
     });
     for (const warning of organizerResult.warnings || []) store.addWarning(jobId, warning);
-    await store.writeJson(job, "02_ai_organizer.json", organizerResult.organizer);
+    await store.writeJson(job, "03_ai_organizer.json", organizerResult.organizer);
 
     store.updateJob(jobId, {
       step: "ai_enrichment",
@@ -594,9 +654,9 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       transcriptions: path.join(job.jobDir, "transcricoes.json"),
       aiEnrichment: path.join(job.jobDir, "ai_enrichment.json"),
       rawActions: path.join(job.jobDir, "01_raw_actions.json"),
-      aiOrganizer: path.join(job.jobDir, "02_ai_organizer.json"),
-      semanticModel: path.join(job.jobDir, "03_semantic_model.json"),
-      semanticRoutes: path.join(job.jobDir, "04_semantic_routes.json"),
+      preSemanticExtract: path.join(job.jobDir, "02_pre_semantic_extract.json"),
+      aiOrganizer: path.join(job.jobDir, "03_ai_organizer.json"),
+      humanRoutes: path.join(job.jobDir, "04_human_routes.json"),
       drawioPlan: path.join(job.jobDir, "05_drawio_plan.json"),
     };
 
