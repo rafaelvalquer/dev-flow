@@ -4224,6 +4224,41 @@ def resolve_audio_for_step(step: Dict[str, Any], trace_context: Dict[str, str], 
     return {"fileName": "", "transcription": "", "origin": ""}
 
 
+def resolve_audio_for_visual_block(block: Dict[str, Any], trace_context: Dict[str, str], semantic_model: Dict[str, Any], transcriptions: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    existing = block.get("audio") if isinstance(block.get("audio"), dict) else {}
+    if clean_text(existing.get("fileName")) and clean_text(existing.get("transcription")):
+        return existing
+    if clean_text(existing.get("fileName")) and not is_auxiliary_audio_file(existing.get("fileName")):
+        return audio_context_for_file(existing.get("fileName"), semantic_model, clean_text(existing.get("origin")))
+
+    block_type = clean_text(block.get("type")).lower()
+    action_ids = [clean_text(item) for item in block.get("technicalActionIds") or [] if clean_text(item)]
+    action_id = clean_text(block.get("actionId")) or (action_ids[0] if action_ids else "")
+    action = action_by_id(semantic_model).get(action_id)
+
+    context_keys_by_type = {
+        "menu": ["NOTEMENU", "AUDIO", "audio", "menu_audio1", "menu_audio2", "audio_menu1", "audio_menu2", "audio_menu3"],
+        "play": ["noteplay", "NOTEMENU", "AUDIO", "audio", "noteini", "noteinc", "audio_aviso", "audio_aviso2"],
+        "process": ["AUDIO", "audio", "noteini", "noteinc", "audio_aviso", "audio_aviso2"],
+        "loop": ["notesil", "noteINV", "noteREJ", "AUDIO"],
+    }
+    for key in context_keys_by_type.get(block_type, []):
+        value = clean_text(trace_context.get(key) or trace_context.get(key.upper()) or trace_context.get(key.lower()))
+        if value:
+            resolved = resolve_context_value(value, trace_context)
+            if action_id:
+                resolved = resolve_audio_reference(action_id, resolved, semantic_model)
+            audio = audio_context_for_file(resolved, semantic_model, key)
+            if clean_text(audio.get("fileName")):
+                return audio
+
+    if action and block_type in {"menu", "play", "process"}:
+        direct = audio_context_for_action(action, semantic_model, transcriptions)
+        if clean_text(direct.get("fileName")) and not is_auxiliary_audio_file(direct.get("fileName")):
+            return direct
+    return {"fileName": "", "transcription": "", "origin": ""}
+
+
 def clean_option_label_token(value: Any) -> str:
     text = clean_text(value)
     if not text:
@@ -5440,7 +5475,7 @@ def resolve_composed_audio_variable(variable_name: Any, trace_context: Dict[str,
     dynamic_parts: List[str] = []
     for match in WAV_RE.finditer(code):
         file_name = re.split(r"[\\/]", match.group("path"))[-1].strip(" '\"")
-        if file_name and file_name not in candidates:
+        if file_name and not is_auxiliary_audio_file(file_name) and file_name not in candidates:
             candidates.append(file_name)
     variable_lines = [line for line in code.splitlines() if variable.lower() in line.lower()]
     for line in variable_lines:
@@ -5457,6 +5492,16 @@ def resolve_composed_audio_variable(variable_name: Any, trace_context: Dict[str,
         "candidates": candidates[:10],
         "dynamicParts": list(dict.fromkeys(dynamic_parts))[:6],
     }
+
+
+def is_auxiliary_audio_file(file_name: Any) -> bool:
+    name = clean_text(file_name).lower()
+    if not name:
+        return True
+    base = re.sub(r"\.wav$", "", re.split(r"[\\/]", name)[-1], flags=re.IGNORECASE)
+    if base.endswith("_nf") or base in {"nf", "vazio", "silencio"}:
+        return True
+    return bool(re.search(r"^(mes|dia|ano|valor|centavo|reais?|numero|digito|data)_?\w*$", base))
 
 
 def rule_action_label(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], trace_context: Dict[str, str]) -> str:
@@ -5756,6 +5801,189 @@ def build_navigation_story(raw_actions: Dict[str, Any], pre_semantic_extract: Di
     }
 
 
+def visual_block_type(step_type: Any) -> str:
+    kind = clean_text(step_type).lower()
+    if kind in {"start", "begin"}:
+        return "start"
+    if kind in {"decision", "if", "hours", "case", "rule_group", "menu"}:
+        return "menu" if kind == "menu" else "decision" if kind != "rule_group" else "rule_group"
+    if kind in {"api", "runsub", "rest_api"}:
+        return "api"
+    if kind in {"play"}:
+        return "play"
+    if kind in {"routing", "runscript", "reqagent", "transfer"}:
+        return "routing" if kind in {"routing", "runscript"} else "transfer"
+    if kind in {"end", "terminal"}:
+        return "end"
+    if kind in {"loop"}:
+        return "loop"
+    return "process"
+
+
+def build_visual_block_from_step(step: Dict[str, Any], semantic_model: Dict[str, Any], trace_context: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    context = trace_context or step.get("context") or {}
+    aid = clean_text(step.get("actionId"))
+    block = {
+        "nodeKey": clean_text(step.get("nodeKey")) or f"visual_{safe_drawio_id(aid or step.get('displayLabel'))}",
+        "type": visual_block_type(step.get("type")),
+        "label": clean_display_text(step.get("displayLabel") or step.get("label")),
+        "subtitle": clean_display_text(step.get("secondaryLabel") or step.get("conditionLabel") or step.get("api") or step.get("nextStep")),
+        "audio": step.get("audio") if isinstance(step.get("audio"), dict) else {},
+        "rules": [clean_text(item) for item in step.get("rules") or [] if clean_text(item)],
+        "branches": [],
+        "children": [],
+        "evidence": step.get("evidence") or ([f"ActionID {aid}"] if aid else []),
+        "technicalActionIds": [aid] if aid else [],
+        "actionId": aid,
+        "nextStep": clean_text(step.get("nextStep") or step.get("resolvedTarget")),
+        "context": dict(context),
+        "composedAudio": step.get("composedAudio") or {},
+    }
+    block["audio"] = resolve_audio_for_visual_block(block, context, semantic_model)
+    if not block["label"]:
+        block["label"] = clean_option_label_token(block.get("nextStep")) or clean_text(block.get("type")).title()
+    return block
+
+
+def trace_branch_tree(start_action_id: Any, semantic_model: Dict[str, Any], context: Dict[str, str], ai_organizer: Dict[str, Any], max_depth: int = 12) -> List[Dict[str, Any]]:
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    current_id = clean_text(start_action_id)
+    local_context = dict(context or {})
+    visited: set = set()
+    blocks: List[Dict[str, Any]] = []
+    depth = 0
+    while current_id and current_id in actions_map and depth < max_depth:
+        if current_id in visited:
+            blocks.append(
+                {
+                    "nodeKey": f"loop_{safe_drawio_id(current_id)}",
+                    "type": "loop",
+                    "label": "Retorno para ponto visitado",
+                    "subtitle": f"ActionID {current_id}",
+                    "audio": {},
+                    "rules": [],
+                    "branches": [],
+                    "children": [],
+                    "evidence": [f"ActionID {current_id}"],
+                    "technicalActionIds": [current_id],
+                    "actionId": current_id,
+                    "context": dict(local_context),
+                }
+            )
+            break
+        visited.add(current_id)
+        action = actions_map[current_id]
+        step = business_step_from_action(action, semantic_model, ai_organizer, local_context)
+        if step:
+            block = build_visual_block_from_step(step, semantic_model, local_context)
+            if block.get("type") == "decision":
+                block["branches"] = build_visual_branches_for_decision(block, semantic_model, local_context, ai_organizer, max_depth=max(3, max_depth - depth - 1), nested=True)
+                blocks.append(block)
+                break
+            blocks.append(block)
+        atype = clean_text(action.get("type")).upper()
+        if atype in {"END", "REQAGENT"}:
+            break
+        outgoing = adjacency.get(current_id, [])
+        main_edge = choose_main_navigation_edge(action, outgoing, local_context, clean_text(local_context.get("MRES") or local_context.get("MRES1")))
+        if not main_edge:
+            break
+        current_id = clean_text(main_edge.get("target"))
+        depth += 1
+    return blocks
+
+
+def build_visual_branches_for_decision(block: Dict[str, Any], semantic_model: Dict[str, Any], context: Dict[str, str], ai_organizer: Dict[str, Any], max_depth: int = 8, nested: bool = False) -> List[Dict[str, Any]]:
+    aid = clean_text(block.get("actionId"))
+    if not aid:
+        return []
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    branches: List[Dict[str, Any]] = []
+    for edge in adjacency.get(aid, [])[:4]:
+        target_id = clean_text(edge.get("target"))
+        if not target_id:
+            continue
+        target_action = actions_map.get(target_id)
+        target_label = clean_option_label_token((target_action or {}).get("caption")) or branch_meaning(edge_label_text(edge), semantic_model, target_id)
+        children = [] if nested else trace_branch_tree(target_id, semantic_model, dict(context), ai_organizer, max_depth=max_depth)
+        branches.append(
+            {
+                "label": human_branch_label(edge_label_text(edge)),
+                "target": target_label,
+                "targetActionId": target_id,
+                "children": children,
+                "evidence": [f"ActionID {aid} -> {target_id}"],
+            }
+        )
+    return branches
+
+
+def build_visual_blocks(navigation_story: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    flow_kind = clean_text((navigation_story.get("flowKind") or {}).get("kind")) or "menu_flow"
+    result: Dict[str, Any] = {"flowKind": flow_kind, "blocks": []}
+    if flow_kind in {"rule_flow", "api_flow"}:
+        blocks = []
+        for step in navigation_story.get("businessStory") or []:
+            if not isinstance(step, dict):
+                continue
+            block = build_visual_block_from_step(step, semantic_model, step.get("context") or {})
+            if block.get("type") == "decision":
+                block["branches"] = build_visual_branches_for_decision(block, semantic_model, block.get("context") or {}, ai_organizer)
+            blocks.append(block)
+        result["blocks"] = blocks
+        return result
+
+    pre_blocks = [
+        build_visual_block_from_step(item, semantic_model, item.get("context") or {})
+        for item in navigation_story.get("preMenu") or []
+        if isinstance(item, dict)
+    ]
+    main_menu = navigation_story.get("mainMenu") or {}
+    menu_block = build_visual_block_from_step(
+        {
+            "nodeKey": "main_menu",
+            "type": "menu",
+            "actionId": main_menu.get("actionId"),
+            "displayLabel": main_menu.get("displayLabel") or main_menu.get("label") or "Menu principal",
+            "audio": main_menu.get("audio") or {},
+            "evidence": [f"ActionID {main_menu.get('actionId')}"] if clean_text(main_menu.get("actionId")) else [],
+        },
+        semantic_model,
+        {},
+    )
+    menu_block["options"] = main_menu.get("options") or []
+    route_blocks = []
+    for flow_item in navigation_story.get("optionFlows") or []:
+        if not isinstance(flow_item, dict):
+            continue
+        children = [
+            build_visual_block_from_step(step, semantic_model, step.get("context") or flow_item.get("variablesContext") or {})
+            for step in (flow_item.get("visibleSteps") or flow_item.get("steps") or [])[:18]
+            if isinstance(step, dict)
+        ]
+        route_blocks.append(
+            {
+                "nodeKey": f"route_{safe_drawio_id(flow_item.get('digit'))}_{len(route_blocks)}",
+                "type": "route",
+                "label": clean_display_text(flow_item.get("label") or f"Opcao {flow_item.get('digit')}"),
+                "subtitle": clean_text(flow_item.get("digit")),
+                "audio": {},
+                "rules": [],
+                "branches": [],
+                "children": children,
+                "evidence": flow_item.get("evidence") or [],
+                "technicalActionIds": [clean_text(flow_item.get("targetActionId"))] if clean_text(flow_item.get("targetActionId")) else [],
+                "terminal": flow_item.get("terminal") or {},
+                "sideTreatments": flow_item.get("sideTreatments") or [],
+            }
+        )
+    result["preBlocks"] = pre_blocks
+    result["menuBlock"] = menu_block
+    result["routeBlocks"] = route_blocks
+    result["blocks"] = [*pre_blocks, menu_block, *route_blocks]
+    return result
+
+
 def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     flow = semantic_model
     rows = semantic_rows(flow)
@@ -5828,15 +6056,18 @@ def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     return {"routes": routes}
 
 
-def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any]) -> Dict[str, Any]:
+def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     routes = human_routes.get("routes", [])
+    visual_blocks = visual_blocks or build_visual_blocks(navigation_story, semantic_model, ai_organizer)
     return {
         "navigationStory": navigation_story,
+        "visualBlocks": visual_blocks,
         "pages": [
             {
                 "name": "Fluxo Principal",
                 "type": "main_flow",
                 "navigationStory": navigation_story,
+                "visualBlocks": visual_blocks,
                 "context": ai_organizer.get("flowContext", {}),
             },
             {"name": "Mapa de Menus", "type": "menu_map", "rows": routes},
@@ -5896,7 +6127,64 @@ def render_rule_step_label(step: Dict[str, Any]) -> str:
     return "\n".join(line for line in lines if clean_text(line))
 
 
-def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semantic_model: Dict[str, Any]) -> str:
+def render_visual_block_label(block: Dict[str, Any]) -> str:
+    lines = [short_label(block.get("label") or block.get("displayLabel"), 72)]
+    subtitle = clean_display_text(block.get("subtitle") or block.get("secondaryLabel"))
+    if subtitle and subtitle.lower() != clean_text(block.get("label")).lower():
+        lines.append(short_label(subtitle, 72))
+    audio_line = render_audio_line(block.get("audio") or {})
+    if audio_line:
+        lines.append(audio_line)
+    composed = block.get("composedAudio") or {}
+    if clean_text(composed.get("variable")):
+        lines.append(short_label(f"Audio dinamico: {composed.get('variable')}", 72))
+    candidates = [clean_text(item) for item in composed.get("candidates") or [] if clean_text(item) and not is_auxiliary_audio_file(item)]
+    if candidates:
+        lines.append("Possiveis audios:")
+        lines.extend(short_label(item, 68) for item in candidates[:4])
+    dynamic_parts = [clean_text(item) for item in composed.get("dynamicParts") or [] if clean_text(item)]
+    if dynamic_parts:
+        lines.append(short_label("Inclui: " + ", ".join(dynamic_parts[:3]), 78))
+    rules = [clean_text(item) for item in block.get("rules") or [] if clean_text(item)]
+    if rules:
+        lines.extend("- " + short_label(item, 76) for item in rules[:5])
+    next_step = clean_text(block.get("nextStep"))
+    if next_step:
+        lines.append(short_label(clean_option_label_token(next_step) or next_step, 70))
+    evidence = [clean_text(item) for item in block.get("evidence") or [] if clean_text(item)]
+    if evidence:
+        lines.append(short_label(evidence[0], 58))
+    return "\n".join(line for line in lines if clean_text(line))
+
+
+def visual_block_style(block: Dict[str, Any]) -> str:
+    kind = clean_text(block.get("type")).lower()
+    if kind == "start":
+        return "terminal_start"
+    if kind in {"decision", "rule_group", "menu"}:
+        return "decision"
+    if kind in {"api", "routing", "transfer"}:
+        return "transfer"
+    if kind == "end":
+        return "terminal_end"
+    if kind == "loop":
+        return "warning"
+    if kind == "play":
+        return "process"
+    return "process"
+
+
+def visual_block_height(block: Dict[str, Any]) -> int:
+    height = 90
+    height += min(len(block.get("rules") or []), 5) * 18
+    if (block.get("composedAudio") or {}).get("candidates"):
+        height += min(len((block.get("composedAudio") or {}).get("candidates") or []), 4) * 16 + 30
+    if render_audio_line(block.get("audio") or {}):
+        height += 16
+    return min(max(height, 86), 220)
+
+
+def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semantic_model: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None) -> str:
     flow_kind = story.get("flowKind") or {}
     project = semantic_model.get("project") or {}
     title = clean_text(context.get("flowName") or project.get("name") or "Fluxo Principal")
@@ -5905,41 +6193,27 @@ def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semant
         mx_node("rule_main_title", title, 330, 25, 900, 42, "title"),
         mx_node("rule_main_context", short_label(subtitle, 180), 230, 70, 1100, 34, "subtitle"),
     ]
-    steps = story.get("businessStory") or []
+    steps = (visual_blocks or {}).get("blocks") or [
+        build_visual_block_from_step(step, semantic_model, step.get("context") or {})
+        for step in story.get("businessStory") or []
+        if isinstance(step, dict)
+    ]
     x = 610
     y = 135
     prev_id = ""
-    branch_count = 0
+    max_bottom = y
     for index, step in enumerate(steps[:24]):
         step_id = f"rule_step_{index}_{safe_drawio_id(step.get('actionId') or step.get('nodeKey'))}"
-        kind = clean_text(step.get("type"))
-        style = (
-            "terminal_start"
-            if kind == "start"
-            else "decision"
-            if kind in {"decision", "rule_group"}
-            else "transfer"
-            if kind in {"api", "routing"}
-            else "terminal_end"
-            if kind == "end"
-            else "process"
-        )
-        height = 88
-        if step.get("rules"):
-            height += min(len(step.get("rules") or []), 5) * 18
-        if (step.get("composedAudio") or {}).get("candidates"):
-            height += min(len((step.get("composedAudio") or {}).get("candidates") or []), 4) * 16 + 30
-        if step.get("branches"):
-            height += min(len(step.get("branches") or []), 3) * 16
-        cells.append(mx_node(step_id, render_rule_step_label(step), x, y, 380, min(max(height, 82), 210), style))
+        height = visual_block_height(step)
+        cells.append(mx_node(step_id, render_visual_block_label(step), x, y, 380, height, visual_block_style(step)))
         if prev_id:
             cells.append(mx_edge(f"rule_e_{index}", prev_id, step_id, "segue"))
-        for branch in (step.get("branches") or [])[:2]:
-            branch_count += 1
-            branch_id = f"{step_id}_branch_{branch_count}"
-            branch_x = 1035 if branch_count % 2 else 285
-            branch_y = y + (branch_count % 2) * 55
-            branch_label = "\n".join(
+        for branch_index, branch in enumerate((step.get("branches") or [])[:2]):
+            lane_x = 1050 if branch_index == 0 else 175
+            branch_y = y + branch_index * 95
+            branch_root_id = f"{step_id}_branch_{branch_index}"
+            branch_children = branch.get("children") or []
+            branch_title = "\n".join(
                 line
                 for line in [
                     short_label(branch.get("label"), 34),
@@ -5947,13 +6221,31 @@ def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semant
                 ]
                 if clean_text(line)
             )
-            cells.append(mx_node(branch_id, branch_label, branch_x, branch_y, 250, 78, "warning"))
-            cells.append(mx_edge(f"{branch_id}_edge", step_id, branch_id, clean_text(branch.get("label"))))
+            if branch_children:
+                first_child = branch_children[0]
+                child_id = f"{branch_root_id}_child_0_{safe_drawio_id(first_child.get('nodeKey') or first_child.get('actionId'))}"
+                cells.append(mx_node(child_id, render_visual_block_label(first_child), lane_x, branch_y, 300, visual_block_height(first_child), visual_block_style(first_child)))
+                cells.append(mx_edge(f"{branch_root_id}_edge", step_id, child_id, clean_text(branch.get("label"))))
+                previous_child = child_id
+                child_y = branch_y + visual_block_height(first_child) + 55
+                for child_index, child in enumerate(branch_children[1:5], start=1):
+                    next_child_id = f"{branch_root_id}_child_{child_index}_{safe_drawio_id(child.get('nodeKey') or child.get('actionId'))}"
+                    child_h = visual_block_height(child)
+                    cells.append(mx_node(next_child_id, render_visual_block_label(child), lane_x, child_y, 300, child_h, visual_block_style(child)))
+                    cells.append(mx_edge(f"{branch_root_id}_child_e_{child_index}", previous_child, next_child_id, "segue"))
+                    previous_child = next_child_id
+                    child_y += child_h + 55
+                max_bottom = max(max_bottom, child_y)
+            else:
+                cells.append(mx_node(branch_root_id, branch_title, lane_x, branch_y, 250, 78, "warning"))
+                cells.append(mx_edge(f"{branch_root_id}_edge", step_id, branch_root_id, clean_text(branch.get("label"))))
+                max_bottom = max(max_bottom, branch_y + 95)
         prev_id = step_id
-        y += min(max(height, 82), 210) + 72
+        y += height + 82
+        max_bottom = max(max_bottom, y)
     if not steps:
         cells.append(mx_node("rule_empty", "Nenhuma jornada funcional foi identificada.\nConsulte o Fluxograma Tecnico Editavel.", 470, 180, 520, 120, "note"))
-    return mx_diagram("Fluxo Principal", cells, 1600, max(1050, y + 180))
+    return mx_diagram("Fluxo Principal", cells, 1600, max(1050, max_bottom + 180))
 
 
 def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any], ai: Dict[str, Any]) -> str:
@@ -5972,7 +6264,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             context = page.get("context", {})
             flow_kind = (story.get("flowKind") or {}).get("kind")
             if flow_kind in {"rule_flow", "api_flow"}:
-                diagrams.append(render_rule_flow_page(story, context, semantic_model))
+                diagrams.append(render_rule_flow_page(story, context, semantic_model, page.get("visualBlocks") or plan.get("visualBlocks")))
                 continue
             cells = [
                 mx_node("plan_main_title", clean_text(context.get("flowName") or name or "Fluxo Principal"), 330, 25, 900, 42, "title"),
@@ -6280,8 +6572,9 @@ def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, A
     semantic_model = build_semantic_model(raw_actions, ai_organizer, transcriptions, flow)
     human_routes = build_human_routes(raw_actions, pre_semantic_extract, ai_organizer, semantic_model)
     navigation_story = build_navigation_story(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model)
+    visual_blocks = build_visual_blocks(navigation_story, semantic_model, ai_organizer)
     display_nodes = build_display_nodes(navigation_story, semantic_model, ai_organizer)
-    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model, navigation_story)
+    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model, navigation_story, visual_blocks)
     planned_flow = {
         **flow,
         "rawActions": raw_actions,
@@ -6291,6 +6584,7 @@ def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, A
         "humanRoutes": human_routes,
         "semanticRoutes": human_routes,
         "navigationStory": navigation_story,
+        "visualBlocks": visual_blocks,
         "displayNodes": display_nodes,
         "drawioPlan": drawio_plan,
     }

@@ -200,6 +200,12 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
       /skill|audio|next_step|scriptpoint|mapa_dna|transfer|url|api/.test(text)
     );
   });
+  const criticalSnippetIds = new Set(
+    important
+      .filter((action) => clean(action.type).toUpperCase() === "SNIPPET" && isCriticalSnippet(action))
+      .slice(0, 20)
+      .map((action) => clean(action.actionId))
+  );
   return {
     projectName: projectName || rawActions?.project?.name || "URA",
     counts: {
@@ -211,9 +217,11 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
       actionId: clean(action.actionId),
       type: clean(action.type),
       caption: short(action.caption, 120),
-      parameters: Array.isArray(action.parameters)
-        ? action.parameters.slice(0, 12).map((item) => short(item, 160))
+      parametersPreview: Array.isArray(action.parameters)
+        ? action.parameters.slice(0, 12).map((item) => short(item, 200))
         : [],
+      importantLines: importantSnippetLines(action).slice(0, 40),
+      fullCode: criticalSnippetIds.has(clean(action.actionId)) ? fullActionCode(action, 6000) : "",
       defaultNextAction: clean(action.defaultNextAction),
       cases: (Array.isArray(action.cases) ? action.cases : []).slice(0, 20),
       branches: (Array.isArray(action.branches) ? action.branches : []).slice(0, 10),
@@ -252,6 +260,25 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
         status: clean(item.status),
       })),
   };
+}
+
+function fullActionCode(action, limit = 6000) {
+  const params = Array.isArray(action?.parameters) ? action.parameters : [];
+  return short(params.map((item) => clean(item)).filter(Boolean).join("\n"), limit);
+}
+
+function importantSnippetLines(action) {
+  const params = Array.isArray(action?.parameters) ? action.parameters : [];
+  const pattern = /\b(SWITCH|CASE|ASSIGN|NEXT_STEP|AUDIO|SKILL_ID|SKILL_NAME|RUNSUB|REST_API|REQAGENT|RET\s*=|IF|TRANSFERCODE|MRES|OP_ESCOLHIDA)\b/i;
+  return params
+    .map((item) => clean(item))
+    .filter((line) => pattern.test(line))
+    .map((line) => short(line, 260));
+}
+
+function isCriticalSnippet(action) {
+  const text = fullActionCode(action, 20000);
+  return /\b(SWITCH|CASE|NEXT_STEP|SKILL_ID|SKILL_NAME|TRANSFERCODE|MRES|OP_ESCOLHIDA)\b/i.test(text);
 }
 
 export async function organizeUraFlowWithAi({

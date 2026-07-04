@@ -1,17 +1,34 @@
 import React from "react";
 
 const STEPS = [
-  ["queued", "Fila"],
-  ["saving_uploads", "Uploads"],
-  ["parse", "Parser"],
-  ["transcription", "Audio"],
-  ["ai_enrichment", "IA"],
-  ["package", "Pacote"],
-  ["completed", "Concluido"],
+  { key: "queued", label: "Fila", aliases: ["queued"] },
+  { key: "saving_uploads", label: "Uploads", aliases: ["saving_uploads", "uploads"] },
+  { key: "parse", label: "Parser", aliases: ["parse", "parser"] },
+  { key: "transcription", label: "Audio", aliases: ["transcription", "audio", "audio_matching"] },
+  {
+    key: "ai",
+    label: "IA",
+    aliases: [
+      "ai_organizer",
+      "ai_enrichment",
+      "ai_analysis",
+      "semantic_organization",
+      "semantic_model",
+    ],
+  },
+  { key: "package", label: "Pacote", aliases: ["package", "drawio", "generate_package"] },
+  { key: "completed", label: "Concluido", aliases: ["completed"] },
 ];
+
+function normalizeStep(status) {
+  if (status?.status === "completed") return "completed";
+  const rawStep = String(status?.step || "").toLowerCase();
+  return STEPS.find((step) => step.aliases.includes(rawStep))?.key || rawStep;
+}
 
 export default function UraProcessingTimeline({ status }) {
   const progress = Number(status?.progress || 0);
+  const currentStep = normalizeStep(status);
   return (
     <section className="rounded-xl border border-zinc-200 bg-white p-4">
       <div className="flex items-center justify-between gap-3">
@@ -27,8 +44,8 @@ export default function UraProcessingTimeline({ status }) {
         <div className="h-full bg-red-600 transition-all" style={{ width: `${progress}%` }} />
       </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
-        {STEPS.map(([key, label]) => {
-          const active = status?.step === key || (key === "completed" && status?.status === "completed");
+        {STEPS.map(({ key, label }) => {
+          const active = currentStep === key;
           return (
             <div
               key={key}
