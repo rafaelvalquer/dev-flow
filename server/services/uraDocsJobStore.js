@@ -3,9 +3,42 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
+const MAX_ACTIVITY_ITEMS = 80;
+const MAX_ACTIVITY_TEXT = 2000;
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function truncateText(value, max = MAX_ACTIVITY_TEXT) {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 20)}... [truncado]`;
+}
+
+function sanitizeActivityValue(value) {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return truncateText(
+      value
+        .replace(/sk-[A-Za-z0-9_-]+/g, "[OPENAI_API_KEY]")
+        .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+        .replace(/OPENAI_API_KEY\s*[:=]\s*["']?[^"'\s,}]+/gi, "OPENAI_API_KEY=[REDACTED]")
+    );
+  }
+  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeActivityValue);
+  if (typeof value === "object") {
+    const result = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (/api[_-]?key|authorization|cookie|token|secret/i.test(key)) {
+        result[key] = "[REDACTED]";
+      } else {
+        result[key] = sanitizeActivityValue(item);
+      }
+    }
+    return result;
+  }
+  return value;
 }
 
 export function createUraDocsJobStore({ rootDir, ttlHours = 24 } = {}) {
@@ -29,6 +62,7 @@ export function createUraDocsJobStore({ rootDir, ttlHours = 24 } = {}) {
       options,
       warnings: [],
       errors: [],
+      activityLog: [],
       summary: {},
       aiInsights: {},
       files: {},
@@ -54,6 +88,7 @@ export function createUraDocsJobStore({ rootDir, ttlHours = 24 } = {}) {
       progress: job.progress,
       message: job.message,
       warnings: job.warnings,
+      activityLog: job.activityLog || [],
       summary: job.summary || {},
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
@@ -72,7 +107,34 @@ export function createUraDocsJobStore({ rootDir, ttlHours = 24 } = {}) {
     const job = getJob(jobId);
     if (!job || !warning) return;
     job.warnings.push(String(warning));
+    addActivity(jobId, {
+      step: job.step,
+      title: "Aviso registrado",
+      message: warning,
+      status: "warning",
+      progress: job.progress,
+      kind: "warning",
+    });
     job.updatedAt = nowIso();
+  }
+
+  function addActivity(jobId, event = {}) {
+    const job = getJob(jobId);
+    if (!job) return null;
+    const activity = {
+      id: event.id || crypto.randomUUID(),
+      timestamp: event.timestamp || nowIso(),
+      step: String(event.step || job.step || "processing"),
+      title: truncateText(event.title || "Evento", 300),
+      message: truncateText(event.message || "", 2000),
+      status: event.status || job.status || "processing",
+      progress: Number.isFinite(Number(event.progress)) ? Number(event.progress) : Number(job.progress || 0),
+      kind: event.kind || "info",
+      details: sanitizeActivityValue(event.details || null),
+    };
+    job.activityLog = [...(job.activityLog || []), activity].slice(-MAX_ACTIVITY_ITEMS);
+    job.updatedAt = nowIso();
+    return activity;
   }
 
   async function writeJson(job, relativePath, payload) {
@@ -97,6 +159,14 @@ export function createUraDocsJobStore({ rootDir, ttlHours = 24 } = {}) {
     job.progress = job.progress || 0;
     job.message = error?.message || String(error);
     job.errors.push(job.message);
+    addActivity(jobId, {
+      step: "failed",
+      title: "Falha no processamento",
+      message: job.message,
+      status: "failed",
+      progress: job.progress || 0,
+      kind: "error",
+    });
     job.updatedAt = nowIso();
     return job;
   }
@@ -122,6 +192,7 @@ export function createUraDocsJobStore({ rootDir, ttlHours = 24 } = {}) {
     publicStatus,
     updateJob,
     addWarning,
+    addActivity,
     writeJson,
     writeBuffer,
     markFailed,

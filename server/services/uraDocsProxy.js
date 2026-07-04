@@ -27,6 +27,38 @@ function parseOptions(raw) {
   }
 }
 
+function activityMessage(value, limit = 2000) {
+  const text = String(value || "").trim();
+  return text.length <= limit ? text : `${text.slice(0, limit - 20)}... [truncado]`;
+}
+
+function addJobActivity(store, jobId, event) {
+  if (!store?.addActivity) return;
+  store.addActivity(jobId, {
+    step: event.step,
+    title: event.title,
+    message: activityMessage(event.message, 2000),
+    status: event.status || "processing",
+    progress: event.progress,
+    kind: event.kind || "info",
+    details: event.details || null,
+  });
+}
+
+function addDebugActivities(store, jobId, step, events = [], progress) {
+  for (const event of events || []) {
+    addJobActivity(store, jobId, {
+      step,
+      title: event.title,
+      message: event.message,
+      status: event.status || "processing",
+      progress,
+      kind: event.kind || "debug",
+      details: event.details || null,
+    });
+  }
+}
+
 function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
@@ -463,6 +495,13 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       progress: 5,
       message: "Salvando arquivos enviados...",
     });
+    addJobActivity(store, jobId, {
+      step: "saving_uploads",
+      progress: 5,
+      title: "Recebendo arquivos",
+      message: "Salvando XML NICE e audios enviados no storage temporario do job.",
+      kind: "file",
+    });
 
     const niceFile = files.nice_file?.[0];
     if (!niceFile) throw new Error("Arquivo NICE nao enviado.");
@@ -481,6 +520,18 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
         audio.buffer
       );
     }
+    addJobActivity(store, jobId, {
+      step: "saving_uploads",
+      progress: 10,
+      title: "Uploads salvos",
+      message: `${niceFile.originalname} salvo. ${audioFiles.length} audio(s) disponivel(is) para matching/transcricao.`,
+      kind: "file",
+      details: {
+        niceFile: niceFile.originalname,
+        audioFiles: audioFiles.length,
+        audioZip: files.audio_zip?.[0]?.originalname || "",
+      },
+    });
     if (files.audio_zip?.[0]) {
       await store.writeBuffer(
         job,
@@ -508,6 +559,13 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       progress: 18,
       message: "Executando parser deterministico NICE...",
     });
+    addJobActivity(store, jobId, {
+      step: "parse",
+      progress: 18,
+      title: "Parser NICE iniciado",
+      message: "Enviando XML para o servico Python extrair actions, conexoes, menus, prompts e skills.",
+      kind: "parser",
+    });
 
     const parsed = await postFileToPython({
       baseUrl: pyBase,
@@ -523,11 +581,33 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       };
     }
     validateNormalizedFlow(normalizedFlow);
+    addJobActivity(store, jobId, {
+      step: "parse",
+      progress: 28,
+      title: "Parser NICE concluido",
+      message: `Fluxo extraido com ${normalizedFlow?.actions?.length || 0} actions e ${normalizedFlow?.edges?.length || 0} conexoes.`,
+      kind: "parser",
+      details: {
+        actions: normalizedFlow?.actions?.length || 0,
+        edges: normalizedFlow?.edges?.length || 0,
+        menus: normalizedFlow?.menus?.length || 0,
+        prompts: normalizedFlow?.prompts?.length || 0,
+      },
+    });
 
     store.updateJob(jobId, {
       step: "transcription",
       progress: 35,
       message: "Transcrevendo audios enviados...",
+    });
+    addJobActivity(store, jobId, {
+      step: "transcription",
+      progress: 35,
+      title: "Transcricao local iniciada",
+      message: audioFiles.length
+        ? `Processando ${audioFiles.length} audio(s) no Python local.`
+        : "Nenhum audio enviado; usando apenas nomes de prompts do XML.",
+      kind: "audio",
     });
 
     const transcriptionItems = [];
@@ -543,6 +623,18 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       });
       const item = await transcribeAudioFile({ file, pyBase, timeoutMs: sttTimeoutMs });
       transcriptionItems.push(item);
+      addJobActivity(store, jobId, {
+        step: "transcription",
+        progress: Math.min(audioProgress, 53),
+        title: item.status === "failed" ? "Falha na transcricao" : "Audio transcrito",
+        message: `${file.originalname}: ${item.status || "processado"}`,
+        kind: item.status === "failed" ? "warning" : "audio",
+        details: {
+          fileName: file.originalname,
+          status: item.status,
+          error: item.error || "",
+        },
+      });
       if (item.status === "failed") {
         store.addWarning(jobId, `Falha ao transcrever ${file.originalname}: ${item.error}`);
       }
@@ -566,6 +658,13 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       progress: 55,
       message: "Organizando semanticamente o fluxo antes do draw.io...",
     });
+    addJobActivity(store, jobId, {
+      step: "ai_organizer",
+      progress: 55,
+      title: "Organizacao semantica iniciada",
+      message: "Preparando uma leitura funcional do XML antes de montar o draw.io.",
+      kind: "ai",
+    });
 
     const organizerResult = await organizeUraBeforeDrawio({
       rawActions,
@@ -575,13 +674,34 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       options,
       env,
     });
+    addDebugActivities(store, jobId, "ai_organizer", organizerResult.debugEvents, 56);
     for (const warning of organizerResult.warnings || []) store.addWarning(jobId, warning);
     await store.writeJson(job, "03_ai_organizer.json", organizerResult.organizer);
+    addJobActivity(store, jobId, {
+      step: "ai_organizer",
+      progress: 57,
+      title: organizerResult.fallback ? "Organizador deterministico aplicado" : "Organizacao semantica concluida",
+      message: organizerResult.fallback
+        ? "A IA nao foi usada ou falhou; a organizacao continuou pelo fallback deterministico."
+        : "A IA retornou labels/contextos para melhorar a leitura do fluxo.",
+      kind: organizerResult.fallback ? "fallback" : "ai",
+      details: {
+        cacheHit: organizerResult.cacheHit,
+        fallback: organizerResult.fallback,
+      },
+    });
 
     store.updateJob(jobId, {
       step: "ai_enrichment",
       progress: 58,
       message: "Analisando contexto funcional da URA com OpenAI...",
+    });
+    addJobActivity(store, jobId, {
+      step: "ai_enrichment",
+      progress: 58,
+      title: "Analise IA iniciada",
+      message: "Solicitando resumo funcional, regras, testes e runbook quando a IA estiver habilitada.",
+      kind: "ai",
     });
 
     const aiResult = await analyzeUraContext({
@@ -604,8 +724,17 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
         }),
       ],
       cacheHit: false,
+      debugEvents: [
+        {
+          kind: "ai_error",
+          title: "Erro inesperado no backend",
+          message: error?.message || String(error),
+          details: { stage: "erro_inesperado_backend" },
+        },
+      ],
     }));
 
+    addDebugActivities(store, jobId, "ai_enrichment", aiResult.debugEvents, 64);
     for (const warning of aiResult.warnings || []) store.addWarning(jobId, warning);
     const aiEnrichment =
       aiResult.analysis ||
@@ -615,11 +744,31 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     aiEnrichment.organizer = organizerResult.organizer;
 
     await store.writeJson(job, "ai_enrichment.json", aiEnrichment);
+    addJobActivity(store, jobId, {
+      step: "ai_enrichment",
+      progress: 72,
+      title: aiResult.cacheHit ? "Analise IA recuperada do cache" : "Analise funcional consolidada",
+      message: aiResult.analysis
+        ? "Resumo funcional, regras, testes e runbook preparados para o pacote."
+        : "A geracao continuou com resumo deterministico.",
+      kind: aiResult.cacheHit ? "cache" : "ai",
+      details: {
+        cacheHit: aiResult.cacheHit,
+        warnings: aiResult.warnings?.length || 0,
+      },
+    });
 
     store.updateJob(jobId, {
       step: "package",
       progress: 78,
       message: "Gerando draw.io, documentacao e matrizes...",
+    });
+    addJobActivity(store, jobId, {
+      step: "package",
+      progress: 78,
+      title: "Geracao do pacote iniciada",
+      message: "Enviando fluxo normalizado, transcricoes e enriquecimento para gerar draw.io, HTML, Markdown e matrizes.",
+      kind: "package",
     });
 
     const packageResult = await postJsonToPython({
@@ -634,6 +783,16 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       timeoutMs,
     });
     validateNavigablePackage(normalizedFlow);
+    addJobActivity(store, jobId, {
+      step: "package",
+      progress: 88,
+      title: "Pacote recebido do Python",
+      message: "Arquivos gerados em memoria; salvando artefatos finais no storage do job.",
+      kind: "package",
+      details: {
+        files: Object.keys(packageResult?.files || {}),
+      },
+    });
 
     const generatedFiles = packageResult?.files || {};
     for (const [key, value] of Object.entries(generatedFiles)) {
@@ -669,6 +828,15 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       summary,
       aiInsights: aiEnrichment,
       files: filesMap,
+    });
+    addJobActivity(store, jobId, {
+      step: "completed",
+      progress: 100,
+      title: "Documentacao concluida",
+      message: "Draw.io, documentacao e matrizes foram gerados com sucesso.",
+      status: "completed",
+      kind: "success",
+      details: summary,
     });
   } catch (error) {
     await store.markFailed(jobId, error);

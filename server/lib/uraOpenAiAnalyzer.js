@@ -21,6 +21,15 @@ function extractOpenAiText(data) {
   return String(data?.choices?.[0]?.message?.content || "").trim();
 }
 
+function debugText(value, limit = 2000) {
+  const text = String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[OPENAI_API_KEY]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]");
+  return text.length <= limit ? text : `${text.slice(0, limit - 20)}... [truncado]`;
+}
+
 function toOpenAiJsonSchema(schema) {
   if (!schema || typeof schema !== "object") return schema;
   if (Array.isArray(schema)) return schema.map((item) => toOpenAiJsonSchema(item));
@@ -480,6 +489,8 @@ export async function openAiGenerateJson({
   temperature = 0.2,
   timeoutMs = 60000,
   retries = 1,
+  debugStage = "ai_enrichment",
+  debugEvents = null,
 }) {
   requireOpenAiKey(OPENAI_API_KEY);
 
@@ -521,6 +532,21 @@ export async function openAiGenerateJson({
     try {
       const body = buildBody(attempt);
       if (String(model).startsWith("gpt-5")) delete body.temperature;
+      if (Array.isArray(debugEvents)) {
+        debugEvents.push({
+          kind: "ai_prompt",
+          title: attempt > 0 ? "Prompt reenviado ao OpenAI" : "Prompt enviado ao OpenAI",
+          message: "Solicitando enriquecimento funcional em JSON.",
+          details: {
+            stage: debugStage,
+            model,
+            attempt: attempt + 1,
+            promptChars: JSON.stringify(body.messages).length,
+            promptPreview: debugText(prompt),
+            payloadPreview: debugText(JSON.stringify(payload || {})),
+          },
+        });
+      }
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -558,12 +584,38 @@ export async function openAiGenerateJson({
           )}`
         );
       }
+      if (Array.isArray(debugEvents)) {
+        debugEvents.push({
+          kind: "ai_response",
+          title: "Resposta recebida do OpenAI",
+          message: "OpenAI retornou JSON interpretavel.",
+          details: {
+            stage: debugStage,
+            model,
+            attempt: attempt + 1,
+            responseChars: text.length,
+            responsePreview: debugText(text),
+          },
+        });
+      }
       return parsed;
     } catch (error) {
       lastError =
         error?.name === "AbortError"
           ? new Error(`Timeout de ${Math.round(timeoutMs / 1000)}s ao chamar OpenAI.`)
           : error;
+      if (Array.isArray(debugEvents)) {
+        debugEvents.push({
+          kind: "ai_error",
+          title: "Falha na chamada OpenAI",
+          message: lastError?.message || String(lastError),
+          details: {
+            stage: debugStage,
+            model,
+            attempt: attempt + 1,
+          },
+        });
+      }
     } finally {
       clearTimeout(timeout);
     }
@@ -572,6 +624,7 @@ export async function openAiGenerateJson({
 }
 
 export async function analyzeUraChunk({ chunk, context, env }) {
+  const { debugEvents, ...safeContext } = context || {};
   const prompt = [
     "Voce e um especialista em URA NICE Studio.",
     "Analise somente o chunk fornecido e gere enriquecimento funcional em PT-BR.",
@@ -585,10 +638,12 @@ export async function analyzeUraChunk({ chunk, context, env }) {
     OPENAI_MODEL: env.URA_DOCS_AI_MODEL || env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
     schema: URA_AI_ENRICHMENT_SCHEMA,
     prompt,
-    payload: { chunk, context },
+    payload: { chunk, context: safeContext },
     temperature: 0.15,
     timeoutMs: Number(env.URA_DOCS_AI_TIMEOUT_MS || 60000),
     retries: Number(env.URA_DOCS_AI_RETRIES || 1),
+    debugStage: `analise_chunk_${chunk?.id || "sem_id"}`,
+    debugEvents,
   });
 }
 
@@ -664,6 +719,18 @@ export async function analyzeUraContext({
         ].join("\n"),
       ],
       cacheHit: false,
+      debugEvents: [
+        {
+          kind: "fallback",
+          title: "Analise IA desabilitada",
+          message: "Usando resumo deterministico.",
+          details: {
+            stage: "pre_validacao",
+            mode: env.URA_DOCS_AI_MODE || options.aiMode || "summary",
+            includeAiAnalysis: options.includeAiAnalysis !== false,
+          },
+        },
+      ],
     };
   }
 
@@ -687,6 +754,14 @@ export async function analyzeUraContext({
         }),
       ],
       cacheHit: false,
+      debugEvents: [
+        {
+          kind: "fallback",
+          title: "OpenAI nao configurada",
+          message: "OPENAI_API_KEY nao configurado. Usando resumo deterministico.",
+          details: { stage: "pre_validacao" },
+        },
+      ],
     };
   }
 
@@ -704,7 +779,21 @@ export async function analyzeUraContext({
 
   if (cacheEnabled) {
     const cached = await readCache(cacheFile);
-    if (cached) return { analysis: cached, warnings: [], cacheHit: true };
+    if (cached) {
+      return {
+        analysis: cached,
+        warnings: [],
+        cacheHit: true,
+        debugEvents: [
+          {
+            kind: "cache",
+            title: "Analise IA recuperada do cache",
+            message: "Resultado de enriquecimento reutilizado.",
+            details: { stage: "cache", cacheFile: path.basename(cacheFile) },
+          },
+        ],
+      };
+    }
   }
 
   const aiMode = String(env.URA_DOCS_AI_MODE || options.aiMode || "summary").toLowerCase();
@@ -721,6 +810,7 @@ export async function analyzeUraContext({
     options,
     transcriptions,
     project: normalizedFlow?.project || {},
+    debugEvents: [],
   };
   const chunkAnalyses = [];
   const warnings = [];
@@ -782,6 +872,8 @@ export async function analyzeUraContext({
       temperature: 0.2,
       timeoutMs: Number(env.URA_DOCS_AI_TIMEOUT_MS || 60000),
       retries: Number(env.URA_DOCS_AI_RETRIES || 1),
+      debugStage: "consolidacao_global",
+      debugEvents: context.debugEvents,
     });
   } catch (error) {
     warnings.push(
@@ -816,5 +908,5 @@ export async function analyzeUraContext({
     );
   }
   if (cacheEnabled) await writeCache(cacheFile, analysis);
-  return { analysis, warnings: [...new Set(warnings)], cacheHit: false };
+  return { analysis, warnings: [...new Set(warnings)], cacheHit: false, debugEvents: context.debugEvents };
 }

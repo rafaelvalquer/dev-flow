@@ -11,6 +11,15 @@ function short(value, limit = 220) {
   return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
 }
 
+function debugText(value, limit = 2000) {
+  return short(
+    clean(value)
+      .replace(/sk-[A-Za-z0-9_-]+/g, "[OPENAI_API_KEY]")
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]"),
+    limit
+  );
+}
+
 function actionCode(action) {
   return Array.isArray(action?.parameters) ? action.parameters.join("\n") : clean(action?.parameters);
 }
@@ -298,6 +307,17 @@ export async function organizeUraFlowWithAi({
       ],
       cacheHit: false,
       fallback: true,
+      debugEvents: [
+        {
+          kind: "fallback",
+          title: "Organizador IA nao executado",
+          message: "Usando organizacao deterministica antes do draw.io.",
+          details: {
+            enabled,
+            hasOpenAiKey: Boolean(clean(env.OPENAI_API_KEY)),
+          },
+        },
+      ],
     };
   }
 
@@ -305,7 +325,9 @@ export async function organizeUraFlowWithAi({
   const timeoutMs = Number(env.URA_DOCS_AI_TIMEOUT_MS || 70000);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const debugEvents = [];
   try {
+    const payload = buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions, projectName, options });
     const body = {
       model,
       messages: [
@@ -340,7 +362,7 @@ export async function organizeUraFlowWithAi({
         },
         {
           role: "user",
-          content: JSON.stringify(buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions, projectName, options })),
+          content: JSON.stringify(payload),
         },
       ],
       response_format: {
@@ -354,6 +376,22 @@ export async function organizeUraFlowWithAi({
       temperature: 0.1,
       max_tokens: 12000,
     };
+    debugEvents.push({
+      kind: "ai_prompt",
+      title: "Prompt enviado ao OpenAI",
+      message: "Organizacao semantica do XML antes da geracao do draw.io.",
+      details: {
+        stage: "ai_organizer",
+        model,
+        mode: "organizer",
+        promptChars: JSON.stringify(body.messages).length,
+        payloadPreview: debugText(JSON.stringify({
+          counts: payload.counts,
+          actions: (payload.actions || []).slice(0, 8),
+          organizerHints: payload.organizerHints,
+        })),
+      },
+    });
     if (String(model).startsWith("gpt-5")) delete body.temperature;
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -371,8 +409,25 @@ export async function organizeUraFlowWithAi({
     const data = await response.json();
     const text = extractOpenAiText(data);
     const organizer = JSON.parse(text);
-    return { organizer, warnings: [], cacheHit: false, fallback: false };
+    debugEvents.push({
+      kind: "ai_response",
+      title: "Resposta recebida do OpenAI",
+      message: "Organizador semantico retornou JSON valido.",
+      details: {
+        stage: "ai_organizer",
+        model,
+        responseChars: text.length,
+        responsePreview: debugText(text),
+      },
+    });
+    return { organizer, warnings: [], cacheHit: false, fallback: false, debugEvents };
   } catch (error) {
+    debugEvents.push({
+      kind: "fallback",
+      title: "Organizer IA indisponivel",
+      message: error?.name === "AbortError" ? `Timeout de ${Math.round(timeoutMs / 1000)}s.` : error?.message || String(error),
+      details: { stage: "ai_organizer", model },
+    });
     return {
       organizer: deterministicOrganizer({ rawActions, projectName }),
       warnings: [
@@ -384,6 +439,7 @@ export async function organizeUraFlowWithAi({
       ],
       cacheHit: false,
       fallback: true,
+      debugEvents,
     };
   } finally {
     clearTimeout(timeout);
