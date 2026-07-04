@@ -457,6 +457,13 @@ def clean_assignment_value(value: Any) -> str:
     return text
 
 
+def clean_flow_target_value(value: Any) -> str:
+    text = clean_assignment_value(value)
+    text = re.sub(r"^\{[^}]+\}", "", text).strip()
+    text = text.strip("\"'")
+    return text
+
+
 def parse_assignments(code: str) -> Dict[str, str]:
     assignments: Dict[str, str] = {}
     for match in ASSIGN_RE.finditer(clean_text(code)):
@@ -477,12 +484,12 @@ def summarize_action_output(action: Dict[str, Any]) -> Dict[str, str]:
     assignments = parse_assignments(action_code(action))
     return {
         "audio": first_assignment(assignments, ["AUDIO", "audio"]),
-        "nextStep": first_assignment(assignments, ["NEXT_STEP", "next_step"]),
+        "nextStep": clean_flow_target_value(first_assignment(assignments, ["NEXT_STEP", "next_step"])),
         "scriptpoint": first_assignment(assignments, ["scriptpoint"]),
-        "transferCode": first_assignment(assignments, ["TRANSFERCODE", "TransferCode", "transferCode", "transfercode"]),
+        "transferCode": clean_flow_target_value(first_assignment(assignments, ["TRANSFERCODE", "TransferCode", "transferCode", "transfercode"])),
         "mapaDna": first_assignment(assignments, ["MAPA_DNA", "mapa_dna"]),
-        "skillId": first_assignment(assignments, ["SKILL_ID", "SkillID", "skillId", "skill_id"]),
-        "skillName": first_assignment(assignments, ["SKILL_NAME", "SkillName", "skillName", "skill_name"]),
+        "skillId": clean_flow_target_value(first_assignment(assignments, ["SKILL_ID", "SkillID", "skillId", "skill_id"])),
+        "skillName": clean_flow_target_value(first_assignment(assignments, ["SKILL_NAME", "SkillName", "skillName", "skill_name"])),
     }
 
 
@@ -4814,6 +4821,8 @@ def update_trace_context_from_assignments(trace_context: Dict[str, str], assignm
         if not clean_key:
             continue
         resolved = resolve_context_value(value, trace_context)
+        if clean_key.upper() in {"NEXT_STEP", "TRANSFERCODE", "SKILL_ID", "SKILL_NAME"}:
+            resolved = clean_flow_target_value(resolved)
         trace_context[clean_key] = resolved
         trace_context[clean_key.upper()] = resolved
     mresf = "".join(clean_text(trace_context.get(key)) for key in ["MRES", "MRES1", "MRES2"])
@@ -5032,7 +5041,10 @@ def humanize_play_node(action: Dict[str, Any], semantic_model: Dict[str, Any], a
         label = "Play aviso"
     else:
         subject = audio_subject_from_path(audio.get("fileName"))
-        label = f"Play {subject}" if subject else clean_display_text(ai_display_label_for_action(clean_text(action.get("actionId")), ai_organizer).get("displayLabel")) or "Play aviso"
+        if subject and subject.lower().startswith("play "):
+            label = subject
+        else:
+            label = f"Play {subject}" if subject else clean_display_text(ai_display_label_for_action(clean_text(action.get("actionId")), ai_organizer).get("displayLabel")) or "Play aviso"
     return {"displayLabel": label, "audio": audio}
 
 
@@ -5383,7 +5395,313 @@ def refine_option_flow_labels(option_flows: List[Dict[str, Any]], main_options: 
             flow["label"] = mirror[clean_text(flow.get("digit"))]
 
 
+def functional_menus(semantic_model: Dict[str, Any]) -> List[Dict[str, Any]]:
+    menus = []
+    for action in semantic_model.get("actions", []):
+        if not isinstance(action, dict) or clean_text(action.get("type")).upper() != "MENU":
+            continue
+        text = action_search_text(action)
+        variable = menu_variable(action.get("parameters")).upper()
+        has_dtmf = bool(action.get("cases")) or variable in {"MRES", "MRES1", "MRES2", "MRES3", "MRESF", "OP_ESCOLHIDA", "OPCAO"}
+        if has_dtmf and not is_collect_action(action):
+            menus.append(action)
+    return menus
+
+
+def classify_flow_kind(semantic_model: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    actions = [action for action in semantic_model.get("actions", []) if isinstance(action, dict)]
+    menu_count = len(functional_menus(semantic_model))
+    if_count = len([action for action in actions if clean_text(action.get("type")).upper() == "IF"])
+    api_count = len([action for action in actions if clean_text(action.get("type")).upper() in {"RUNSUB", "REST_API"}])
+    play_count = len([action for action in actions if clean_text(action.get("type")).upper() == "PLAY"])
+    next_step_count = len([action for action in actions if summarize_action_output(action).get("nextStep") or "{NEXT_STEP}" in action_code(action)])
+    snippet_rule_count = len([item for item in pre_semantic_extract.get("snippets", []) if (item.get("cases") or item.get("assignments"))])
+    if menu_count and (if_count or api_count or play_count):
+        return {"kind": "hybrid_flow", "reason": "Fluxo possui menu DTMF com regras, APIs ou audios ao redor.", "confidence": 0.86}
+    if menu_count:
+        return {"kind": "menu_flow", "reason": "Fluxo possui menu DTMF funcional.", "confidence": 0.9}
+    if api_count >= max(2, if_count) and not menu_count:
+        return {"kind": "api_flow", "reason": "Fluxo sem menu, predominante em APIs/integracoes.", "confidence": 0.82}
+    if if_count or play_count or next_step_count or snippet_rule_count:
+        return {"kind": "rule_flow", "reason": "Fluxo sem menu, documentado por regras, IFs, PLAYs, APIs e NEXT_STEP.", "confidence": 0.88}
+    return {"kind": "rule_flow", "reason": "Fluxo sem menu DTMF identificado.", "confidence": 0.55}
+
+
+def resolve_composed_audio_variable(variable_name: Any, trace_context: Dict[str, str], semantic_model: Dict[str, Any], until_action_id: str = "") -> Dict[str, Any]:
+    variable = clean_text(variable_name).strip("{}")
+    if not variable:
+        return {"variable": "", "audioType": "", "candidates": [], "dynamicParts": []}
+    actions_map = action_by_id(semantic_model)
+    order, _levels = navigation_order(semantic_model)
+    if until_action_id in order:
+        order = order[: order.index(until_action_id) + 1]
+    code = "\n".join(action_code(actions_map[aid]) for aid in order if aid in actions_map)
+    candidates: List[str] = []
+    dynamic_parts: List[str] = []
+    for match in WAV_RE.finditer(code):
+        file_name = re.split(r"[\\/]", match.group("path"))[-1].strip(" '\"")
+        if file_name and file_name not in candidates:
+            candidates.append(file_name)
+    variable_lines = [line for line in code.splitlines() if variable.lower() in line.lower()]
+    for line in variable_lines:
+        low = line.lower()
+        if any(token in low for token in ["data", "venc", "due"]):
+            dynamic_parts.append("data de vencimento")
+        if any(token in low for token in ["valor", "saldo", "fatura"]):
+            dynamic_parts.append("valor da fatura/saldo")
+        if any(token in low for token in ["mes", "mês"]):
+            dynamic_parts.append("mes de referencia")
+    return {
+        "variable": variable,
+        "audioType": "composed" if candidates or dynamic_parts else "variable",
+        "candidates": candidates[:10],
+        "dynamicParts": list(dict.fromkeys(dynamic_parts))[:6],
+    }
+
+
+def rule_action_label(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], trace_context: Dict[str, str]) -> str:
+    atype = clean_text(action.get("type")).upper()
+    output = summarize_action_output(action)
+    text = action_search_text(action)
+    if atype == "BEGIN":
+        return "Inicio"
+    if atype in {"RUNSUB", "REST_API"}:
+        service = clean_text(action.get("caption") or output.get("nextStep") or atype)
+        return f"Consulta {clean_option_label_token(service) or 'API'}"
+    if atype == "PLAY":
+        audio = audio_context_for_action(action, semantic_model)
+        if clean_text(audio.get("fileName")).strip("{}").lower() in {"noteplay", "audio", "notemenu"} or "noteplay" in text:
+            return "Executa audio dinamico"
+        play = humanize_play_node(action, semantic_model, ai_organizer)
+        return clean_text(play.get("displayLabel")) or "Executa audio"
+    if atype == "IF":
+        label, _condition = humanize_if_short(action, ai_organizer)
+        return clean_display_text(label) or "Avalia regra"
+    if atype == "RUNSCRIPT":
+        target = output.get("nextStep") or clean_text(trace_context.get("NEXT_STEP")) or clean_text(action.get("caption"))
+        return "Executa proximo fluxo" if target else "Direciona para proximo fluxo"
+    if atype == "SNIPPET":
+        if output.get("nextStep"):
+            return "Define proximo fluxo"
+        audios = iter_action_audio_paths(action)
+        if audios or "noteplay" in text or "concat" in text:
+            return "Monta audio dinamico"
+        if parse_switch_case_tree(action_code(action)):
+            return "Aplica regras de negocio"
+        if is_technical_noise_action(action):
+            return ""
+        return clean_option_label_token(action.get("caption")) or "Prepara variaveis"
+    return clean_option_label_token(action.get("caption")) or friendly_action_label(action, ai_organizer)
+
+
+def business_step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], trace_context: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    aid = clean_text(action.get("actionId"))
+    atype = clean_text(action.get("type")).upper()
+    output = summarize_action_output(action)
+    if output:
+        update_trace_context_from_assignments(trace_context, {key: value for key, value in output.items() if clean_text(value)})
+    assignments = parse_assignments(action_code(action))
+    if assignments:
+        update_trace_context_from_assignments(trace_context, assignments)
+    label = rule_action_label(action, semantic_model, ai_organizer, trace_context)
+    if not label:
+        return None
+    audio = audio_context_for_action(action, semantic_model)
+    audio_variable = ""
+    if atype == "PLAY" and not clean_text(audio.get("fileName")):
+        for token in re.findall(r"\{([^}]+)\}", action_code(action)):
+            if "audio" in token.lower() or "note" in token.lower():
+                audio_variable = token
+                break
+    composed = resolve_composed_audio_variable(audio_variable, trace_context, semantic_model, aid) if audio_variable else {}
+    branches = []
+    if atype == "IF":
+        for edge in build_navigation_maps(semantic_model)[1].get(aid, [])[:4]:
+            target = build_navigation_maps(semantic_model)[0].get(clean_text(edge.get("target")))
+            branches.append(
+                {
+                    "label": human_branch_label(edge_label_text(edge)),
+                    "target": clean_option_label_token((target or {}).get("caption")) or branch_meaning(edge_label_text(edge), semantic_model, clean_text(edge.get("target"))),
+                    "targetActionId": clean_text(edge.get("target")),
+                }
+            )
+    rules = []
+    for case in parse_switch_case_tree(action_code(action))[:8]:
+        values = _case_range_label(case.get("caseValues") or [])
+        assignments = case.get("assignments") or {}
+        target = assignment_value(assignments, ["NEXT_STEP", "next_step", "SKILL_NAME", "SKILL_ID", "AUDIO", "audio"])
+        if values or target:
+            rules.append(short_label(" -> ".join(item for item in [values or "Default", clean_option_label_token(target) or target] if clean_text(item)), 90))
+    kind = {
+        "BEGIN": "start",
+        "IF": "decision",
+        "PLAY": "play",
+        "RUNSUB": "api",
+        "REST_API": "api",
+        "RUNSCRIPT": "routing",
+        "END": "end",
+    }.get(atype, "rule" if rules else "process")
+    next_step = output.get("nextStep") or clean_text(trace_context.get("NEXT_STEP"))
+    if atype == "RUNSCRIPT" and "{NEXT_STEP}" in action_code(action) and next_step:
+        label = "Executa proximo fluxo"
+    return {
+        "nodeKey": f"rule_{aid}",
+        "actionId": aid,
+        "type": kind,
+        "displayLabel": label,
+        "summary": [],
+        "rules": rules,
+        "branches": branches,
+        "audio": audio,
+        "composedAudio": composed,
+        "api": clean_text(action.get("caption")) if atype in {"RUNSUB", "REST_API"} else "",
+        "nextStep": next_step,
+        "evidence": [f"ActionID {aid}"],
+    }
+
+
+def detect_decision_chain(raw_steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    chains: List[Dict[str, Any]] = []
+    current: List[Dict[str, Any]] = []
+    for step in raw_steps + [{"type": "_flush"}]:
+        if clean_text(step.get("type")) == "decision":
+            current.append(step)
+            continue
+        if len(current) >= 3:
+            rules = []
+            for item in current[:8]:
+                label = clean_text(item.get("displayLabel"))
+                if label and label not in rules:
+                    rules.append(label)
+            chains.append(
+                {
+                    "nodeKey": "decision_chain_" + clean_text(current[0].get("actionId")),
+                    "type": "rule_group",
+                    "displayLabel": "Classifica regras de negocio",
+                    "rules": rules,
+                    "evidence": [e for item in current for e in item.get("evidence", [])][:10],
+                }
+            )
+        elif current:
+            chains.extend(current)
+        current = []
+        if step.get("type") != "_flush":
+            chains.append(step)
+    return chains
+
+
+def is_status_classification_decision(step: Dict[str, Any]) -> bool:
+    text = " ".join([clean_text(step.get("displayLabel")), " ".join(step.get("rules") or [])]).upper()
+    return any(token in text for token in ["SUBSTSRNCD", "SUB_STS", "STSRSN", "OFSSU", "OFFSU", "OFSUS", "HPSUS", "FUSUS", "DELINQDAYS", "STATUS_DEVEDOR"])
+
+
+def group_status_decisions(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    status_steps = [step for step in steps if clean_text(step.get("type")) == "decision" and is_status_classification_decision(step)]
+    if len(status_steps) < 3:
+        return steps
+    first_key = clean_text(status_steps[0].get("nodeKey") or status_steps[0].get("actionId"))
+    rules = []
+    evidence = []
+    for step in status_steps:
+        label = clean_text(step.get("displayLabel"))
+        if label and label not in rules:
+            rules.append(label)
+        evidence.extend(step.get("evidence") or [])
+    grouped = {
+        "nodeKey": f"status_chain_{safe_drawio_id(first_key)}",
+        "type": "rule_group",
+        "displayLabel": "Classifica status do devedor",
+        "rules": rules[:8],
+        "branches": [],
+        "audio": {},
+        "evidence": evidence[:12],
+    }
+    result: List[Dict[str, Any]] = []
+    inserted = False
+    skip_ids = {clean_text(step.get("nodeKey") or step.get("actionId")) for step in status_steps}
+    for step in steps:
+        step_key = clean_text(step.get("nodeKey") or step.get("actionId"))
+        if step_key in skip_ids:
+            if not inserted:
+                result.append(grouped)
+                inserted = True
+            continue
+        result.append(step)
+    return result
+
+
+def compact_rule_steps(raw_steps: List[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> List[Dict[str, Any]]:
+    compacted: List[Dict[str, Any]] = []
+    seen_consecutive = ""
+    for step in group_status_decisions(detect_decision_chain(raw_steps)):
+        label = clean_text(step.get("displayLabel"))
+        if not label:
+            continue
+        key = clean_text(step.get("type")) + "|" + label + "|" + clean_text(step.get("nextStep"))
+        if key == seen_consecutive:
+            continue
+        seen_consecutive = key
+        compacted.append(step)
+        if len(compacted) >= 24:
+            break
+    return compacted
+
+
+def trace_business_graph(semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> List[Dict[str, Any]]:
+    actions_map = action_by_id(semantic_model)
+    order, _levels = navigation_order(semantic_model)
+    begin = next((action for action in semantic_model.get("actions", []) if clean_text(action.get("type")).upper() == "BEGIN"), None)
+    if begin and clean_text(begin.get("actionId")) in order:
+        start_index = order.index(clean_text(begin.get("actionId")))
+        order = order[start_index:]
+    raw_steps: List[Dict[str, Any]] = []
+    trace_context: Dict[str, str] = {
+        "NEXT_STEP": "",
+        "scriptpoint": "",
+        "MAPA_DNA": "",
+        "TIPO_STATUS_DEVEDOR": "",
+        "REDUCAO_ON": "",
+        "CHAVE_REDUCAO": "",
+    }
+    for aid in order[:120]:
+        action = actions_map.get(aid)
+        if not action:
+            continue
+        atype = clean_text(action.get("type")).upper()
+        if atype in {"ONANSWER", "ONRELEASE"}:
+            continue
+        step = business_step_from_action(action, semantic_model, ai_organizer, trace_context)
+        if step:
+            raw_steps.append(step)
+    return raw_steps
+
+
+def build_rule_flow_story(raw_actions: Dict[str, Any], semantic_model: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], flow_kind: Dict[str, Any]) -> Dict[str, Any]:
+    raw_steps = trace_business_graph(semantic_model, ai_organizer)
+    business_story = compact_rule_steps(raw_steps, semantic_model, ai_organizer)
+    api_story = [step for step in business_story if step.get("type") == "api"]
+    audio_story = [step for step in business_story if step.get("type") == "play" or (step.get("composedAudio") or {}).get("candidates")]
+    side_events = []
+    for item in pre_semantic_extract.get("cdrScriptpoints", [])[:8]:
+        side_events.append({"label": "Registro CDR", "actionId": clean_text(item.get("sourceActionId")), "type": "CDR"})
+    return {
+        "flowKind": flow_kind,
+        "businessStory": business_story,
+        "decisionTree": [step for step in business_story if step.get("type") in {"decision", "rule_group"}],
+        "menuStory": None,
+        "mainMenu": None,
+        "optionFlows": [],
+        "apiStory": api_story,
+        "audioStory": audio_story,
+        "sideEvents": side_events,
+        "endings": [step for step in business_story if step.get("type") in {"end", "routing"}],
+    }
+
+
 def build_navigation_story(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+    flow_kind = classify_flow_kind(semantic_model, pre_semantic_extract, ai_organizer)
+    if flow_kind.get("kind") in {"rule_flow", "api_flow"}:
+        return build_rule_flow_story(raw_actions, semantic_model, pre_semantic_extract, ai_organizer, flow_kind)
     main_menu = find_main_menu_for_story(semantic_model, ai_organizer)
     dispatcher = find_menu_dispatcher(clean_text((main_menu or {}).get("actionId")), semantic_model) if main_menu else {}
     main_options = extract_real_menu_options(main_menu, semantic_model, ai_organizer)
@@ -5406,6 +5724,12 @@ def build_navigation_story(raw_actions: Dict[str, Any], pre_semantic_extract: Di
     ]
     refine_option_flow_labels(option_flows, main_options)
     return {
+        "flowKind": flow_kind,
+        "businessStory": [],
+        "decisionTree": [],
+        "menuStory": "mainMenu",
+        "apiStory": [],
+        "audioStory": [],
         "preMenu": trace_pre_menu_path(semantic_model, main_id, ai_organizer),
         "mainMenu": {
             "actionId": main_id,
@@ -5535,6 +5859,103 @@ def plan_table_page(name: str, headers: List[str], rows: List[List[Any]], width:
     return mx_diagram(name, cells, width, max(900, y + 110 + len(rows[:120]) * 34))
 
 
+def empty_table_page(name: str, message: str, width: int = 1500) -> str:
+    cells = [
+        mx_node(f"{safe_drawio_id(name)}_title", name, 350, 25, 900, 42, "title"),
+        mx_node(f"{safe_drawio_id(name)}_empty", message, 300, 150, 900, 110, "note"),
+    ]
+    return mx_diagram(name, cells, width, 900)
+
+
+def render_rule_step_label(step: Dict[str, Any]) -> str:
+    lines = [short_label(step.get("displayLabel"), 70)]
+    if clean_text(step.get("api")):
+        lines.append(short_label(step.get("api"), 70))
+    audio = step.get("audio") or {}
+    audio_line = render_audio_line(audio)
+    if audio_line:
+        lines.append(audio_line)
+    composed = step.get("composedAudio") or {}
+    if clean_text(composed.get("variable")):
+        lines.append(short_label(f"Audio dinamico: {composed.get('variable')}", 70))
+    candidates = [clean_text(item) for item in composed.get("candidates") or [] if clean_text(item)]
+    if candidates:
+        lines.append("Possiveis audios:")
+        lines.extend(short_label(item, 68) for item in candidates[:4])
+    dynamic_parts = [clean_text(item) for item in composed.get("dynamicParts") or [] if clean_text(item)]
+    if dynamic_parts:
+        lines.append(short_label("Inclui: " + ", ".join(dynamic_parts[:3]), 78))
+    rules = [clean_text(item) for item in step.get("rules") or [] if clean_text(item)]
+    if rules:
+        lines.extend("- " + short_label(item, 76) for item in rules[:5])
+    if clean_text(step.get("nextStep")):
+        lines.append(short_label(clean_option_label_token(step.get("nextStep")) or step.get("nextStep"), 70))
+    branches = [branch for branch in step.get("branches") or [] if isinstance(branch, dict)]
+    if branches:
+        lines.extend(short_label(f"{branch.get('label')} -> {branch.get('target')}", 76) for branch in branches[:3])
+    return "\n".join(line for line in lines if clean_text(line))
+
+
+def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semantic_model: Dict[str, Any]) -> str:
+    flow_kind = story.get("flowKind") or {}
+    project = semantic_model.get("project") or {}
+    title = clean_text(context.get("flowName") or project.get("name") or "Fluxo Principal")
+    subtitle = clean_text(context.get("businessPurpose") or flow_kind.get("reason") or "Fluxo funcional gerado a partir das regras reais do XML NICE.")
+    cells = [
+        mx_node("rule_main_title", title, 330, 25, 900, 42, "title"),
+        mx_node("rule_main_context", short_label(subtitle, 180), 230, 70, 1100, 34, "subtitle"),
+    ]
+    steps = story.get("businessStory") or []
+    x = 610
+    y = 135
+    prev_id = ""
+    branch_count = 0
+    for index, step in enumerate(steps[:24]):
+        step_id = f"rule_step_{index}_{safe_drawio_id(step.get('actionId') or step.get('nodeKey'))}"
+        kind = clean_text(step.get("type"))
+        style = (
+            "terminal_start"
+            if kind == "start"
+            else "decision"
+            if kind in {"decision", "rule_group"}
+            else "transfer"
+            if kind in {"api", "routing"}
+            else "terminal_end"
+            if kind == "end"
+            else "process"
+        )
+        height = 88
+        if step.get("rules"):
+            height += min(len(step.get("rules") or []), 5) * 18
+        if (step.get("composedAudio") or {}).get("candidates"):
+            height += min(len((step.get("composedAudio") or {}).get("candidates") or []), 4) * 16 + 30
+        if step.get("branches"):
+            height += min(len(step.get("branches") or []), 3) * 16
+        cells.append(mx_node(step_id, render_rule_step_label(step), x, y, 380, min(max(height, 82), 210), style))
+        if prev_id:
+            cells.append(mx_edge(f"rule_e_{index}", prev_id, step_id, "segue"))
+        for branch in (step.get("branches") or [])[:2]:
+            branch_count += 1
+            branch_id = f"{step_id}_branch_{branch_count}"
+            branch_x = 1035 if branch_count % 2 else 285
+            branch_y = y + (branch_count % 2) * 55
+            branch_label = "\n".join(
+                line
+                for line in [
+                    short_label(branch.get("label"), 34),
+                    short_label(branch.get("target"), 64),
+                ]
+                if clean_text(line)
+            )
+            cells.append(mx_node(branch_id, branch_label, branch_x, branch_y, 250, 78, "warning"))
+            cells.append(mx_edge(f"{branch_id}_edge", step_id, branch_id, clean_text(branch.get("label"))))
+        prev_id = step_id
+        y += min(max(height, 82), 210) + 72
+    if not steps:
+        cells.append(mx_node("rule_empty", "Nenhuma jornada funcional foi identificada.\nConsulte o Fluxograma Tecnico Editavel.", 470, 180, 520, 120, "note"))
+    return mx_diagram("Fluxo Principal", cells, 1600, max(1050, y + 180))
+
+
 def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any], ai: Dict[str, Any]) -> str:
     diagrams = []
     semantic_ai = semantic_model.get("aiOrganizer") if isinstance(semantic_model.get("aiOrganizer"), dict) else {}
@@ -5549,6 +5970,10 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
         if ptype in {"main_flow", "functional_overview"}:
             story = page.get("navigationStory") or plan.get("navigationStory") or {}
             context = page.get("context", {})
+            flow_kind = (story.get("flowKind") or {}).get("kind")
+            if flow_kind in {"rule_flow", "api_flow"}:
+                diagrams.append(render_rule_flow_page(story, context, semantic_model))
+                continue
             cells = [
                 mx_node("plan_main_title", clean_text(context.get("flowName") or name or "Fluxo Principal"), 330, 25, 900, 42, "title"),
                 mx_node("plan_main_context", short_label(context.get("businessPurpose") or "Visao funcional humanizada gerada a partir do XML NICE.", 180), 230, 70, 1100, 34, "subtitle"),
@@ -5733,6 +6158,10 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             cells.append(mx_node("story_end", "Transferencia / API / encerramento\nDetalhes nos mapas e tecnico editavel", 650, bottom_y + 30, 330, 85, "terminal_end"))
             diagrams.append(mx_diagram("Fluxo Principal", cells, 1600, max(1050, bottom_y + 230)))
         elif ptype == "menu_map":
+            flow_kind = ((plan.get("navigationStory") or {}).get("flowKind") or {}).get("kind")
+            if flow_kind in {"rule_flow", "api_flow"} or not functional_menus(semantic_model):
+                diagrams.append(empty_table_page("Mapa de Menus", "Este XML nao possui menus DTMF identificados.", 1500))
+                continue
             rows = [
                 [
                     " > ".join(r.get("path") or []),
@@ -5762,6 +6191,9 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 for r in page.get("rows", [])
                 if r.get("target", {}).get("skillId") or r.get("target", {}).get("skillName")
             ]
+            if not rows:
+                diagrams.append(empty_table_page("Mapa de Skills", "Este XML nao possui skills identificadas.", 1500))
+                continue
             diagrams.append(plan_table_page("Mapa de Skills", ["Caminho digitado", "Assunto", "Skill ID", "Skill Name", "ActionID", "Evidencia", "Prompt/Fala"], rows, 1800))
         elif ptype == "technical_graph":
             group = clean_text(page.get("group"))
