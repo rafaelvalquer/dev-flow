@@ -3786,7 +3786,16 @@ def best_audio_for_display_node(action: Optional[Dict[str, Any]], semantic_model
     for item in ai_organizer.get("audioLabels", []) or []:
         if isinstance(item, dict) and clean_text(item.get("actionId")) == aid and clean_text(item.get("fileName")):
             return {"fileName": clean_text(item.get("fileName")), "transcription": "", "origin": "IA"}
-    audio = audio_context_for_action(action, semantic_model)
+    audio = {"fileName": "", "transcription": "", "origin": ""}
+    trace_context: Dict[str, str] = {}
+    for reference in action_audio_references(action):
+        audio = resolve_audio_with_trace_context(reference, trace_context, semantic_model, f"ActionID {aid}")
+        if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic":
+            break
+    if not clean_text(audio.get("fileName")) and clean_text(audio.get("mode")) != "dynamic":
+        direct = audio_context_for_action(action, semantic_model)
+        if clean_text(direct.get("fileName")) and not is_auxiliary_audio_file(direct.get("fileName")):
+            audio = direct
     if audio.get("fileName"):
         resolved = resolve_audio_reference(aid, audio.get("fileName"), semantic_model)
         return {**audio, "fileName": clean_text(resolved or audio.get("fileName"))}
@@ -3880,10 +3889,10 @@ def render_main_flow_display_node(display_node: Dict[str, Any], options: Optiona
     if label:
         lines.append(short_label(label, 62))
     secondary = clean_display_text(display_node.get("secondaryLabel"))
-    if secondary:
+    if secondary and should_render_condition(label, secondary):
         lines.append(short_label(secondary, 62))
     condition = clean_display_text(display_node.get("conditionLabel"))
-    if condition and condition != label:
+    if should_render_condition(label, condition):
         lines.append(short_label(condition, 62))
     audio = display_node.get("audio") or {}
     audio_line = render_audio_line(audio)
@@ -3895,6 +3904,37 @@ def render_main_flow_display_node(display_node: Dict[str, Any], options: Optiona
         if digit or opt_label:
             lines.append(short_label(f"{digit} {opt_label}".strip(), 62))
     return "\n".join(line for line in lines if clean_text(line))
+
+
+def comparable_condition_text(value: Any) -> str:
+    text = clean_display_text(value).lower()
+    text = re.sub(r"[ãáàâä]", "a", text)
+    text = re.sub(r"[éèêë]", "e", text)
+    text = re.sub(r"[íìîï]", "i", text)
+    text = re.sub(r"[óòôö]", "o", text)
+    text = re.sub(r"[úùûü]", "u", text)
+    text = re.sub(r"[ç]", "c", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def should_render_condition(display_label: Any, condition_label: Any) -> bool:
+    label_norm = comparable_condition_text(display_label)
+    condition_norm = comparable_condition_text(condition_label)
+    if not condition_norm:
+        return False
+    if condition_norm == label_norm:
+        return False
+    if label_norm and (condition_norm in label_norm or label_norm in condition_norm):
+        return False
+    if "checkcpf" in condition_norm and "cpfvalido" in label_norm:
+        return False
+    if "checkmobile" in condition_norm and "celularvalido" in label_norm:
+        return False
+    if "transferskill" in condition_norm and "transfer" in label_norm:
+        return False
+    if condition_norm.isdigit() and condition_norm in label_norm:
+        return False
+    return True
 
 
 def build_display_nodes(navigation_story: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
@@ -4172,31 +4212,48 @@ def audio_context_for_file(file_name: Any, semantic_model: Dict[str, Any], origi
     return {"fileName": base, "transcription": "", "origin": origin}
 
 
-def render_audio_line(audio: Any) -> str:
-    if not isinstance(audio, dict):
-        audio = {"fileName": clean_text(audio), "transcription": ""}
-    spoken = clean_text(audio.get("transcription") or audio.get("text"))
-    if spoken:
-        return short_label(f'"{spoken}"', 96)
-    return short_label(clean_text(audio.get("fileName")), 74)
+TRACE_AUDIO_KEYS = {
+    "NOTEMENU",
+    "NOTEINI",
+    "NOTEINC",
+    "NOTESIL",
+    "NOTEINV",
+    "NOTEREJ",
+    "NOTEPLAY",
+    "AUDIO",
+    "AUDIO_MENU1",
+    "AUDIO_MENU2",
+    "AUDIO_MENU3",
+    "MENU_AUDIO1",
+    "MENU_AUDIO2",
+    "AUDIO_AVISO",
+    "AUDIO_AVISO2",
+}
 
 
-def resolve_audio_for_step(step: Dict[str, Any], trace_context: Dict[str, str], semantic_model: Dict[str, Any]) -> Dict[str, str]:
-    existing = step.get("audio") if isinstance(step.get("audio"), dict) else {}
-    if clean_text(existing.get("fileName")) and clean_text(existing.get("transcription")):
-        return existing
-    if clean_text(existing.get("fileName")):
-        return audio_context_for_file(existing.get("fileName"), semantic_model, clean_text(existing.get("origin")))
+def is_audio_context_key(key: Any) -> bool:
+    text = clean_text(key).upper()
+    return text in TRACE_AUDIO_KEYS or "AUDIO" in text or text.startswith("NOTE")
 
-    action = action_by_id(semantic_model).get(clean_text(step.get("actionId")))
-    if action:
-        direct = audio_context_for_action(action, semantic_model)
-        if clean_text(direct.get("fileName")):
-            return direct
-    step_type = clean_text(step.get("type") or (action or {}).get("type")).upper()
-    if step_type not in {"MENU", "PLAY", "SNIPPET", "SNIPPET_CASE"}:
-        return {"fileName": "", "transcription": "", "origin": ""}
 
+def extract_audio_file_name(value: Any) -> str:
+    text = clean_assignment_value(value)
+    if not text or ".wav" not in text.lower():
+        return ""
+    match = WAV_RE.search(text)
+    if match:
+        return re.split(r"[\\/]", match.group("path"))[-1].strip("\"'")
+    return re.split(r"[\\/]", text)[-1].strip("\"'")
+
+
+def trace_context_get(trace_context: Dict[str, str], key: Any) -> str:
+    text = clean_text(key)
+    if not text:
+        return ""
+    return clean_text(trace_context.get(text) or trace_context.get(text.upper()) or trace_context.get(text.lower()))
+
+
+def context_snapshot(trace_context: Dict[str, str]) -> Dict[str, str]:
     keys = [
         "NOTEMENU",
         "noteini",
@@ -4204,6 +4261,7 @@ def resolve_audio_for_step(step: Dict[str, Any], trace_context: Dict[str, str], 
         "notesil",
         "noteINV",
         "noteREJ",
+        "noteplay",
         "AUDIO",
         "audio",
         "audio_menu1",
@@ -4213,28 +4271,217 @@ def resolve_audio_for_step(step: Dict[str, Any], trace_context: Dict[str, str], 
         "menu_audio2",
         "audio_aviso",
         "audio_aviso2",
+        "MRES",
+        "MRES1",
+        "MRES2",
+        "MRES3",
+        "MRESF",
+        "SKILL_ID",
+        "SKILL_NAME",
+        "Transfer_skill",
+        "NEXT_STEP",
+        "TransferCode",
     ]
+    return {key: trace_context_get(trace_context, key) for key in keys if trace_context_get(trace_context, key)}
+
+
+def audio_variable_candidates(variable: Any, semantic_model: Dict[str, Any], limit: int = 40) -> List[str]:
+    wanted = clean_text(variable).strip("{}")
+    if not wanted:
+        return []
+    candidates: List[str] = []
+
+    def add(value: Any, local_assignments: Optional[Dict[str, str]] = None) -> None:
+        text = clean_assignment_value(value)
+        file_name = extract_audio_file_name(text)
+        if not file_name and local_assignments:
+            ref = text.strip("{}")
+            if ref and ref != text:
+                file_name = extract_audio_file_name(local_assignments.get(ref) or local_assignments.get(ref.upper()) or local_assignments.get(ref.lower()))
+        if file_name and not is_auxiliary_audio_file(file_name) and file_name not in candidates:
+            candidates.append(file_name)
+
+    for action in semantic_model.get("actions", []):
+        code = action_code(action)
+        assignments = parse_assignments(code)
+        for key, value in assignments.items():
+            if clean_text(key).lower() == wanted.lower():
+                add(value, assignments)
+        for case in parse_switch_case_tree(code):
+            case_assignments = case.get("assignments") or {}
+            for key, value in case_assignments.items():
+                if clean_text(key).lower() == wanted.lower():
+                    add(value, case_assignments)
+        if len(candidates) >= limit:
+            break
+    return candidates[:limit]
+
+
+def filter_audio_candidates_for_context(candidates: List[str], trace_context: Dict[str, str], action: Optional[Dict[str, Any]] = None) -> List[str]:
+    context_text = " ".join([*(clean_text(value) for value in (trace_context or {}).values()), clean_text((action or {}).get("caption")), action_code(action or {})])
+    company = company_from_text(context_text)
+    if not company:
+        return candidates
+    filtered = [item for item in candidates if company_from_text(item) == company or company.lower() in clean_text(item).lower()]
+    return filtered or candidates
+
+
+def resolve_audio_with_trace_context(value: Any, trace_context: Dict[str, str], semantic_model: Dict[str, Any], origin: str = "") -> Dict[str, Any]:
+    text = clean_assignment_value(value)
+    if not text:
+        return {"fileName": "", "transcription": "", "origin": origin}
+    chain: List[str] = []
+    current = text
+    visited = set()
+    for _ in range(10):
+        file_name = extract_audio_file_name(current)
+        if file_name:
+            audio = audio_context_for_file(file_name, semantic_model, origin)
+            audio["resolvedFrom"] = " -> ".join(chain + [clean_text(value)]) if chain else clean_text(value)
+            return audio
+        variable = clean_text(current).strip("{}")
+        if not variable or variable in visited:
+            break
+        visited.add(variable)
+        chain.append(variable)
+        candidate = trace_context_get(trace_context, variable)
+        if not candidate:
+            if is_audio_context_key(variable):
+                candidates = filter_audio_candidates_for_context(audio_variable_candidates(variable, semantic_model), trace_context)
+                return {
+                    "mode": "dynamic",
+                    "variable": variable,
+                    "fileName": "",
+                    "transcription": "",
+                    "origin": origin,
+                    "resolvedFrom": " -> ".join(chain),
+                    "candidates": candidates,
+                    "description": "Audio varia conforme a opcao escolhida nesta trilha.",
+                }
+            break
+        current = candidate
+    return {"fileName": "", "transcription": "", "origin": origin}
+
+
+def action_audio_references(action: Optional[Dict[str, Any]]) -> List[str]:
+    if not action:
+        return []
+    refs: List[str] = []
+    code = action_code(action)
+    for token in re.findall(r"\{([^}]+)\}", code):
+        if is_audio_context_key(token) and token not in refs:
+            refs.append("{" + token + "}")
+    output = summarize_action_output(action)
+    for value in [output.get("audio")]:
+        if clean_text(value) and clean_text(value) not in refs:
+            refs.append(clean_text(value))
+    for path in iter_action_audio_paths(action):
+        if path not in refs:
+            refs.append(path)
+    return refs
+
+
+def dynamic_menu_audio_for_action(action: Optional[Dict[str, Any]], semantic_model: Dict[str, Any], origin: str = "", trace_context: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    if not action or clean_text(action.get("type")).upper() != "MENU":
+        return {"fileName": "", "transcription": "", "origin": origin}
+    capture_var = clean_text(menu_variable(action.get("parameters"))).upper()
+    if capture_var not in {"MRES1", "MRES2", "MRES3", "MRESF"}:
+        return {"fileName": "", "transcription": "", "origin": origin}
+    for reference in action_audio_references(action):
+        variable = clean_text(reference).strip("{}")
+        if variable.upper() in {"AUDIO_MENU1", "AUDIO_MENU2", "AUDIO_MENU3", "MENU_AUDIO1", "MENU_AUDIO2"}:
+            candidates = filter_audio_candidates_for_context(audio_variable_candidates(variable, semantic_model), trace_context or {}, action)
+            return {
+                "mode": "dynamic",
+                "variable": variable,
+                "fileName": "",
+                "transcription": "",
+                "origin": origin or f"ActionID {action.get('actionId')}",
+                "resolvedFrom": variable,
+                "candidates": candidates,
+                "description": "Audio varia conforme a opcao escolhida neste menu.",
+            }
+    return {"fileName": "", "transcription": "", "origin": origin}
+
+
+def render_audio_line(audio: Any) -> str:
+    if not isinstance(audio, dict):
+        audio = {"fileName": clean_text(audio), "transcription": ""}
+    if clean_text(audio.get("mode")) == "dynamic":
+        lines = [short_label(f"Audio: {audio.get('variable')}", 74)]
+        if clean_text(audio.get("description")):
+            lines.append(short_label(audio.get("description"), 86))
+        candidates = [clean_text(item) for item in audio.get("candidates") or [] if clean_text(item)]
+        if candidates:
+            lines.append("Possiveis:")
+            lines.extend(short_label(item, 74) for item in candidates[:4])
+        return "\n".join(line for line in lines if clean_text(line))
+    spoken = clean_text(audio.get("transcription") or audio.get("text"))
+    if spoken:
+        return short_label(f'"{spoken}"', 96)
+    return short_label(clean_text(audio.get("fileName")), 74)
+
+
+def resolve_audio_for_step(step: Dict[str, Any], trace_context: Dict[str, str], semantic_model: Dict[str, Any]) -> Dict[str, str]:
+    action = action_by_id(semantic_model).get(clean_text(step.get("actionId")))
+    dynamic_menu_audio = dynamic_menu_audio_for_action(action, semantic_model, clean_text(step.get("actionId")), trace_context)
+    if clean_text(dynamic_menu_audio.get("mode")) == "dynamic":
+        return dynamic_menu_audio
+
+    existing = step.get("audio") if isinstance(step.get("audio"), dict) else {}
+    if clean_text(existing.get("mode")) == "dynamic":
+        return existing
+    if clean_text(existing.get("fileName")) and clean_text(existing.get("transcription")):
+        return existing
+    if clean_text(existing.get("fileName")) and not is_auxiliary_audio_file(existing.get("fileName")):
+        return audio_context_for_file(existing.get("fileName"), semantic_model, clean_text(existing.get("origin")))
+
+    step_type = clean_text(step.get("type") or (action or {}).get("type")).upper()
+    if step_type not in {"MENU", "PLAY", "SNIPPET", "SNIPPET_CASE"}:
+        return {"fileName": "", "transcription": "", "origin": ""}
+
+    for reference in action_audio_references(action):
+        audio = resolve_audio_with_trace_context(reference, trace_context, semantic_model, clean_text(step.get("actionId")) or clean_text(reference))
+        if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic":
+            return audio
+
+    keys = ["NOTEMENU", "noteplay", "AUDIO", "audio", "audio_menu1", "audio_menu2", "audio_menu3", "menu_audio1", "menu_audio2", "noteini", "noteinc", "notesil", "noteINV", "noteREJ", "audio_aviso", "audio_aviso2"]
     for key in keys:
         value = clean_text(trace_context.get(key) or trace_context.get(key.upper()) or trace_context.get(key.lower()))
         if value:
-            resolved = resolve_context_value(value, trace_context)
-            if clean_text(step.get("actionId")):
-                resolved = resolve_audio_reference(clean_text(step.get("actionId")), resolved, semantic_model)
-            return audio_context_for_file(resolved, semantic_model, key)
+            audio = resolve_audio_with_trace_context(value, trace_context, semantic_model, key)
+            if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic":
+                return audio
+
+    if action:
+        direct = audio_context_for_action(action, semantic_model)
+        if clean_text(direct.get("fileName")) and not is_auxiliary_audio_file(direct.get("fileName")):
+            return direct
     return {"fileName": "", "transcription": "", "origin": ""}
 
 
 def resolve_audio_for_visual_block(block: Dict[str, Any], trace_context: Dict[str, str], semantic_model: Dict[str, Any], transcriptions: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    action_ids = [clean_text(item) for item in block.get("technicalActionIds") or [] if clean_text(item)]
+    action_id = clean_text(block.get("actionId")) or (action_ids[0] if action_ids else "")
+    action = action_by_id(semantic_model).get(action_id)
+    dynamic_menu_audio = dynamic_menu_audio_for_action(action, semantic_model, action_id, trace_context)
+    if clean_text(dynamic_menu_audio.get("mode")) == "dynamic":
+        return dynamic_menu_audio
+
     existing = block.get("audio") if isinstance(block.get("audio"), dict) else {}
+    if clean_text(existing.get("mode")) == "dynamic":
+        return existing
     if clean_text(existing.get("fileName")) and clean_text(existing.get("transcription")):
         return existing
     if clean_text(existing.get("fileName")) and not is_auxiliary_audio_file(existing.get("fileName")):
         return audio_context_for_file(existing.get("fileName"), semantic_model, clean_text(existing.get("origin")))
 
     block_type = clean_text(block.get("type")).lower()
-    action_ids = [clean_text(item) for item in block.get("technicalActionIds") or [] if clean_text(item)]
-    action_id = clean_text(block.get("actionId")) or (action_ids[0] if action_ids else "")
-    action = action_by_id(semantic_model).get(action_id)
+
+    for reference in action_audio_references(action):
+        audio = resolve_audio_with_trace_context(reference, trace_context, semantic_model, action_id or clean_text(reference))
+        if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic":
+            return audio
 
     context_keys_by_type = {
         "menu": ["NOTEMENU", "AUDIO", "audio", "menu_audio1", "menu_audio2", "audio_menu1", "audio_menu2", "audio_menu3"],
@@ -4245,11 +4492,8 @@ def resolve_audio_for_visual_block(block: Dict[str, Any], trace_context: Dict[st
     for key in context_keys_by_type.get(block_type, []):
         value = clean_text(trace_context.get(key) or trace_context.get(key.upper()) or trace_context.get(key.lower()))
         if value:
-            resolved = resolve_context_value(value, trace_context)
-            if action_id:
-                resolved = resolve_audio_reference(action_id, resolved, semantic_model)
-            audio = audio_context_for_file(resolved, semantic_model, key)
-            if clean_text(audio.get("fileName")):
+            audio = resolve_audio_with_trace_context(value, trace_context, semantic_model, key)
+            if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic":
                 return audio
 
     if action and block_type in {"menu", "play", "process"}:
@@ -4774,13 +5018,22 @@ def resolve_audio_reference(action_id: str, value: str, semantic_model: Dict[str
     return text
 
 
-def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], edge_label_value: str = "") -> Dict[str, Any]:
+def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], edge_label_value: str = "", trace_context: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     aid = clean_text(action.get("actionId"))
     atype = clean_text(action.get("type")).upper()
     output = summarize_action_output(action)
-    audio = audio_context_for_action(action, semantic_model)
-    if not audio.get("fileName") and output.get("audio"):
-        audio = {"fileName": resolve_audio_reference(aid, output.get("audio"), semantic_model), "transcription": "", "origin": f"ActionID {aid}"}
+    trace_context = trace_context or {}
+    audio = {"fileName": "", "transcription": "", "origin": ""}
+    for reference in action_audio_references(action):
+        audio = resolve_audio_with_trace_context(reference, trace_context, semantic_model, f"ActionID {aid}")
+        if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic":
+            break
+    if not clean_text(audio.get("fileName")) and clean_text(audio.get("mode")) != "dynamic" and output.get("audio"):
+        audio = resolve_audio_with_trace_context(output.get("audio"), trace_context, semantic_model, f"ActionID {aid}")
+    if not clean_text(audio.get("fileName")) and clean_text(audio.get("mode")) != "dynamic":
+        direct = audio_context_for_action(action, semantic_model)
+        if clean_text(direct.get("fileName")) and not is_auxiliary_audio_file(direct.get("fileName")):
+            audio = direct
     label = friendly_action_label(action, ai_organizer)
     condition_label = ""
     if atype == "IF":
@@ -4801,6 +5054,8 @@ def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_
         "businessDescription": clean_text(ai_display_label_for_action(aid, ai_organizer).get("businessDescription")),
         "edgeLabel": human_branch_label(edge_label_value),
         "audio": audio,
+        "audioResolvedFrom": clean_text(audio.get("resolvedFrom") or audio.get("origin")),
+        "contextSnapshot": context_snapshot(trace_context),
         "nextStep": output.get("nextStep"),
         "transferCode": output.get("transferCode"),
         "skillId": output.get("skillId"),
@@ -4813,6 +5068,13 @@ def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_
 def initial_trace_context(option: Dict[str, Any]) -> Dict[str, str]:
     digit = clean_text(option.get("digit"))
     return {
+        "NOTEMENU": "",
+        "noteini": "",
+        "noteinc": "",
+        "notesil": "",
+        "noteINV": "",
+        "noteREJ": "",
+        "noteplay": "",
         "MRES": digit,
         "MRES1": "",
         "MRES2": "",
@@ -4855,7 +5117,7 @@ def update_trace_context_from_assignments(trace_context: Dict[str, str], assignm
         clean_key = clean_text(key)
         if not clean_key:
             continue
-        resolved = resolve_context_value(value, trace_context)
+        resolved = clean_assignment_value(value) if is_audio_context_key(clean_key) else resolve_context_value(value, trace_context)
         if clean_key.upper() in {"NEXT_STEP", "TRANSFERCODE", "SKILL_ID", "SKILL_NAME"}:
             resolved = clean_flow_target_value(resolved)
         trace_context[clean_key] = resolved
@@ -4872,9 +5134,13 @@ def case_matches_context(case_values: List[str], trace_context: Dict[str, str], 
     if not case_values:
         return False
     switch_value = clean_text(trace_context.get(switch_variable) or trace_context.get(switch_variable.upper()))
-    candidates = [switch_value, option_digit]
+    candidates = [switch_value] if switch_value else []
     if not switch_value and switch_variable:
-        candidates.append(clean_text(trace_context.get(switch_variable.lower())))
+        lower_value = clean_text(trace_context.get(switch_variable.lower()))
+        if lower_value:
+            candidates.append(lower_value)
+    if not candidates and clean_text(switch_variable).upper() in {"MRES", "OP_ESCOLHIDA", "OPCAO", "OPÇÃO"}:
+        candidates.append(option_digit)
     return any(clean_text(value) in candidates for value in case_values)
 
 
@@ -4888,7 +5154,7 @@ def apply_matching_switch_case(action: Dict[str, Any], trace_context: Dict[str, 
             selected = item
             break
     if selected is None:
-        selected = next((item for item in cases if item.get("assignments")), None)
+        selected = next((item for item in cases if not item.get("caseValues") and item.get("assignments")), None)
     if selected:
         update_trace_context_from_assignments(trace_context, selected.get("assignments") or {})
     return selected
@@ -4911,6 +5177,9 @@ def choose_main_navigation_edge(action: Dict[str, Any], outgoing_edges: List[Dic
     if atype == "IF":
         return first_label("true", "sim") or first_label("false", "nao", "não") or default_edge_from_list(outgoing_edges)
     if atype == "MENU":
+        capture_var = clean_text(menu_variable(action.get("parameters"))).upper()
+        if capture_var in {"MRES1", "MRES2", "MRES3", "MRESF"} and not trace_context_get(trace_context, capture_var):
+            return None
         return default_edge_from_list(outgoing_edges)
     if atype == "LOOP":
         return first_label("finished", "limit", "limite") or default_edge_from_list([edge for edge, label in labels if label != "repeat"] or outgoing_edges)
@@ -4968,7 +5237,9 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
                 "conditionLabel": f"Opcao {digit}",
                 "businessDescription": "Define audio, proximo destino e parametros da opcao escolhida.",
                 "source": option.get("source"),
-                "audio": {"fileName": resolve_audio_reference(dispatcher_id, audio, semantic_model), "transcription": "", "origin": f"CASE {digit}"} if audio else {},
+                "audio": resolve_audio_with_trace_context(audio, trace_context, semantic_model, f"CASE {digit}") if audio else {},
+                "audioResolvedFrom": clean_text(audio),
+                "contextSnapshot": context_snapshot(trace_context),
                 "nextStep": option.get("nextStep"),
                 "transferCode": option.get("transferCode"),
                 "resolvedTarget": option.get("nextStep") or option.get("transferCode"),
@@ -4990,8 +5261,9 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
             break
         selected_case = apply_matching_switch_case(action, trace_context, digit)
         if not (raw_steps and raw_steps[-1].get("type") == "snippet_case" and raw_steps[-1].get("actionId") == current_id):
-            step = step_from_action(action, semantic_model, ai_organizer)
+            step = step_from_action(action, semantic_model, ai_organizer, trace_context=trace_context)
             step["context"] = dict(trace_context)
+            step["contextSnapshot"] = context_snapshot(trace_context)
             if selected_case:
                 step["matchedCase"] = {
                     "switchVariable": selected_case.get("switchVariable"),
@@ -5100,7 +5372,7 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
     label = clean_display_text(display_node.get("displayLabel"))
     secondary = clean_display_text(display_node.get("secondaryLabel"))
     audio = resolve_audio_for_step(raw_step, raw_step.get("context") or {}, semantic_model)
-    if not clean_text(audio.get("fileName")):
+    if not clean_text(audio.get("fileName")) and clean_text(audio.get("mode")) != "dynamic":
         audio = display_node.get("audio") or raw_step.get("audio") or {}
     kind = clean_text(raw_step.get("type") or atype).lower()
 
@@ -5175,6 +5447,8 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
         "secondaryLabel": secondary,
         "conditionLabel": clean_display_text(display_node.get("conditionLabel")),
         "audio": audio,
+        "audioResolvedFrom": clean_text(audio.get("resolvedFrom") or raw_step.get("audioResolvedFrom")),
+        "contextSnapshot": raw_step.get("contextSnapshot") or context_snapshot(context),
         "hideFromMainFlow": False,
     }
 
@@ -5598,6 +5872,8 @@ def business_step_from_action(action: Dict[str, Any], semantic_model: Dict[str, 
         "rules": rules,
         "branches": branches,
         "audio": audio,
+        "audioResolvedFrom": clean_text(audio.get("resolvedFrom") or audio.get("origin")),
+        "contextSnapshot": context_snapshot(trace_context),
         "composedAudio": composed,
         "api": clean_text(action.get("caption")) if atype in {"RUNSUB", "REST_API"} else "",
         "nextStep": next_step,
@@ -5837,9 +6113,12 @@ def build_visual_block_from_step(step: Dict[str, Any], semantic_model: Dict[str,
         "actionId": aid,
         "nextStep": clean_text(step.get("nextStep") or step.get("resolvedTarget")),
         "context": dict(context),
+        "contextSnapshot": step.get("contextSnapshot") or context_snapshot(context),
+        "audioResolvedFrom": clean_text(step.get("audioResolvedFrom")),
         "composedAudio": step.get("composedAudio") or {},
     }
     block["audio"] = resolve_audio_for_visual_block(block, context, semantic_model)
+    block["audioResolvedFrom"] = clean_text(block.get("audioResolvedFrom") or (block.get("audio") or {}).get("resolvedFrom") or (block.get("audio") or {}).get("origin"))
     if not block["label"]:
         block["label"] = clean_option_label_token(block.get("nextStep")) or clean_text(block.get("type")).title()
     return block
@@ -6130,7 +6409,7 @@ def render_rule_step_label(step: Dict[str, Any]) -> str:
 def render_visual_block_label(block: Dict[str, Any]) -> str:
     lines = [short_label(block.get("label") or block.get("displayLabel"), 72)]
     subtitle = clean_display_text(block.get("subtitle") or block.get("secondaryLabel"))
-    if subtitle and subtitle.lower() != clean_text(block.get("label")).lower():
+    if should_render_condition(block.get("label") or block.get("displayLabel"), subtitle):
         lines.append(short_label(subtitle, 72))
     audio_line = render_audio_line(block.get("audio") or {})
     if audio_line:
