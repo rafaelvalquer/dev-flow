@@ -2716,7 +2716,7 @@ def human_action_node_label(action: Dict[str, Any], rows: List[Dict[str, Any]], 
     ]
     details = action_semantic_details(action, rows, prompt_index)
     lines.extend(details[:4])
-    return "\n".join(line for line in lines if clean_text(line))
+    return "\n".join(unique_visual_lines(lines))
 
 
 def option_display_label(option: Dict[str, Any], related_rows: List[Dict[str, Any]]) -> str:
@@ -4132,6 +4132,12 @@ def build_display_node_from_action(action: Dict[str, Any], semantic_model: Dict[
         label = f"Horario {profile.group(1)}" if profile else "Validacao de horario"
     elif atype == "MENU" and is_collect_action(action):
         label = humanize_collect_menu(action, semantic_model, ai_organizer)
+    elif atype == "MENU":
+        caption = clean_display_text(action.get("caption"))
+        if any(token in caption.lower() for token in ["sauda", "saudacao", "saudação", "menu inicial", "menuinicial"]):
+            label = f"Menu principal - {caption}"
+        else:
+            label = friendly_action_label(action, ai_organizer)
     elif atype == "PLAY":
         subject = audio_subject_from_path(audio.get("fileName"))
         label = f"Audio {subject}" if subject else "Mensagem de audio"
@@ -4174,10 +4180,10 @@ def render_main_flow_display_node(display_node: Dict[str, Any], options: Optiona
     if label:
         lines.append(short_label(label, 62))
     secondary = clean_display_text(display_node.get("secondaryLabel"))
-    if secondary and should_render_condition(label, secondary):
+    if secondary and not display_node.get("hideCondition") and should_render_condition(label, secondary):
         lines.append(short_label(secondary, 62))
     condition = clean_display_text(display_node.get("conditionLabel"))
-    if should_render_condition(label, condition):
+    if not display_node.get("hideCondition") and should_render_condition(label, condition):
         lines.append(short_label(condition, 62))
     audio = display_node.get("audio") or {}
     audio_line = render_audio_line(audio)
@@ -4188,7 +4194,7 @@ def render_main_flow_display_node(display_node: Dict[str, Any], options: Optiona
         opt_label = clean_display_text(option.get("label"))
         if digit or opt_label:
             lines.append(short_label(f"{digit} {opt_label}".strip(), 62))
-    return "\n".join(line for line in lines if clean_text(line))
+    return "\n".join(unique_visual_lines(lines))
 
 
 def comparable_condition_text(value: Any) -> str:
@@ -4202,9 +4208,16 @@ def comparable_condition_text(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", text)
 
 
+def normalize_condition_text(value: Any) -> str:
+    text = clean_display_text(value).lower()
+    text = text.replace("'", "\"").replace("“", "\"").replace("”", "\"")
+    text = re.sub(r"\s*(?:==|=|!=|<>|>=|<=|>|<)\s*", "=", text)
+    return comparable_condition_text(text)
+
+
 def should_render_condition(display_label: Any, condition_label: Any) -> bool:
-    label_norm = comparable_condition_text(display_label)
-    condition_norm = comparable_condition_text(condition_label)
+    label_norm = normalize_condition_text(display_label)
+    condition_norm = normalize_condition_text(condition_label)
     if not condition_norm:
         return False
     if condition_norm == label_norm:
@@ -4215,11 +4228,32 @@ def should_render_condition(display_label: Any, condition_label: Any) -> bool:
         return False
     if "checkmobile" in condition_norm and "celularvalido" in label_norm:
         return False
+    if "celular" in label_norm and any(token in condition_norm for token in ["cel1", "checkmobile", "mobile"]):
+        return False
+    if "digitarcelular" in label_norm and "cel1" in condition_norm:
+        return False
+    if "cpf" in label_norm and "checkcpf" in condition_norm:
+        return False
     if "transferskill" in condition_norm and "transfer" in label_norm:
         return False
     if condition_norm.isdigit() and condition_norm in label_norm:
         return False
     return True
+
+
+def unique_visual_lines(lines: List[Any]) -> List[str]:
+    result: List[str] = []
+    seen = set()
+    for line in lines:
+        text = clean_text(line)
+        if not text:
+            continue
+        key = normalize_condition_text(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
 
 
 def build_display_nodes(navigation_story: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
@@ -4240,6 +4274,8 @@ def build_display_nodes(navigation_story: Dict[str, Any], semantic_model: Dict[s
                 "audio": item.get("audio") or {},
                 "showTechnicalRef": False,
                 "hideFromMainFlow": bool(item.get("hideFromMainFlow")),
+                "hideCondition": bool(item.get("hideCondition")),
+                "technicalCondition": clean_text(item.get("technicalCondition")),
                 "evidence": item.get("evidence") or [],
             }
         node["branches"] = item.get("branches") or []
@@ -4907,8 +4943,153 @@ def infer_label_from_target_subflow(target_action_id: Any, semantic_model: Dict[
     return sorted(candidates, key=lambda item: (-item[0], len(item[1])))[0][1]
 
 
+
+
+def is_root_menu(menu_action: Optional[Dict[str, Any]], navigation_story: Optional[Dict[str, Any]], semantic_model: Dict[str, Any]) -> bool:
+    if not menu_action:
+        return False
+    aid = clean_text(menu_action.get("actionId"))
+    if isinstance(navigation_story, dict) and clean_text((navigation_story.get("mainMenu") or {}).get("actionId")) == aid:
+        return True
+    text = " ".join([clean_text(menu_action.get("caption")), action_code(menu_action)]).lower()
+    if any(token in text for token in ["menuinicial", "menu inicial", "menu principal", "sauda", "saudação", "saudacao", "menuprincipal"]):
+        return True
+    audio = audio_context_for_action(menu_action, semantic_model)
+    if "menuprincipal" in clean_text(audio.get("fileName")).lower():
+        return True
+    main_menu = find_main_menu_for_story(semantic_model, {})
+    return aid and aid == clean_text((main_menu or {}).get("actionId"))
+
+
+ROOT_LABEL_STOPWORDS = {
+    "ura",
+    "ivr",
+    "prod",
+    "dev",
+    "hml",
+    "homolog",
+    "homologacao",
+    "menu",
+    "inicial",
+    "principal",
+    "saudacao",
+    "audio",
+    "prompt",
+    "prompts",
+    "wav",
+}
+
+
+def identifier_words(value: Any) -> List[str]:
+    text = clean_text(value)
+    if not text:
+        return []
+    text = re.split(r"[\\/]", text)[-1]
+    text = re.sub(r"\.[A-Za-z0-9]+$", "", text)
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    return [clean_text(item).lower() for item in re.split(r"[^A-Za-z0-9À-ÿ]+", text) if clean_text(item)]
+
+
+def identifier_original_words(value: Any) -> List[str]:
+    text = clean_text(value)
+    if not text:
+        return []
+    text = re.split(r"[\\/]", text)[-1]
+    text = re.sub(r"\.[A-Za-z0-9]+$", "", text)
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    return [clean_text(item) for item in re.split(r"[^A-Za-z0-9À-ÿ]+", text) if clean_text(item)]
+
+
+def project_identifier_words(semantic_model: Dict[str, Any]) -> set:
+    project = semantic_model.get("project") or {}
+    tokens = set(identifier_words(project.get("name")) + identifier_words(project.get("source")))
+    return {token for token in tokens if token and len(token) > 1}
+
+
+def clean_root_candidate_label(value: Any, semantic_model: Dict[str, Any]) -> str:
+    words = identifier_words(value)
+    if not words:
+        return ""
+    original_by_lower = {word.lower(): word for word in identifier_original_words(value)}
+    filtered = [word for word in words if word not in ROOT_LABEL_STOPWORDS]
+    project_tokens = project_identifier_words(semantic_model)
+    without_project = [word for word in filtered if word not in project_tokens]
+    if without_project:
+        filtered = without_project
+    if not filtered:
+        filtered = words
+    selected = filtered[-3:]
+    label_words = []
+    for word in selected:
+        original = original_by_lower.get(word, word)
+        label_words.append(original.upper() if original.isupper() and 1 < len(original) <= 6 else normalize_human_text(word))
+    label = label_words[0] if len(label_words) == 1 and label_words[0].isupper() else clean_option_label_token(" ".join(label_words))
+    if is_generic_technical_label(label) or is_bad_option_label(label):
+        return ""
+    return label
+
+
+def root_branch_functional_label(action: Dict[str, Any], semantic_model: Dict[str, Any]) -> str:
+    output = summarize_action_output(action)
+    for value in [output.get("nextStep"), clean_text(action.get("caption")), *iter_action_audio_paths(action), output.get("audio")]:
+        label = clean_root_candidate_label(value, semantic_model)
+        if label:
+            return label
+    return ""
+
+
+def is_root_branch_noise(action: Dict[str, Any]) -> bool:
+    atype = clean_text(action.get("type")).upper()
+    text = " ".join([clean_text(action.get("caption")), action_code(action)]).lower()
+    if atype in {"BEGIN", "SNIPPET", "PLAY", "LOCATE", "CASE", "HOURS", "IF", "RUNSUB", "REST_API", "LOOP", "END"}:
+        return True
+    if atype == "MENU" and is_collect_action(action):
+        return True
+    return any(token in text for token in ["scriptpoint", "config_menu", "checkcpf", "checkmobile", "collecnum", "collectnum"])
+
+
+def infer_root_menu_option_label(option: Dict[str, Any], menu_action: Optional[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
+    start_id = clean_text(option.get("targetActionId"))
+    if not start_id:
+        return ""
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    queue = [start_id]
+    visited = set()
+    while queue and len(visited) < 45:
+        aid = queue.pop(0)
+        if aid in visited:
+            continue
+        visited.add(aid)
+        action = actions_map.get(aid)
+        if not action:
+            continue
+        branch_label = root_branch_functional_label(action, semantic_model)
+        if branch_label and not is_root_branch_noise(action):
+            return branch_label
+        atype = clean_text(action.get("type")).upper()
+        if atype == "MENU" and not is_root_branch_noise(action):
+            menu_label = root_branch_functional_label(action, semantic_model)
+            if menu_label:
+                return menu_label
+        edges = adjacency.get(aid, [])
+        if atype == "HOURS":
+            preferred = next((edge for edge in edges if edge_label_text(edge).lower() in {"open", "aberto"}), None)
+            if preferred:
+                queue.insert(0, clean_text(preferred.get("target")))
+                continue
+        for edge in edges:
+            target = clean_text(edge.get("target"))
+            if target and target not in visited:
+                queue.append(target)
+    return ""
+
+
 def infer_main_menu_option_label(option: Dict[str, Any], main_menu: Optional[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], transcriptions: Optional[Dict[str, Any]] = None) -> str:
     digit = clean_text(option.get("digit"))
+    if is_root_menu(main_menu, None, semantic_model):
+        root_label = infer_root_menu_option_label(option, main_menu, semantic_model, ai_organizer)
+        if root_label:
+            return root_label
     menu_audio = audio_context_for_action(main_menu, semantic_model) if main_menu else {"fileName": "", "transcription": ""}
     labels_from_speech = extract_menu_option_labels_from_transcription(menu_audio.get("transcription"))
     if digit in labels_from_speech:
@@ -5723,11 +5904,19 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
     elif atype == "IF":
         kind = "decision"
         label, secondary = humanize_if_short(action or {}, ai_organizer)
+        technical_condition = secondary
+        hide_condition = False
         condition_text = action_search_text(action)
         if re.search(r"\bcel\b.*==\s*[\"']?1", condition_text) or "cel==\"1\"" in condition_text:
             label = "Digitar celular, se necessario"
+            hide_condition = True
         if "transfer_skill" in action_search_text(action):
             label = "Transfer_skill?"
+            hide_condition = True
+        if "checkcpf" in condition_text.lower() or "checkmobile" in condition_text.lower():
+            hide_condition = True
+        if hide_condition:
+            secondary = ""
     elif atype == "PLAY":
         kind = "play"
         label = humanize_play_node(action or {}, semantic_model, ai_organizer).get("displayLabel") or "Play aviso"
@@ -5771,6 +5960,8 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
         "audioResolvedFrom": clean_text(audio.get("resolvedFrom") or raw_step.get("audioResolvedFrom")),
         "contextSnapshot": raw_step.get("contextSnapshot") or context_snapshot(context),
         "hideFromMainFlow": False,
+        "technicalCondition": clean_text(locals().get("technical_condition", "")),
+        "hideCondition": bool(locals().get("hide_condition", False)),
     }
 
 
@@ -6438,6 +6629,8 @@ def build_visual_block_from_step(step: Dict[str, Any], semantic_model: Dict[str,
         "contextSnapshot": step.get("contextSnapshot") or context_snapshot(context),
         "audioResolvedFrom": clean_text(step.get("audioResolvedFrom")),
         "composedAudio": step.get("composedAudio") or {},
+        "hideCondition": bool(step.get("hideCondition")),
+        "technicalCondition": clean_text(step.get("technicalCondition")),
     }
     block["audio"] = resolve_audio_for_visual_block(block, context, semantic_model)
     block["audioResolvedFrom"] = clean_text(block.get("audioResolvedFrom") or (block.get("audio") or {}).get("resolvedFrom") or (block.get("audio") or {}).get("origin"))
@@ -6882,11 +7075,223 @@ def build_skill_map_rows_v2(menu_map_rows: List[Dict[str, Any]]) -> List[Dict[st
     return rows
 
 
+MAP_GROUP_STOPWORDS = {
+    "ura",
+    "ivr",
+    "prod",
+    "dev",
+    "hml",
+    "homolog",
+    "homologacao",
+    "menu",
+    "menus",
+    "principal",
+    "inicial",
+    "saudacao",
+    "saudação",
+    "prompt",
+    "prompts",
+    "audio",
+    "wav",
+    "skill",
+    "default",
+    "action",
+    "fluxo",
+    "tecnico",
+    "script",
+    "scriptpoint",
+    "snippet",
+    "parametros",
+    "parameter",
+    "parameters",
+    "entrada",
+    "saida",
+    "varia",
+    "conforme",
+    "opcao",
+    "opcoes",
+    "escolhida",
+    "possiveis",
+    "nesta",
+    "neste",
+    "esse",
+    "essa",
+    "este",
+    "esta",
+    "trilha",
+}
+
+
+def meaningful_identifier_tokens(value: Any, semantic_model: Dict[str, Any]) -> List[str]:
+    words = identifier_words(value)
+    project_tokens = project_identifier_words(semantic_model)
+    return [
+        word
+        for word in words
+        if word
+        and len(word) > 2
+        and word not in MAP_GROUP_STOPWORDS
+        and word not in project_tokens
+        and not word.isdigit()
+        and not re.fullmatch(r"(?:audio|prompt|menu|mres|notemenu|notaudio|var|case|default|snippet)\d*", word, re.IGNORECASE)
+    ]
+
+
+def humanize_identifier_token(token: Any, source: Any = "") -> str:
+    text = clean_text(token)
+    if not text:
+        return ""
+    original_lookup = {item.lower(): item for item in identifier_original_words(source or text)}
+    original = original_lookup.get(text.lower(), text)
+    if original.isupper() and 1 < len(original) <= 8:
+        return original
+    return clean_option_label_token(normalize_human_text(text))
+
+
+def infer_map_group(row: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
+    for value in [row.get("skillName"), row.get("group"), row.get("destination"), row.get("promptSpeech"), row.get("evidence"), row.get("pathDisplay")]:
+        tokens = meaningful_identifier_tokens(value, semantic_model)
+        if tokens:
+            label = humanize_identifier_token(tokens[0], value)
+            if label:
+                return label
+    menu_id = clean_text(row.get("menuActionId"))
+    menu_action = action_by_id(semantic_model).get(menu_id) if menu_id else None
+    if menu_action:
+        for value in [menu_action.get("caption"), *iter_action_audio_paths(menu_action)]:
+            tokens = meaningful_identifier_tokens(value, semantic_model)
+            if tokens:
+                label = humanize_identifier_token(tokens[0], value)
+                if label:
+                    return label
+    return f"Grupo {menu_id}" if menu_id else "Grupo"
+
+
+def infer_menu_category(row: Dict[str, Any], context: Optional[Dict[str, Any]] = None) -> str:
+    for value in [row.get("label"), row.get("skillName"), row.get("promptSpeech"), row.get("destination")]:
+        if not clean_text(value):
+            continue
+        if value == row.get("skillName"):
+            label = subject_from_skill_name(value)
+        elif clean_text(value).lower().endswith(".wav") or ".wav" in clean_text(value).lower():
+            label = audio_subject_from_path(value)
+        else:
+            label = clean_option_label_token(value)
+        if label and not label.isdigit() and not is_bad_option_label(label) and not is_generic_technical_label(label):
+            return category_for_subject(label)
+    option = clean_text(row.get("option"))
+    return f"Opcao {option}" if option else "Categoria"
+
+
+def summarize_menu_treatment(group: Dict[str, Any], category_rows: List[Dict[str, Any]]) -> str:
+    if not category_rows:
+        return "Agrupa opcoes relacionadas ao assunto."
+    skill_names = sorted({clean_text(row.get("skillName")) for row in category_rows if clean_text(row.get("skillName"))})
+    destination_types = {clean_text(row.get("destinationType")) for row in category_rows if clean_text(row.get("destinationType"))}
+    destinations = sorted({clean_text(row.get("destination")) for row in category_rows if clean_text(row.get("destination"))})
+    levels = [int(row.get("level") or 0) for row in category_rows if str(row.get("level") or "").isdigit()]
+    if len(skill_names) == 1 and len(category_rows) == 1:
+        return f"Transfere direto para {skill_names[0]}."
+    if len(skill_names) == 1:
+        return f"Opcoes relacionadas transferem para {skill_names[0]}."
+    if "skill" in destination_types and skill_names:
+        return "Algumas opcoes transferem direto; outras abrem submenu."
+    if any(level > 1 for level in levels) or len(category_rows) > 1:
+        return "Abre submenu para detalhar o assunto antes da transferencia."
+    if destinations:
+        return f"Direciona para {short_label(destinations[0], 80)}."
+    return "Agrupa opcoes relacionadas ao assunto."
+
+
+def dtmf_for_grouped_rows(rows: List[Dict[str, Any]]) -> str:
+    values = []
+    for row in rows:
+        value = ""
+        if isinstance(row.get("path"), list) and row.get("path"):
+            value = clean_text(row.get("path")[-1])
+        if not value:
+            value = clean_text(row.get("option"))
+        if not value:
+            value = clean_text(row.get("pathDisplay"))
+        if value and value not in values:
+            values.append(value)
+    return ", ".join(values[:8]) if values else "-"
+
+
+def build_menu_map_groups(menu_map_rows: List[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    groups_by_name: Dict[str, Dict[str, Any]] = {}
+    buckets: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for row in menu_map_rows:
+        group_name = infer_map_group(row, semantic_model, ai_organizer)
+        category = infer_menu_category(row)
+        groups_by_name.setdefault(
+            group_name,
+            {
+                "groupName": group_name,
+                "source": clean_text(row.get("group")),
+                "menuActionId": clean_text(row.get("menuActionId")),
+                "prompt": clean_text(row.get("promptSpeech")),
+                "rows": [],
+            },
+        )
+        buckets.setdefault((group_name, category), []).append(row)
+
+    for (group_name, category), category_rows in buckets.items():
+        group = groups_by_name[group_name]
+        evidence = []
+        for row in category_rows:
+            for item in re.split(r"\s*;\s*", clean_text(row.get("evidence"))):
+                if item and item not in evidence:
+                    evidence.append(item)
+        group["rows"].append(
+            {
+                "dtmf": dtmf_for_grouped_rows(category_rows),
+                "category": category,
+                "treatment": summarize_menu_treatment(group, category_rows),
+                "evidence": evidence[:8],
+            }
+        )
+
+    groups = list(groups_by_name.values())
+    for group in groups:
+        group["rows"] = sorted(group.get("rows") or [], key=lambda row: (clean_text(row.get("dtmf")), clean_text(row.get("category"))))
+    groups.sort(key=lambda group: clean_text(group.get("groupName")).lower())
+    return {"title": "Mapa editavel dos menus por grupo", "groups": groups}
+
+
+def build_skill_map_groups(skill_map_rows: List[Dict[str, Any]], menu_map_rows: List[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    groups_by_name: Dict[str, Dict[str, Any]] = {}
+    seen = set()
+    for row in skill_map_rows:
+        group_name = infer_map_group(row, semantic_model, ai_organizer)
+        groups_by_name.setdefault(group_name, {"groupName": group_name, "rows": []})
+        subject = infer_menu_category({"label": row.get("subject"), "skillName": row.get("skillName"), "destination": row.get("skillName")})
+        item = {
+            "subject": subject,
+            "skillId": clean_text(row.get("skillId")),
+            "skillName": clean_text(row.get("skillName")),
+            "evidence": clean_text(row.get("evidence")),
+        }
+        key = (group_name, item["subject"], item["skillId"], item["skillName"], item["evidence"])
+        if key in seen:
+            continue
+        seen.add(key)
+        groups_by_name[group_name]["rows"].append(item)
+
+    groups = list(groups_by_name.values())
+    for group in groups:
+        group["rows"] = sorted(group.get("rows") or [], key=lambda row: (clean_text(row.get("subject")), clean_text(row.get("skillName"))))
+    groups.sort(key=lambda group: clean_text(group.get("groupName")).lower())
+    return {"title": "Mapa editavel de skills de destino", "groups": groups}
+
+
 def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None, execution_model: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     visual_blocks = visual_blocks or build_visual_blocks(navigation_story, semantic_model, ai_organizer)
     execution_model = execution_model or semantic_model.get("executionModel") or {}
     menu_map_rows = build_menu_map_rows_v2(execution_model, semantic_model, navigation_story, ai_organizer)
     skill_map_rows = build_skill_map_rows_v2(menu_map_rows)
+    menu_map_groups = build_menu_map_groups(menu_map_rows, semantic_model, ai_organizer)
+    skill_map_groups = build_skill_map_groups(skill_map_rows, menu_map_rows, semantic_model, ai_organizer)
     return {
         "navigationStory": navigation_story,
         "visualBlocks": visual_blocks,
@@ -6894,6 +7299,8 @@ def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[st
         "executionModel": execution_model,
         "menuMapRows": menu_map_rows,
         "skillMapRows": skill_map_rows,
+        "menuMapGroups": menu_map_groups,
+        "skillMapGroups": skill_map_groups,
         "pages": [
             {
                 "name": "Fluxo Principal",
@@ -6902,8 +7309,8 @@ def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[st
                 "visualBlocks": visual_blocks,
                 "context": ai_organizer.get("flowContext", {}),
             },
-            {"name": "Mapa de Menus", "type": "menu_map", "menuMapRows": menu_map_rows},
-            {"name": "Mapa de Skills", "type": "skill_map", "skillMapRows": skill_map_rows},
+            {"name": "Mapa de Menus", "type": "menu_map", "menuMapRows": menu_map_rows, "menuMapGroups": menu_map_groups},
+            {"name": "Mapa de Skills", "type": "skill_map", "skillMapRows": skill_map_rows, "skillMapGroups": skill_map_groups},
             {"name": "Fluxograma Técnico Editável", "type": "technical_graph", "group": "all", "nodes": raw_actions.get("actions", []), "edges": raw_actions.get("edges", [])},
         ]
     }
@@ -6920,6 +7327,40 @@ def plan_table_page(name: str, headers: List[str], rows: List[List[Any]], width:
         for col, value in enumerate(row[: len(headers)]):
             cells.append(table_cell(f"{safe_drawio_id(name)}_{row_index}_{col}", short_label(value, 120), x + col * col_width, y + 34 + row_index * 34, col_width, 34))
     return mx_diagram(name, cells, width, max(900, y + 110 + len(rows[:120]) * 34))
+
+
+def grouped_map_page(name: str, title: str, groups: List[Dict[str, Any]], headers: List[Tuple[str, int]], row_keys: List[str], width: int = 1500) -> str:
+    cells = [
+        mx_node(f"{safe_drawio_id(name)}_title", title or name, 300, 25, 900, 42, "title"),
+        mx_node(f"{safe_drawio_id(name)}_sub", "Visao funcional agrupada gerada a partir do XML NICE. Detalhes tecnicos permanecem nos JSONs e no fluxograma tecnico.", 180, 70, 1150, 34, "subtitle"),
+    ]
+    x0 = 60
+    y = 130
+    group_width = sum(width_value for _label, width_value in headers)
+    for group_index, group in enumerate(groups[:24]):
+        group_name = clean_text(group.get("groupName") or f"Grupo {group_index + 1}")
+        source_bits = [clean_text(group.get("source")), clean_text(group.get("menuActionId")), clean_text(group.get("prompt"))]
+        source_line = " | ".join(item for item in source_bits if item)
+        header_label = group_name + (f"\n{short_label(source_line, 130)}" if source_line else "")
+        cells.append(mx_node(f"{safe_drawio_id(name)}_g_{group_index}", header_label, x0, y, group_width, 54, "lane_header"))
+        y += 54
+        x = x0
+        for header_index, (header_label_text, col_width) in enumerate(headers):
+            cells.append(table_cell(f"{safe_drawio_id(name)}_g_{group_index}_h_{header_index}", header_label_text, x, y, col_width, 34, True))
+            x += col_width
+        rows = [row for row in group.get("rows") or [] if isinstance(row, dict)]
+        if not rows:
+            rows = [{key: "-" for key in row_keys}]
+        for row_index, row in enumerate(rows[:40]):
+            x = x0
+            row_height = 46 if len(row_keys) <= 3 else 50
+            for col_index, ((_header, col_width), key) in enumerate(zip(headers, row_keys)):
+                cells.append(table_cell(f"{safe_drawio_id(name)}_g_{group_index}_r_{row_index}_{col_index}", short_label(row.get(key), 150), x, y + 34 + row_index * row_height, col_width, row_height))
+                x += col_width
+        y += 34 + max(1, len(rows[:40])) * (46 if len(row_keys) <= 3 else 50) + 45
+    if not groups:
+        cells.append(mx_node(f"{safe_drawio_id(name)}_empty", "Nenhum dado funcional identificado para este mapa.", 360, 170, 700, 100, "note"))
+    return mx_diagram(name, cells, max(width, group_width + 120), max(900, y + 100))
 
 
 def empty_table_page(name: str, message: str, width: int = 1500) -> str:
@@ -6962,7 +7403,7 @@ def render_rule_step_label(step: Dict[str, Any]) -> str:
 def render_visual_block_label(block: Dict[str, Any]) -> str:
     lines = [short_label(block.get("label") or block.get("displayLabel"), 72)]
     subtitle = clean_display_text(block.get("subtitle") or block.get("secondaryLabel"))
-    if should_render_condition(block.get("label") or block.get("displayLabel"), subtitle):
+    if not block.get("hideCondition") and should_render_condition(block.get("label") or block.get("displayLabel"), subtitle):
         lines.append(short_label(subtitle, 72))
     audio_line = render_audio_line(block.get("audio") or {})
     if audio_line:
@@ -6986,7 +7427,7 @@ def render_visual_block_label(block: Dict[str, Any]) -> str:
     evidence = [clean_text(item) for item in block.get("evidence") or [] if clean_text(item)]
     if evidence:
         lines.append(short_label(evidence[0], 58))
-    return "\n".join(line for line in lines if clean_text(line))
+    return "\n".join(unique_visual_lines(lines))
 
 
 def visual_block_style(block: Dict[str, Any]) -> str:
@@ -7219,6 +7660,8 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                         "conditionLabel": step.get("conditionLabel", ""),
                         "audio": step.get("audio") or {},
                         "hideFromMainFlow": False,
+                        "hideCondition": bool(step.get("hideCondition")),
+                        "technicalCondition": clean_text(step.get("technicalCondition")),
                     }
                     if step.get("type") == "snippet_case":
                         display_node = {
@@ -7290,43 +7733,33 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             if not menu_rows:
                 diagrams.append(empty_table_page("Mapa de Menus", "Este XML nao possui menus DTMF identificados.", 1500))
                 continue
-            rows = [
-                [
-                    r.get("pathDisplay"),
-                    r.get("level"),
-                    r.get("group"),
-                    r.get("label"),
-                    r.get("menuActionId"),
-                    r.get("captureVariable"),
-                    r.get("option"),
-                    r.get("promptSpeech"),
-                    r.get("destination"),
-                    r.get("destinationType"),
-                    r.get("caseGroup"),
-                    r.get("evidence"),
-                ]
-                for r in menu_rows
-            ]
-            diagrams.append(plan_table_page("Mapa de Menus", ["Caminho digitado", "Nivel", "Empresa/Grupo", "Label funcional", "Menu origem", "Variavel capturada", "Opcao", "Prompt/Fala", "Destino", "Tipo destino", "CASE / Grupo", "Evidencia"], rows, 2300))
+            groups_payload = page.get("menuMapGroups") or plan.get("menuMapGroups") or {}
+            diagrams.append(
+                grouped_map_page(
+                    "Mapa de Menus",
+                    clean_text(groups_payload.get("title")) or "Mapa editavel dos menus por grupo",
+                    groups_payload.get("groups") or [],
+                    [("DTMF", 90), ("Categoria", 300), ("Tratamento", 720)],
+                    ["dtmf", "category", "treatment"],
+                    1400,
+                )
+            )
         elif ptype == "skill_map":
             skill_rows = page.get("skillMapRows") or plan.get("skillMapRows") or []
-            rows = [
-                [
-                    r.get("pathDisplay"),
-                    r.get("subject"),
-                    r.get("group"),
-                    r.get("caseGroup"),
-                    r.get("skillId"),
-                    r.get("skillName"),
-                    r.get("menuActionId"),
-                    r.get("evidence"),
-                ]
-                for r in skill_rows
-            ]
-            if not rows:
+            if not skill_rows:
                 diagrams.append(empty_table_page("Mapa de Skills", "Este XML nao possui skills identificadas.", 1500))
                 continue
-            diagrams.append(plan_table_page("Mapa de Skills", ["Caminho digitado", "Assunto", "Empresa/Grupo", "CASE", "Skill ID", "Skill Name", "Menu origem", "Evidencia"], rows, 1900))
+            groups_payload = page.get("skillMapGroups") or plan.get("skillMapGroups") or {}
+            diagrams.append(
+                grouped_map_page(
+                    "Mapa de Skills",
+                    clean_text(groups_payload.get("title")) or "Mapa editavel de skills de destino",
+                    groups_payload.get("groups") or [],
+                    [("Ramo/Assunto", 420), ("Skill ID", 180), ("Skill Name", 470)],
+                    ["subject", "skillId", "skillName"],
+                    1400,
+                )
+            )
         elif ptype == "technical_graph":
             group = clean_text(page.get("group"))
             if group == "all":
@@ -7648,7 +8081,8 @@ async def parse(file: UploadFile = File(...)):
 @app.post("/generate-drawio")
 async def generate_drawio(request: PackageRequest):
     validate_package_flow(request.normalized_flow)
-    drawio = build_drawio(request.normalized_flow, request.ai_enrichment)
+    planned_flow = build_processing_artifacts(request.normalized_flow, request.transcriptions or {}, request.ai_enrichment or {})[8]
+    drawio = build_drawio(planned_flow, request.ai_enrichment)
     return {"fileName": "fluxo_ura.drawio", "contentBase64": encode_file(drawio.encode("utf-8"))}
 
 
