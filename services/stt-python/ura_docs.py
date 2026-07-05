@@ -6,8 +6,9 @@ import json
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -30,6 +31,65 @@ class PackageRequest(BaseModel):
     transcriptions: Dict[str, Any] = {}
     ai_enrichment: Dict[str, Any] = {}
     options: Dict[str, Any] = {}
+
+
+@dataclass
+class ExecutionContext:
+    variables: Dict[str, str] = field(default_factory=dict)
+    path_digits: List[str] = field(default_factory=list)
+    selected_cases: Dict[str, str] = field(default_factory=dict)
+    current_menu_variable: str = ""
+    last_audio: str = ""
+    last_next_step: str = ""
+    visited: Set[str] = field(default_factory=set)
+    warnings: List[str] = field(default_factory=list)
+
+    def clone(self) -> "ExecutionContext":
+        return ExecutionContext(
+            variables=dict(self.variables),
+            path_digits=list(self.path_digits),
+            selected_cases=dict(self.selected_cases),
+            current_menu_variable=self.current_menu_variable,
+            last_audio=self.last_audio,
+            last_next_step=self.last_next_step,
+            visited=set(self.visited),
+            warnings=list(self.warnings),
+        )
+
+    def get(self, key: Any) -> str:
+        text = clean_text(key)
+        if not text:
+            return ""
+        return clean_text(self.variables.get(text) or self.variables.get(text.upper()) or self.variables.get(text.lower()))
+
+    def set(self, key: Any, value: Any) -> None:
+        text = clean_text(key)
+        if not text:
+            return
+        resolved = resolve_value_from_context(value, self)
+        if text.upper() in {"NEXT_STEP", "TRANSFERCODE", "SKILL_ID", "SKILL_NAME"}:
+            resolved = clean_flow_target_value(resolved)
+        self.variables[text] = resolved
+        self.variables[text.upper()] = resolved
+        if text.lower() != text.upper():
+            self.variables[text.lower()] = resolved
+        if is_audio_context_key(text) and resolved:
+            self.last_audio = resolved
+        if text.upper() == "NEXT_STEP" and resolved:
+            self.last_next_step = resolved
+
+    def apply_assignments(self, assignments: Dict[str, str]) -> None:
+        for key, value in (assignments or {}).items():
+            self.set(key, value)
+        mresf = "".join(clean_text(self.get(key)) for key in ["MRES", "MRES1", "MRES2"])
+        if mresf and not self.get("MRESF"):
+            self.set("MRESF", mresf)
+        mresf1 = clean_text(self.get("MRESF")) + clean_text(self.get("MRES3"))
+        if mresf1.strip() and not self.get("MRESF1"):
+            self.set("MRESF1", mresf1)
+
+    def snapshot(self) -> Dict[str, str]:
+        return {key: clean_text(value) for key, value in self.variables.items() if clean_text(value)}
 
 
 def as_list(value: Any) -> List[Any]:
@@ -3519,6 +3579,231 @@ def build_semantic_model(raw_actions: Dict[str, Any], ai_organizer: Dict[str, An
     }
 
 
+SIDE_TREATMENT_TOKENS = {
+    "timeout",
+    "interdigit",
+    "maxdigit",
+    "invalid",
+    "inval",
+    "repeat",
+    "max",
+    "sil",
+    "rej",
+    "reje",
+    "closed",
+    "holiday",
+    "meeting",
+    "emergency",
+    "false",
+}
+
+
+def edge_execution_kind(source_action: Optional[Dict[str, Any]], edge: Dict[str, Any]) -> str:
+    atype = clean_text((source_action or {}).get("type")).upper()
+    label = edge_label_text(edge).lower()
+    if atype == "MENU" and label in {"", "default"}:
+        return "menu_default"
+    if atype == "LOCATE" and label == "found":
+        return "locate_found"
+    if atype == "CASE" or clean_text(edge.get("kind")).lower() == "case":
+        return "case"
+    if atype == "LOOP" or any(token in label for token in SIDE_TREATMENT_TOKENS):
+        return "side_treatment"
+    if atype == "IF":
+        return "decision_branch"
+    if label in {"", "default"}:
+        return "default"
+    return clean_text(edge.get("kind") or label or "branch")
+
+
+def is_side_treatment_edge(source_action: Optional[Dict[str, Any]], edge: Dict[str, Any]) -> bool:
+    return edge_execution_kind(source_action, edge) == "side_treatment"
+
+
+def case_options_from_action(case_action: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    options: List[Dict[str, Any]] = []
+    if not case_action:
+        return options
+    for case in case_action.get("cases") or []:
+        digit = clean_text(case.get("value") or case.get("name"))
+        target = clean_text(case.get("target"))
+        if digit:
+            options.append({"digit": digit, "targetActionId": target, "source": "CASE", "case": case})
+    return options
+
+
+def follow_menu_dispatch_chain(menu_action: Optional[Dict[str, Any]], execution_model: Dict[str, Any]) -> Dict[str, Any]:
+    if not menu_action:
+        return {"path": [], "dispatcherActionId": "", "caseActionId": "", "caseAction": None}
+    actions = execution_model.get("actionsById") or {}
+    edges_by_source = execution_model.get("edgesBySource") or {}
+    current_id = clean_text(menu_action.get("actionId"))
+    path: List[str] = []
+    dispatcher_id = ""
+    case_action_id = ""
+    visited = set()
+    while current_id and current_id not in visited and len(path) < 12:
+        visited.add(current_id)
+        path.append(current_id)
+        action = actions.get(current_id)
+        if not action:
+            break
+        atype = clean_text(action.get("type")).upper()
+        code = action_code(action)
+        if current_id != clean_text(menu_action.get("actionId")) and parse_switch_case_tree(code):
+            dispatcher_id = current_id
+        if atype == "CASE":
+            case_action_id = current_id
+            break
+        edges = edges_by_source.get(current_id) or []
+        preferred = None
+        if atype == "MENU":
+            preferred = next((edge for edge in edges if edge.get("executionKind") in {"menu_default", "default"}), None)
+        elif atype == "LOCATE":
+            preferred = next((edge for edge in edges if edge.get("executionKind") == "locate_found"), None)
+        else:
+            preferred = next((edge for edge in edges if edge.get("executionKind") in {"default", "case", "decision_branch"} and not edge.get("sideTreatment")), None)
+        if not preferred:
+            preferred = next((edge for edge in edges if not edge.get("sideTreatment")), None)
+        if not preferred:
+            break
+        current_id = clean_text(preferred.get("target"))
+    return {
+        "path": path,
+        "dispatcherActionId": dispatcher_id,
+        "caseActionId": case_action_id,
+        "caseAction": actions.get(case_action_id) if case_action_id else None,
+    }
+
+
+def extract_menu_options_from_execution(menu_action: Optional[Dict[str, Any]], execution_model: Dict[str, Any], context: Optional[ExecutionContext] = None) -> List[Dict[str, Any]]:
+    if not menu_action:
+        return []
+    context = context or ExecutionContext()
+    menu_id = clean_text(menu_action.get("actionId"))
+    options: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    def add_option(digit: Any, target: Any = "", source: str = "", case_data: Optional[Dict[str, Any]] = None) -> None:
+        value = clean_text(digit)
+        if not value or value in seen:
+            return
+        seen.add(value)
+        assignments = (case_data or {}).get("assignments") or {}
+        ctx = context.clone()
+        ctx.path_digits.append(value)
+        capture_var = clean_text(menu_variable(menu_action.get("parameters")) or "MRES")
+        if capture_var:
+            ctx.current_menu_variable = capture_var
+            ctx.set(capture_var, value)
+        ctx.apply_assignments(assignments)
+        audio_value = assignment_value(assignments, ["AUDIO", "audio", "NOTEMENU", "noteini", "noteinc", "noteINV", "notesil", "noteREJ", "menu_audio1", "menu_audio2", "audio_menu1", "audio_menu2", "audio_menu3"])
+        next_step = assignment_value(assignments, ["NEXT_STEP", "next_step", "nextStep"])
+        transfer_code = assignment_value(assignments, ["TRANSFERCODE", "TransferCode", "transferCode"])
+        label_seed = subject_from_skill_name(clean_text(ctx.get("SKILL_NAME"))) or audio_subject_from_path(resolve_value_from_context(audio_value, ctx)) or clean_flow_target_value(resolve_value_from_context(next_step, ctx)) or f"Opcao {value}"
+        options.append(
+            {
+                "digit": value,
+                "label": short_label(label_seed, 70),
+                "description": "Opcao real detectada por CASE/MASCARA/SWITCH do XML NICE.",
+                "targetActionId": clean_text(target),
+                "source": source,
+                "case": case_data or {},
+                "audio": resolve_value_from_context(audio_value, ctx),
+                "nextStep": clean_flow_target_value(resolve_value_from_context(next_step, ctx)),
+                "transferCode": clean_flow_target_value(resolve_value_from_context(transfer_code, ctx)),
+                "executionContext": ctx.snapshot(),
+                "evidence": [f"MENU ActionID {menu_id}", source],
+            }
+        )
+
+    chain = follow_menu_dispatch_chain(menu_action, execution_model)
+    case_action = chain.get("caseAction")
+    for item in case_options_from_action(case_action):
+        add_option(item.get("digit"), item.get("targetActionId"), f"CASE ActionID {clean_text((case_action or {}).get('actionId'))}", item.get("case"))
+
+    if not options:
+        for value in parse_mask_options_from_text(action_code(execution_model.get("actionsById", {}).get(chain.get("dispatcherActionId")) or {})):
+            add_option(value, chain.get("dispatcherActionId"), "MASCARA")
+
+    if not options:
+        dispatcher = execution_model.get("actionsById", {}).get(chain.get("dispatcherActionId"))
+        for item in parse_switch_case_tree(action_code(dispatcher or {})):
+            for value in item.get("caseValues") or []:
+                add_option(value, clean_text((dispatcher or {}).get("actionId")), "SWITCH", item)
+
+    if not options:
+        for case in menu_action.get("cases") or []:
+            add_option(case.get("value") or case.get("name"), case.get("target"), "MENU.Cases", case)
+    return options
+
+
+def build_execution_model(raw_actions: Dict[str, Any], semantic_model: Dict[str, Any], pre_semantic_extract: Dict[str, Any]) -> Dict[str, Any]:
+    actions_map, adjacency, incoming = build_navigation_maps(semantic_model)
+    start_action = next((action for action in semantic_model.get("actions", []) if clean_text(action.get("type")).upper() == "BEGIN"), None)
+    assignments_by_action: Dict[str, Dict[str, str]] = {}
+    audio_assignments: Dict[str, Dict[str, str]] = {}
+    next_step_assignments: Dict[str, str] = {}
+    transfer_codes: Dict[str, str] = {}
+    cases: Dict[str, Any] = {}
+    loops: Dict[str, Any] = {}
+    edges_by_source: Dict[str, List[Dict[str, Any]]] = {}
+    technical_events: List[Dict[str, Any]] = []
+
+    for aid, action in actions_map.items():
+        assignments = parse_assignments(action_code(action))
+        output = summarize_action_output(action)
+        assignments_by_action[aid] = assignments
+        audio_assignments[aid] = {key: value for key, value in assignments.items() if is_audio_context_key(key)}
+        if output.get("nextStep"):
+            next_step_assignments[aid] = output["nextStep"]
+        if output.get("transferCode"):
+            transfer_codes[aid] = output["transferCode"]
+        if clean_text(action.get("type")).upper() == "CASE":
+            cases[aid] = {"cases": case_options_from_action(action), "incoming": incoming.get(aid, 0)}
+        if clean_text(action.get("type")).upper() == "LOOP":
+            loops[aid] = {
+                "caption": clean_text(action.get("caption")),
+                "repeatTargets": [clean_text(edge.get("target")) for edge in adjacency.get(aid, []) if "repeat" in edge_label_text(edge).lower()],
+                "finishedTargets": [clean_text(edge.get("target")) for edge in adjacency.get(aid, []) if edge_label_text(edge).lower() in {"finished", "limit", "limite"}],
+            }
+        for edge in adjacency.get(aid, []):
+            kind = edge_execution_kind(action, edge)
+            edges_by_source.setdefault(aid, []).append({**edge, "executionKind": kind, "sideTreatment": kind == "side_treatment"})
+
+    model: Dict[str, Any] = {
+        "startActionId": clean_text((start_action or {}).get("actionId")),
+        "actionsById": actions_map,
+        "edgesBySource": edges_by_source,
+        "menus": {},
+        "cases": cases,
+        "loops": loops,
+        "assignmentsByAction": assignments_by_action,
+        "audioAssignments": audio_assignments,
+        "nextStepAssignments": next_step_assignments,
+        "transferCodes": transfer_codes,
+        "technicalEvents": technical_events,
+        "parser": URA_DOCS_PARSER_NAME,
+        "parserVersion": URA_DOCS_PARSER_VERSION,
+    }
+    for action in semantic_model.get("actions", []):
+        if clean_text(action.get("type")).upper() != "MENU":
+            continue
+        ctx = ExecutionContext()
+        menu_id = clean_text(action.get("actionId"))
+        chain = follow_menu_dispatch_chain(action, model)
+        model["menus"][menu_id] = {
+            "actionId": menu_id,
+            "caption": clean_text(action.get("caption")),
+            "captureVariable": menu_variable(action.get("parameters")),
+            "dispatcherPath": chain.get("path") or [],
+            "dispatcherActionId": chain.get("dispatcherActionId"),
+            "caseActionId": chain.get("caseActionId"),
+            "options": extract_menu_options_from_execution(action, model, ctx),
+        }
+    return model
+
+
 def humanize_if_condition(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> str:
     return humanize_if_for_display(action, ai_organizer)[0]
 
@@ -4926,6 +5211,14 @@ def extract_real_menu_options(menu_action: Optional[Dict[str, Any]], semantic_mo
     if not menu_action:
         return []
     menu_id = clean_text(menu_action.get("actionId"))
+    execution_model = semantic_model.get("executionModel") if isinstance(semantic_model.get("executionModel"), dict) else {}
+    if execution_model:
+        execution_options = extract_menu_options_from_execution(menu_action, execution_model, ExecutionContext())
+        if execution_options:
+            for item in execution_options:
+                item["label"] = short_label(infer_main_menu_option_label(item, menu_action, semantic_model, ai_organizer), 70)
+            remove_common_label_prefix(execution_options)
+            return execution_options[:12]
     dispatcher = find_menu_dispatcher(menu_id, semantic_model)
     options: List[Dict[str, Any]] = []
     option_by_digit: Dict[str, Dict[str, Any]] = {}
@@ -5100,34 +5393,47 @@ def initial_trace_context(option: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def resolve_context_value(value: Any, trace_context: Dict[str, str]) -> str:
+def execution_context_from_trace(trace_context: Optional[Dict[str, str]] = None, option: Optional[Dict[str, Any]] = None) -> ExecutionContext:
+    ctx = ExecutionContext()
+    ctx.variables.update(dict(trace_context or {}))
+    digit = clean_text((option or {}).get("digit") or ctx.get("MRES"))
+    if digit:
+        ctx.path_digits.append(digit)
+        ctx.set("MRES", digit)
+    return ctx
+
+
+def resolve_value_from_context(value: Any, context: Any) -> str:
     text = clean_assignment_value(value)
     if not text:
         return ""
 
+    def lookup(key: str) -> str:
+        if isinstance(context, ExecutionContext):
+            return context.get(key)
+        if isinstance(context, dict):
+            return clean_text(context.get(key) or context.get(key.upper()) or context.get(key.lower()))
+        return ""
+
     def repl(match: re.Match) -> str:
         key = clean_text(match.group(1))
-        return clean_text(trace_context.get(key) or trace_context.get(key.upper()) or trace_context.get(key.lower()) or match.group(0))
+        return lookup(key) or match.group(0)
 
     return re.sub(r"\{([^}]+)\}", repl, text)
 
 
+def resolve_context_value(value: Any, trace_context: Dict[str, str]) -> str:
+    return resolve_value_from_context(value, trace_context)
+
+
 def update_trace_context_from_assignments(trace_context: Dict[str, str], assignments: Dict[str, str]) -> None:
-    for key, value in assignments.items():
-        clean_key = clean_text(key)
-        if not clean_key:
-            continue
-        resolved = clean_assignment_value(value) if is_audio_context_key(clean_key) else resolve_context_value(value, trace_context)
-        if clean_key.upper() in {"NEXT_STEP", "TRANSFERCODE", "SKILL_ID", "SKILL_NAME"}:
-            resolved = clean_flow_target_value(resolved)
-        trace_context[clean_key] = resolved
-        trace_context[clean_key.upper()] = resolved
-    mresf = "".join(clean_text(trace_context.get(key)) for key in ["MRES", "MRES1", "MRES2"])
-    if mresf:
-        trace_context.setdefault("MRESF", mresf)
-    mresf1 = clean_text(trace_context.get("MRESF")) + clean_text(trace_context.get("MRES3"))
-    if mresf1.strip():
-        trace_context.setdefault("MRESF1", mresf1)
+    ctx = execution_context_from_trace(trace_context)
+    ctx.apply_assignments(assignments)
+    trace_context.update(ctx.variables)
+    if ctx.last_audio:
+        trace_context["__last_audio"] = ctx.last_audio
+    if ctx.last_next_step:
+        trace_context["__last_next_step"] = ctx.last_next_step
 
 
 def case_matches_context(case_values: List[str], trace_context: Dict[str, str], switch_variable: str, option_digit: str) -> bool:
@@ -5182,7 +5488,8 @@ def choose_main_navigation_edge(action: Dict[str, Any], outgoing_edges: List[Dic
             return None
         return default_edge_from_list(outgoing_edges)
     if atype == "LOOP":
-        return first_label("finished", "limit", "limite") or default_edge_from_list([edge for edge, label in labels if label != "repeat"] or outgoing_edges)
+        non_treatment = [edge for edge in outgoing_edges if not is_side_treatment_edge(action, edge)]
+        return default_edge_from_list(non_treatment)
     if atype == "CASE":
         for case in action.get("cases") or []:
             if clean_text(case.get("value") or case.get("name")) == option_digit:
@@ -5210,8 +5517,8 @@ def collect_side_treatments(action: Dict[str, Any], outgoing_edges: List[Dict[st
         label = edge_label_text(edge).lower()
         if target == main_target:
             continue
-        if any(token in label for token in ["timeout", "invalid", "inval", "repeat", "finished", "max", "sil", "rej", "closed", "holiday", "meeting", "emergency", "false"]):
-            treatments.append({"label": human_branch_label(label), "targetActionId": target})
+        if is_side_treatment_edge(action, edge):
+            treatments.append({"label": human_branch_label(label), "targetActionId": target, "kind": "side_treatment"})
     return treatments
 
 
@@ -5222,6 +5529,10 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
     digit = clean_text(option.get("digit"))
     dispatcher_id = clean_text(dispatcher.get("actionId"))
     trace_context = initial_trace_context(option)
+    if isinstance(option.get("executionContext"), dict):
+        trace_context.update({clean_text(key): clean_text(value) for key, value in option.get("executionContext", {}).items() if clean_text(key) and clean_text(value)})
+        if digit:
+            trace_context["MRES"] = digit
     case_data = option.get("case") if isinstance(option.get("case"), dict) else {}
     if case_data:
         assignments = case_data.get("assignments") or {}
@@ -5282,13 +5593,23 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
             terminal = {"type": atype.lower(), "actionId": current_id, "label": friendly_action_label(action, ai_organizer)}
             break
         if atype == "RUNSCRIPT" and (output.get("nextStep") or "{NEXT_STEP}" in action_code(action)):
-            if output.get("nextStep"):
-                raw_steps[-1]["resolvedTarget"] = output.get("nextStep")
-            elif clean_text(trace_context.get("NEXT_STEP")):
-                raw_steps[-1]["resolvedTarget"] = clean_text(trace_context.get("NEXT_STEP"))
+            resolved_next = clean_text(output.get("nextStep") or trace_context.get("NEXT_STEP") or trace_context.get("__last_next_step"))
+            resolved_transfer = clean_text(output.get("transferCode") or trace_context.get("TRANSFERCODE") or trace_context.get("TransferCode"))
+            if resolved_next:
+                raw_steps[-1]["resolvedTarget"] = resolved_next
+                raw_steps[-1]["targetType"] = "next_step"
+            elif resolved_transfer:
+                raw_steps[-1]["resolvedTarget"] = resolved_transfer
+                raw_steps[-1]["transferCode"] = resolved_transfer
+                raw_steps[-1]["targetType"] = "transfer_code"
             elif len(raw_steps) >= 2 and clean_text(raw_steps[-2].get("resolvedTarget")):
                 raw_steps[-1]["resolvedTarget"] = clean_text(raw_steps[-2].get("resolvedTarget"))
-            terminal = {"type": "runscript", "actionId": current_id, "label": clean_text(raw_steps[-1].get("resolvedTarget"))}
+                raw_steps[-1]["targetType"] = clean_text(raw_steps[-2].get("targetType") or "next_step")
+            terminal = {
+                "type": clean_text(raw_steps[-1].get("targetType") or "runscript"),
+                "actionId": current_id,
+                "label": clean_text(raw_steps[-1].get("resolvedTarget")),
+            }
             break
         if atype == "CASE":
             matched_target = ""
@@ -6026,9 +6347,10 @@ def build_navigation_story(raw_actions: Dict[str, Any], pre_semantic_extract: Di
     main_menu = find_main_menu_for_story(semantic_model, ai_organizer)
     dispatcher = find_menu_dispatcher(clean_text((main_menu or {}).get("actionId")), semantic_model) if main_menu else {}
     main_options = extract_real_menu_options(main_menu, semantic_model, ai_organizer)
-    if not main_options:
+    has_execution_model = isinstance(semantic_model.get("executionModel"), dict) and bool(semantic_model.get("executionModel"))
+    if not main_options and not has_execution_model:
         main_options = menu_options_for_story(main_menu, ai_organizer)
-    if not main_options:
+    if not main_options and not has_execution_model:
         main_options = fallback_main_options_from_routes(human_routes, main_menu)
     main_options = refine_main_menu_options(main_options, main_menu, semantic_model, ai_organizer)
     main_audio = audio_context_for_action(main_menu, semantic_model)
@@ -6335,12 +6657,14 @@ def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     return {"routes": routes}
 
 
-def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None, execution_model: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     routes = human_routes.get("routes", [])
     visual_blocks = visual_blocks or build_visual_blocks(navigation_story, semantic_model, ai_organizer)
     return {
         "navigationStory": navigation_story,
         "visualBlocks": visual_blocks,
+        "businessBlocks": visual_blocks,
+        "executionModel": execution_model or semantic_model.get("executionModel") or {},
         "pages": [
             {
                 "name": "Fluxo Principal",
@@ -6849,21 +7173,25 @@ def build_processing_artifacts(flow: Dict[str, Any], transcriptions: Dict[str, A
     if not ai_organizer:
         ai_organizer = deterministic_ai_organizer(flow)
     semantic_model = build_semantic_model(raw_actions, ai_organizer, transcriptions, flow)
+    execution_model = build_execution_model(raw_actions, semantic_model, pre_semantic_extract)
+    semantic_model["executionModel"] = execution_model
     human_routes = build_human_routes(raw_actions, pre_semantic_extract, ai_organizer, semantic_model)
     navigation_story = build_navigation_story(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model)
     visual_blocks = build_visual_blocks(navigation_story, semantic_model, ai_organizer)
     display_nodes = build_display_nodes(navigation_story, semantic_model, ai_organizer)
-    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model, navigation_story, visual_blocks)
+    drawio_plan = build_drawio_plan(raw_actions, pre_semantic_extract, ai_organizer, human_routes, semantic_model, navigation_story, visual_blocks, execution_model)
     planned_flow = {
         **flow,
         "rawActions": raw_actions,
         "preSemanticExtract": pre_semantic_extract,
+        "executionModel": execution_model,
         "aiOrganizer": ai_organizer,
         "semanticModel": semantic_model,
         "humanRoutes": human_routes,
         "semanticRoutes": human_routes,
         "navigationStory": navigation_story,
         "visualBlocks": visual_blocks,
+        "businessBlocks": visual_blocks,
         "displayNodes": display_nodes,
         "drawioPlan": drawio_plan,
     }
@@ -7172,6 +7500,7 @@ async def generate_package(request: PackageRequest):
         "01_raw_actions.json": json.dumps(raw_actions, ensure_ascii=False, indent=2).encode("utf-8"),
         "02_pre_semantic_extract.json": json.dumps(pre_semantic_extract, ensure_ascii=False, indent=2).encode("utf-8"),
         "03_ai_organizer.json": json.dumps(ai_organizer, ensure_ascii=False, indent=2).encode("utf-8"),
+        "03_execution_model.json": json.dumps(planned_flow.get("executionModel", {}), ensure_ascii=False, indent=2).encode("utf-8"),
         "04_human_routes.json": json.dumps(human_routes, ensure_ascii=False, indent=2).encode("utf-8"),
         "navigation_story.json": json.dumps(navigation_story, ensure_ascii=False, indent=2).encode("utf-8"),
         "display_nodes.json": json.dumps(display_nodes, ensure_ascii=False, indent=2).encode("utf-8"),
