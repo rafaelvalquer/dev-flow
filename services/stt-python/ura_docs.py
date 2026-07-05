@@ -3650,7 +3650,7 @@ def follow_menu_dispatch_chain(menu_action: Optional[Dict[str, Any]], execution_
             break
         atype = clean_text(action.get("type")).upper()
         code = action_code(action)
-        if current_id != clean_text(menu_action.get("actionId")) and parse_switch_case_tree(code):
+        if current_id != clean_text(menu_action.get("actionId")) and not dispatcher_id and parse_switch_case_tree(code):
             dispatcher_id = current_id
         if atype == "CASE":
             case_action_id = current_id
@@ -3730,7 +3730,7 @@ def extract_menu_options_from_execution(menu_action: Optional[Dict[str, Any]], e
         dispatcher = execution_model.get("actionsById", {}).get(chain.get("dispatcherActionId"))
         for item in parse_switch_case_tree(action_code(dispatcher or {})):
             for value in item.get("caseValues") or []:
-                add_option(value, clean_text((dispatcher or {}).get("actionId")), "SWITCH", item)
+                add_option(value, clean_text((dispatcher or {}).get("actionId")), f"SWITCH ActionID {clean_text((dispatcher or {}).get('actionId'))}", item)
 
     if not options:
         for case in menu_action.get("cases") or []:
@@ -6657,14 +6657,243 @@ def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
     return {"routes": routes}
 
 
+NAVIGATION_PATH_VARS = ["MRES", "MRES1", "MRES2", "MRES3"]
+NAVIGATION_COMPOSED_VARS = ["MRESF1", "mresf1", "MRESF", "mresf"]
+
+
+def context_lookup_any(context: Dict[str, Any], key: str) -> str:
+    return clean_text(context.get(key) or context.get(key.upper()) or context.get(key.lower()))
+
+
+def split_digit_path(value: Any) -> List[str]:
+    text = re.sub(r"\D+", "", clean_text(value))
+    return list(text) if text else []
+
+
+def explicit_path_from_context(context: Dict[str, Any]) -> List[str]:
+    for key in NAVIGATION_COMPOSED_VARS:
+        value = context_lookup_any(context, key)
+        if value and re.fullmatch(r"\d{2,}", value):
+            return split_digit_path(value)
+    path = []
+    for key in NAVIGATION_PATH_VARS:
+        value = context_lookup_any(context, key)
+        if value:
+            path.extend(split_digit_path(value))
+    return path
+
+
+def is_grouped_case_value(value: Any) -> bool:
+    return bool(re.search(r"[,;-]", clean_text(value)))
+
+
+def compact_case_group_path(case_group: Any, fallback_path: List[str]) -> List[str]:
+    text = clean_text(case_group)
+    range_match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", text)
+    if range_match:
+        start, end = range_match.group(1), range_match.group(2)
+        if len(start) == len(end) and len(start) > 1 and start[:-1] == end[:-1]:
+            return [*list(start[:-1]), f"CASE {start[-1]}-{end[-1]}"]
+        return [*fallback_path, f"CASE {text}"]
+    if "," in text:
+        return [*fallback_path, f"CASE {text}"]
+    return [*fallback_path, text] if text else fallback_path
+
+
+def path_for_menu_option(context: Dict[str, Any], option: Dict[str, Any], capture_variable: Any = "") -> Tuple[List[str], str]:
+    base_path = explicit_path_from_context(context)
+    digit = clean_text(option.get("digit"))
+    case_group = clean_text((option.get("case") or {}).get("value") or (option.get("case") or {}).get("name") or digit)
+    capture = clean_text(capture_variable).upper()
+    if is_grouped_case_value(case_group):
+        return compact_case_group_path(case_group, base_path), case_group
+    if digit and len(re.sub(r"\D", "", digit)) > 1:
+        return split_digit_path(digit), case_group
+    if capture in {"MRES", "MRES1", "MRES2", "MRES3"} and digit and context_lookup_any(context, capture) != digit:
+        return [*base_path, digit], case_group
+    if digit and (not base_path or base_path[-1:] != [digit]):
+        return [*base_path, digit], case_group
+    return base_path, case_group
+
+
+def path_display(path: List[str]) -> str:
+    return " > ".join(clean_text(item) for item in path if clean_text(item)) or "-"
+
+
+def case_group_display(case_group: Any, option: Dict[str, Any]) -> str:
+    text = clean_text(case_group)
+    if not text:
+        return ""
+    if is_grouped_case_value(text) or len(re.sub(r"\D", "", text)) > 1:
+        return text
+    source = clean_text(option.get("source"))
+    return f"CASE {text}" if "CASE" in source.upper() else text
+
+
+def prompt_text_for_action(action: Optional[Dict[str, Any]], semantic_model: Dict[str, Any], context: Dict[str, Any]) -> str:
+    if not action:
+        return ""
+    audio = dynamic_menu_audio_for_action(action, semantic_model, clean_text(action.get("actionId")), context)
+    if not clean_text(audio.get("fileName")) and clean_text(audio.get("mode")) != "dynamic":
+        audio = resolve_audio_for_visual_block({"actionId": clean_text(action.get("actionId")), "audio": {}}, context, semantic_model)
+    audio_line = render_audio_line(audio)
+    return audio_line or action_audio_text(action, prompt_index_by_action(semantic_model), 180)
+
+
+def infer_destination_for_menu_row(option: Dict[str, Any], actions_map: Dict[str, Dict[str, Any]]) -> Tuple[str, str]:
+    option_context = option.get("executionContext") if isinstance(option.get("executionContext"), dict) else {}
+    skill_id = clean_text(option.get("skillId") or context_lookup_any(option_context, "SKILL_ID"))
+    skill_name = clean_text(option.get("skillName") or context_lookup_any(option_context, "SKILL_NAME"))
+    if skill_id or skill_name:
+        return skill_name or skill_id, "skill"
+    next_step = clean_text(option.get("nextStep") or context_lookup_any(option_context, "NEXT_STEP"))
+    if next_step:
+        return next_step, "next_step"
+    transfer_code = clean_text(option.get("transferCode") or context_lookup_any(option_context, "TRANSFERCODE") or context_lookup_any(option_context, "TransferCode"))
+    if transfer_code:
+        return transfer_code, "transfer_code"
+    target = clean_text(option.get("targetActionId"))
+    target_action = actions_map.get(target)
+    if target_action:
+        return clean_text(target_action.get("businessLabel") or target_action.get("caption") or target_action.get("type") or target), clean_text(target_action.get("type")).lower() or "action"
+    return target, "action" if target else ""
+
+
+def menu_row_label(path: List[str], option: Dict[str, Any]) -> str:
+    label = clean_text(option.get("label"))
+    if label and not is_bad_option_label(label):
+        return label
+    next_step = clean_text(option.get("nextStep"))
+    if next_step:
+        return clean_option_label_token(next_step) or next_step
+    audio = clean_text(option.get("audio"))
+    if audio:
+        return audio_subject_from_path(audio) or f"Opcao {(path or [''])[-1]}"
+    return f"Opcao {(path or [''])[-1]}" if path else "Opcao"
+
+
+def build_menu_map_rows_v2(execution_model: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any], ai_organizer: Dict[str, Any]) -> List[Dict[str, Any]]:
+    actions_map = action_by_id(semantic_model)
+    menus = execution_model.get("menus") or {}
+    rows: List[Dict[str, Any]] = []
+    seen = set()
+
+    def add_row(menu_id: str, option: Dict[str, Any], context: Dict[str, Any], evidence_prefix: str = "") -> None:
+        if not menu_id:
+            return
+        menu_meta = menus.get(menu_id) or {}
+        menu_action = actions_map.get(menu_id) or execution_model.get("actionsById", {}).get(menu_id)
+        capture_var = clean_text(menu_meta.get("captureVariable") or menu_variable((menu_action or {}).get("parameters")))
+        path, case_group = path_for_menu_option(context, option, capture_var)
+        digit = clean_text(option.get("digit"))
+        if evidence_prefix.startswith("Trilha") and menu_id != main_id and digit and len(digit) == 1 and len(path) == 1 and path[-1:] == [digit]:
+            path = [*path, digit]
+        path_text = path_display(path)
+        case_text = case_group_display(case_group, option)
+        destination, destination_type = infer_destination_for_menu_row(option, actions_map)
+        option_context = option.get("executionContext") if isinstance(option.get("executionContext"), dict) else {}
+        skill_id = clean_text(option.get("skillId") or context_lookup_any(option_context, "SKILL_ID"))
+        skill_name = clean_text(option.get("skillName") or context_lookup_any(option_context, "SKILL_NAME"))
+        key = (path_text, case_text, skill_id, skill_name, menu_id, clean_text(option.get("digit")), destination)
+        if key in seen:
+            return
+        seen.add(key)
+        evidence_items = [evidence_prefix, *[clean_text(item) for item in option.get("evidence") or []], f"Menu ActionID {menu_id}"]
+        rows.append(
+            {
+                "pathDisplay": path_text,
+                "path": path,
+                "level": len([item for item in path if not clean_text(item).upper().startswith("CASE")]),
+                "group": clean_text(menu_meta.get("caption") or (menu_action or {}).get("businessLabel") or (menu_action or {}).get("caption") or "Menu"),
+                "label": menu_row_label(path, option),
+                "menuActionId": menu_id,
+                "captureVariable": capture_var,
+                "option": clean_text(option.get("digit")),
+                "promptSpeech": prompt_text_for_action(menu_action, semantic_model, context),
+                "destination": destination,
+                "destinationType": destination_type,
+                "caseGroup": case_text,
+                "evidence": "; ".join(item for item in evidence_items if clean_text(item)),
+                "skillId": skill_id,
+                "skillName": skill_name,
+            }
+        )
+
+    main_menu = navigation_story.get("mainMenu") or {}
+    main_id = clean_text(main_menu.get("actionId"))
+    for option in main_menu.get("options") or []:
+        context = option.get("executionContext") if isinstance(option.get("executionContext"), dict) else {}
+        add_row(main_id, option, context, "Fluxo principal")
+
+    for flow_item in navigation_story.get("optionFlows") or []:
+        flow_context = flow_item.get("variablesContext") if isinstance(flow_item.get("variablesContext"), dict) else {}
+        for step in flow_item.get("rawSteps") or flow_item.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            action_id = clean_text(step.get("actionId"))
+            if action_id not in menus:
+                continue
+            step_context = step.get("context") if isinstance(step.get("context"), dict) else flow_context
+            for option in (menus.get(action_id) or {}).get("options") or []:
+                add_row(action_id, option, step_context, f"Trilha {flow_item.get('digit')}")
+
+    for menu_id, menu_meta in menus.items():
+        if any(row.get("menuActionId") == menu_id for row in rows):
+            continue
+        for option in menu_meta.get("options") or []:
+            context = option.get("executionContext") if isinstance(option.get("executionContext"), dict) else {}
+            add_row(menu_id, option, context, "Menu detectado")
+
+    rows.sort(key=lambda row: (row.get("pathDisplay") or "", row.get("menuActionId") or "", row.get("caseGroup") or ""))
+    return rows
+
+
+def build_skill_map_rows_v2(menu_map_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    seen = set()
+    for row in menu_map_rows:
+        skill_id = clean_text(row.get("skillId"))
+        skill_name = clean_text(row.get("skillName"))
+        if not skill_id and not skill_name:
+            continue
+        key = (
+            clean_text(row.get("pathDisplay")),
+            clean_text(row.get("label")),
+            clean_text(row.get("caseGroup")),
+            skill_id,
+            skill_name,
+            clean_text(row.get("menuActionId")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            {
+                "pathDisplay": row.get("pathDisplay"),
+                "subject": row.get("label"),
+                "group": row.get("group"),
+                "caseGroup": row.get("caseGroup"),
+                "skillId": skill_id,
+                "skillName": skill_name,
+                "menuActionId": row.get("menuActionId"),
+                "evidence": row.get("evidence"),
+            }
+        )
+    return rows
+
+
 def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[str, Any], ai_organizer: Dict[str, Any], human_routes: Dict[str, Any], semantic_model: Dict[str, Any], navigation_story: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None, execution_model: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    routes = human_routes.get("routes", [])
     visual_blocks = visual_blocks or build_visual_blocks(navigation_story, semantic_model, ai_organizer)
+    execution_model = execution_model or semantic_model.get("executionModel") or {}
+    menu_map_rows = build_menu_map_rows_v2(execution_model, semantic_model, navigation_story, ai_organizer)
+    skill_map_rows = build_skill_map_rows_v2(menu_map_rows)
     return {
         "navigationStory": navigation_story,
         "visualBlocks": visual_blocks,
         "businessBlocks": visual_blocks,
-        "executionModel": execution_model or semantic_model.get("executionModel") or {},
+        "executionModel": execution_model,
+        "menuMapRows": menu_map_rows,
+        "skillMapRows": skill_map_rows,
         "pages": [
             {
                 "name": "Fluxo Principal",
@@ -6673,8 +6902,8 @@ def build_drawio_plan(raw_actions: Dict[str, Any], pre_semantic_extract: Dict[st
                 "visualBlocks": visual_blocks,
                 "context": ai_organizer.get("flowContext", {}),
             },
-            {"name": "Mapa de Menus", "type": "menu_map", "rows": routes},
-            {"name": "Mapa de Skills", "type": "skill_map", "rows": routes},
+            {"name": "Mapa de Menus", "type": "menu_map", "menuMapRows": menu_map_rows},
+            {"name": "Mapa de Skills", "type": "skill_map", "skillMapRows": skill_map_rows},
             {"name": "Fluxograma Técnico Editável", "type": "technical_graph", "group": "all", "nodes": raw_actions.get("actions", []), "edges": raw_actions.get("edges", [])},
         ]
     }
@@ -7057,39 +7286,47 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             if flow_kind in {"rule_flow", "api_flow"} or not functional_menus(semantic_model):
                 diagrams.append(empty_table_page("Mapa de Menus", "Este XML nao possui menus DTMF identificados.", 1500))
                 continue
+            menu_rows = page.get("menuMapRows") or plan.get("menuMapRows") or []
+            if not menu_rows:
+                diagrams.append(empty_table_page("Mapa de Menus", "Este XML nao possui menus DTMF identificados.", 1500))
+                continue
             rows = [
                 [
-                    " > ".join(r.get("path") or []),
-                    (r.get("path") or [""])[-1],
-                    r.get("treatment") or r.get("pathLabel"),
-                    r.get("originMenuActionId"),
-                    (r.get("prompt") or {}).get("fileName", ""),
-                    (r.get("prompt") or {}).get("transcription", ""),
-                    r.get("target", {}).get("skillName") or r.get("nextStep") or r.get("target", {}).get("actionId"),
-                    r.get("originMenuActionId"),
-                    "; ".join(r.get("evidence") or []),
+                    r.get("pathDisplay"),
+                    r.get("level"),
+                    r.get("group"),
+                    r.get("label"),
+                    r.get("menuActionId"),
+                    r.get("captureVariable"),
+                    r.get("option"),
+                    r.get("promptSpeech"),
+                    r.get("destination"),
+                    r.get("destinationType"),
+                    r.get("caseGroup"),
+                    r.get("evidence"),
                 ]
-                for r in page.get("rows", [])
+                for r in menu_rows
             ]
-            diagrams.append(plan_table_page("Mapa de Menus", ["Caminho digitado", "Opcao", "Label humano", "Menu origem", "Prompt", "Transcricao", "Destino", "ActionID", "Evidencia"], rows, 1900))
+            diagrams.append(plan_table_page("Mapa de Menus", ["Caminho digitado", "Nivel", "Empresa/Grupo", "Label funcional", "Menu origem", "Variavel capturada", "Opcao", "Prompt/Fala", "Destino", "Tipo destino", "CASE / Grupo", "Evidencia"], rows, 2300))
         elif ptype == "skill_map":
+            skill_rows = page.get("skillMapRows") or plan.get("skillMapRows") or []
             rows = [
                 [
-                    " > ".join(r.get("path") or []),
-                    r.get("treatment"),
-                    r.get("target", {}).get("skillId"),
-                    r.get("target", {}).get("skillName"),
-                    r.get("originMenuActionId"),
-                    "; ".join(r.get("evidence") or []),
-                    (r.get("prompt") or {}).get("transcription") or (r.get("prompt") or {}).get("fileName", ""),
+                    r.get("pathDisplay"),
+                    r.get("subject"),
+                    r.get("group"),
+                    r.get("caseGroup"),
+                    r.get("skillId"),
+                    r.get("skillName"),
+                    r.get("menuActionId"),
+                    r.get("evidence"),
                 ]
-                for r in page.get("rows", [])
-                if r.get("target", {}).get("skillId") or r.get("target", {}).get("skillName")
+                for r in skill_rows
             ]
             if not rows:
                 diagrams.append(empty_table_page("Mapa de Skills", "Este XML nao possui skills identificadas.", 1500))
                 continue
-            diagrams.append(plan_table_page("Mapa de Skills", ["Caminho digitado", "Assunto", "Skill ID", "Skill Name", "ActionID", "Evidencia", "Prompt/Fala"], rows, 1800))
+            diagrams.append(plan_table_page("Mapa de Skills", ["Caminho digitado", "Assunto", "Empresa/Grupo", "CASE", "Skill ID", "Skill Name", "Menu origem", "Evidencia"], rows, 1900))
         elif ptype == "technical_graph":
             group = clean_text(page.get("group"))
             if group == "all":
