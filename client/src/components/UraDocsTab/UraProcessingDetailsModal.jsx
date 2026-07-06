@@ -45,10 +45,58 @@ function detailsLabel(kind) {
   if (kind === "ai_response") return "Resposta IA";
   if (kind === "ai_error") return "Erro IA";
   if (kind === "fallback") return "Fallback";
-  if (kind === "warning") return "Warning";
+  if (kind === "warning") return "Aviso";
   if (kind === "package") return "Pacote";
   if (kind === "file") return "Arquivo";
   return "Detalhes";
+}
+
+function stepLabel(step) {
+  const labels = {
+    queued: "Fila",
+    saving_uploads: "Uploads",
+    uploads: "Uploads",
+    parse: "Parser",
+    parser: "Parser",
+    transcription: "Transcrição",
+    audio: "Áudio",
+    audio_matching: "Áudio",
+    ai_organizer: "Organização IA",
+    semantic_organization: "Organização semântica",
+    semantic_model: "Modelo semântico",
+    ai_enrichment: "Análise IA",
+    ai_analysis: "Análise IA",
+    package: "Pacote",
+    drawio: "Draw.io",
+    generate_package: "Pacote",
+    completed: "Concluído",
+    failed: "Falha",
+    idle: "Aguardando",
+  };
+  const key = String(step || "idle").toLowerCase();
+  return labels[key] || step || "Aguardando";
+}
+
+function kindLabel(kind) {
+  const labels = {
+    info: "Informação",
+    debug: "Debug",
+    ai: "IA",
+    ai_prompt: "Prompt IA",
+    ai_response: "Resposta IA",
+    ai_error: "Erro IA",
+    fallback: "Fallback",
+    warning: "Aviso",
+    error: "Erro",
+    package: "Pacote",
+    parser: "Parser",
+    file: "Arquivo",
+    cache: "Cache",
+    success: "Sucesso",
+    audio: "Áudio",
+  };
+  const key = String(kind || "info").toLowerCase();
+  return labels[key] || kind || "Informação";
 }
 
 function eventKey(event, index) {
@@ -101,7 +149,7 @@ function buildFallbackEvents(status) {
       id: "status-current",
       timestamp: status.updatedAt || status.createdAt,
       step: status.step || "idle",
-      title: status.status === "completed" ? "Processamento concluido" : "Status atual",
+      title: status.status === "completed" ? "Processamento concluído" : "Status atual",
       message: status.message || "Aguardando eventos detalhados do job.",
       status: status.status || "idle",
       progress: status.progress || 0,
@@ -185,7 +233,7 @@ function LiveStatusCard({ status, latest }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide">
             <span className={isFailed ? "text-amber-800" : isCompleted ? "text-emerald-700" : "text-red-700"}>
-              {status?.step || latest?.step || "idle"} - {progress}%
+              {stepLabel(status?.step || latest?.step)} - {progress}%
             </span>
             {isProcessing ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-2 py-1 text-red-700">
@@ -260,13 +308,13 @@ function EventMessage({ event, index, isLatest, isProcessing, shouldAnimate, onT
           {isLatest && isProcessing && done ? (
             <div className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-zinc-500">
               <Waves className="h-3.5 w-3.5 text-red-600" />
-              aguardando a proxima atualizacao
+              aguardando a próxima atualização
               <LiveDots />
             </div>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-wide">
-            <span className={`rounded-full px-2 py-1 ${tone.badge}`}>{event.step || "step"}</span>
-            <span className="rounded-full bg-white/80 px-2 py-1 text-zinc-600">{event.kind || "info"}</span>
+            <span className={`rounded-full px-2 py-1 ${tone.badge}`}>{stepLabel(event.step)}</span>
+            <span className="rounded-full bg-white/80 px-2 py-1 text-zinc-600">{kindLabel(event.kind)}</span>
             <span className="rounded-full bg-white/80 px-2 py-1 text-zinc-600">
               {Math.round(Number(event.progress || 0))}%
             </span>
@@ -345,9 +393,9 @@ export default function UraProcessingDetailsModal({ open, onOpenChange, status }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[88vh] max-h-[88vh] max-w-4xl flex-col overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b border-zinc-200 px-5 py-4">
-          <DialogTitle>Execucao do Documentador URA</DialogTitle>
+          <DialogTitle>Execução do Documentador URA</DialogTitle>
           <DialogDescription>
-            Acompanhe a execucao em formato de conversa, com eventos do parser, audio, IA e pacote.
+            Acompanhe a execução em formato de conversa, com eventos do parser, áudio, IA e pacote.
           </DialogDescription>
         </DialogHeader>
 

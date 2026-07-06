@@ -1,10 +1,10 @@
 import React from "react";
 
 const OPTION_LABELS = {
-  includeTechnicalFlow: "Fluxo tecnico",
+  includeTechnicalFlow: "Fluxo técnico",
   includeBusinessFlow: "Fluxo funcional",
-  includePromptTranscriptions: "Transcricoes",
-  includeAiAnalysis: "Analise IA",
+  includePromptTranscriptions: "Transcrições",
+  includeAiAnalysis: "Análise IA",
   includeTestPlan: "Plano de testes",
   includeRunbook: "Runbook",
 };
@@ -28,7 +28,7 @@ export default function UraOptionsPanel({ options, onChange }) {
     <section className="rounded-xl border border-zinc-200 bg-white p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900">Opcoes</h3>
+          <h3 className="text-sm font-semibold text-zinc-900">Opções</h3>
           <p className="text-xs text-zinc-500">Controle o pacote gerado e o uso de IA.</p>
         </div>
         <select
@@ -57,7 +57,7 @@ export default function UraOptionsPanel({ options, onChange }) {
         ))}
       </div>
       <p className="mt-3 text-xs text-zinc-500">
-        Audios aparecem automaticamente no draw.io: usa a transcricao local quando existir; caso contrario, mostra apenas o nome do arquivo.
+        Áudios aparecem automaticamente no draw.io: usa a transcrição local quando existir; caso contrário, mostra apenas o nome do arquivo.
       </p>
     </section>
   );

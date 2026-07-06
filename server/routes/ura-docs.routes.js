@@ -128,7 +128,7 @@ export default function uraDocsRoutes({ upload, env }) {
         throw new AppError({
           status: 404,
           code: "URA_DOCS_JOB_NOT_FOUND",
-          message: "Job nao encontrado.",
+          message: "Job não encontrado.",
         });
       }
       return res.json(store.publicStatus(job));
@@ -143,14 +143,14 @@ export default function uraDocsRoutes({ upload, env }) {
         throw new AppError({
           status: 404,
           code: "URA_DOCS_JOB_NOT_FOUND",
-          message: "Job nao encontrado.",
+          message: "Job não encontrado.",
         });
       }
       if (job.status !== "completed") {
         throw new AppError({
           status: 409,
           code: "URA_DOCS_JOB_NOT_READY",
-          message: "Resultado ainda nao disponivel.",
+          message: "Resultado ainda não disponível.",
           details: store.publicStatus(job),
         });
       }
@@ -200,7 +200,7 @@ export default function uraDocsRoutes({ upload, env }) {
         throw new AppError({
           status: 404,
           code: "URA_DOCS_DOWNLOAD_NOT_FOUND",
-          message: "Download nao encontrado.",
+          message: "Download não encontrado.",
         });
       }
       const filePath = job.files?.[download.field];
@@ -208,7 +208,7 @@ export default function uraDocsRoutes({ upload, env }) {
         throw new AppError({
           status: 404,
           code: "URA_DOCS_FILE_NOT_READY",
-          message: "Arquivo ainda nao disponivel.",
+          message: "Arquivo ainda não disponível.",
         });
       }
       return pipeDownload({

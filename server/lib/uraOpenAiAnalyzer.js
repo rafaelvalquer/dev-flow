@@ -12,7 +12,7 @@ const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 export function requireOpenAiKey(OPENAI_API_KEY) {
   if (!String(OPENAI_API_KEY || "").trim()) {
     throw new Error(
-      "OPENAI_API_KEY nao configurado. A documentacao sera gerada sem enriquecimento por IA."
+      "OPENAI_API_KEY não configurado. A documentação será gerada sem enriquecimento por IA."
     );
   }
 }
@@ -159,13 +159,13 @@ function classifyAiError(error) {
   if (/OPENAI_API_KEY|API key|key/i.test(message)) {
     return {
       category: "configuration",
-      title: "Chave OpenAI ausente ou invalida",
+      title: "Chave OpenAI ausente ou inválida",
       suggestion: "Configure OPENAI_API_KEY ou desabilite IA para remover esta etapa.",
     };
   }
   return {
     category: "unknown",
-    title: "Falha nao classificada no enriquecimento por IA",
+    title: "Falha não classificada no enriquecimento por IA",
     suggestion: "Verifique conectividade, modelo configurado e logs do backend.",
   };
 }
@@ -185,15 +185,15 @@ function buildAiWarning({
   const model = env?.URA_DOCS_AI_MODEL || env?.OPENAI_MODEL || DEFAULT_OPENAI_MODEL;
   const mode = env?.URA_DOCS_AI_MODE || options?.aiMode || "summary";
   const includeAi = options?.includeAiAnalysis !== false;
-  const rawMessage = truncateText(error?.message || error || "Sem detalhe tecnico retornado.", 900);
+  const rawMessage = truncateText(error?.message || error || "Sem detalhe técnico retornado.", 900);
   return [
-    `IA indisponivel (${classified.title}).`,
+    `IA indisponível (${classified.title}).`,
     `Etapa: ${stage}. Modo: ${mode}. Modelo: ${model}. includeAiAnalysis=${includeAi}.`,
     `Fluxo preservado: draw.io/matrizes foram gerados pelo parser NICE com ${digest.counts.actions} actions, ${digest.counts.edges} edges, ${digest.counts.menus} menus e ${digest.counts.prompts} prompts.`,
-    `Transcricoes: ${digest.transcriptionStatus.total} arquivo(s), ${digest.transcriptionStatus.failed} falha(s).`,
+    `Transcrições: ${digest.transcriptionStatus.total} arquivo(s), ${digest.transcriptionStatus.failed} falha(s).`,
     extra.chunkId ? `Chunk: ${extra.chunkId}.` : "",
-    `Detalhe tecnico: ${rawMessage}`,
-    `Acao sugerida: ${classified.suggestion}`,
+    `Detalhe técnico: ${rawMessage}`,
+    `Ação sugerida: ${classified.suggestion}`,
   ]
     .filter(Boolean)
     .join("\n");

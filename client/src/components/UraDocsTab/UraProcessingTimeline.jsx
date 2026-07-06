@@ -6,7 +6,7 @@ const STEPS = [
   { key: "queued", label: "Fila", aliases: ["queued"] },
   { key: "saving_uploads", label: "Uploads", aliases: ["saving_uploads", "uploads"] },
   { key: "parse", label: "Parser", aliases: ["parse", "parser"] },
-  { key: "transcription", label: "Audio", aliases: ["transcription", "audio", "audio_matching"] },
+  { key: "transcription", label: "Áudio", aliases: ["transcription", "audio", "audio_matching"] },
   {
     key: "ai",
     label: "IA",
@@ -19,13 +19,26 @@ const STEPS = [
     ],
   },
   { key: "package", label: "Pacote", aliases: ["package", "drawio", "generate_package"] },
-  { key: "completed", label: "Concluido", aliases: ["completed"] },
+  { key: "completed", label: "Concluído", aliases: ["completed"] },
 ];
+
+const STATUS_LABELS = {
+  idle: "Aguardando",
+  queued: "Na fila",
+  processing: "Processando",
+  completed: "Concluído",
+  failed: "Falhou",
+};
 
 function normalizeStep(status) {
   if (status?.status === "completed") return "completed";
   const rawStep = String(status?.step || "").toLowerCase();
   return STEPS.find((step) => step.aliases.includes(rawStep))?.key || rawStep;
+}
+
+function statusLabel(status) {
+  const key = String(status || "idle").toLowerCase();
+  return STATUS_LABELS[key] || status || "Aguardando";
 }
 
 export default function UraProcessingTimeline({ status }) {
@@ -62,7 +75,7 @@ export default function UraProcessingTimeline({ status }) {
             {canOpenDetails ? (
               <p className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-red-600">
                 <MessageSquareText className="h-3.5 w-3.5" />
-                Ver detalhes da execucao
+                Ver detalhes da execução
               </p>
             ) : null}
           </div>
@@ -72,7 +85,7 @@ export default function UraProcessingTimeline({ status }) {
             }`}
           >
             {isProcessing ? <Cog className="h-3.5 w-3.5 animate-spin" /> : null}
-            {status?.status || "idle"}
+            {statusLabel(status?.status)}
           </span>
         </div>
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-100">

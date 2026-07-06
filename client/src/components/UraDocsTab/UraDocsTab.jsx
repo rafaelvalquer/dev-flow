@@ -80,7 +80,7 @@ export default function UraDocsTab() {
       return;
     }
     if (health && !pythonOnline) {
-      toast.error("Servico Python STT/URA Docs offline.");
+      toast.error("Serviço Python STT/URA Docs offline.");
       return;
     }
     setSubmitting(true);
@@ -94,9 +94,9 @@ export default function UraDocsTab() {
         options,
       });
       setStatus(created);
-      toast.success("Job de documentacao criado.");
+      toast.success("Job de documentação criado.");
     } catch (error) {
-      toast.error(error?.message || "Falha ao iniciar documentacao.");
+      toast.error(error?.message || "Falha ao iniciar documentação.");
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +109,7 @@ export default function UraDocsTab() {
     const ai = aiHealth.configured ? "OpenAI configurada" : "OpenAI opcional";
     const parser = health.python?.payload?.parserVersion
       ? `Parser ${health.python.payload.parserVersion}`
-      : "Parser sem versao";
+      : "Parser sem versão";
     return `${py} - ${parser} - ${ai}`;
   }, [health]);
 
@@ -123,7 +123,7 @@ export default function UraDocsTab() {
             </span>
             <div>
               <h2 className="text-base font-semibold text-zinc-900">Documentador Inteligente de URA NICE</h2>
-              <p className="text-sm text-zinc-500">Gere draw.io, HTML, Markdown, matrizes e analises a partir do fluxo NICE.</p>
+              <p className="text-sm text-zinc-500">Gere draw.io, HTML, Markdown, matrizes e análises a partir do fluxo NICE.</p>
             </div>
           </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
@@ -148,7 +148,7 @@ export default function UraDocsTab() {
       />
       {health && !pythonOnline ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Servico Python STT/URA Docs offline. Inicie em
+          Serviço Python STT/URA Docs offline. Inicie em
           <code className="mx-1 rounded bg-white px-1">services/stt-python</code>
           com
           <code className="mx-1 rounded bg-white px-1">python -m uvicorn app:app --host 127.0.0.1 --port 8000</code>.
@@ -156,19 +156,19 @@ export default function UraDocsTab() {
       ) : null}
       {parserVersionMissing ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Servico Python online, mas sem <code className="rounded bg-white px-1">parserVersion</code>.
-          Reinicie o servico STT/URA Docs para carregar o parser NICE novo.
+          Serviço Python online, mas sem <code className="rounded bg-white px-1">parserVersion</code>.
+          Reinicie o serviço STT/URA Docs para carregar o parser NICE novo.
         </section>
       ) : null}
       <UraOptionsPanel options={options} onChange={setOptions} />
       <UraProcessingTimeline status={status} />
       {hasCounts ? (
         <section className="rounded-xl border border-zinc-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-zinc-900">Fluxo extraido do NICE</h3>
+          <h3 className="text-sm font-semibold text-zinc-900">Fluxo extraído do NICE</h3>
           <div className="mt-3 grid gap-2 sm:grid-cols-4">
             {[
               ["Actions", summaryCounts.actions],
-              ["Conexoes", summaryCounts.edges],
+              ["Conexões", summaryCounts.edges],
               ["Menus", summaryCounts.menus],
               ["Prompts", summaryCounts.prompts],
             ].map(([label, value]) => (
@@ -180,7 +180,7 @@ export default function UraDocsTab() {
           </div>
           {Number(summaryCounts.actions || 0) <= 1 || Number(summaryCounts.edges || 0) === 0 ? (
             <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              Fluxo navegavel nao encontrado. Gere novamente apos reiniciar o servico Python com o parser atualizado.
+              Fluxo navegável não encontrado. Gere novamente após reiniciar o serviço Python com o parser atualizado.
             </p>
           ) : null}
         </section>

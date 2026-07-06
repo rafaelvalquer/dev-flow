@@ -27,27 +27,27 @@ function actionCode(action) {
 function deterministicDisplayLabel(action) {
   const type = clean(action.type).toUpperCase();
   const text = `${clean(action.caption)}\n${actionCode(action)}`.toLowerCase();
-  if (type === "BEGIN") return "Inicio da URA";
-  if (type === "HOURS") return "Validacao de horario";
-  if (type === "PLAY") return "Mensagem de audio";
+  if (type === "BEGIN") return "Início da URA";
+  if (type === "HOURS") return "Validação de horário";
+  if (type === "PLAY") return "Mensagem de áudio";
   if (type === "MENU") return /cpf|celular|cartao|protocolo|collect|digita|pede/i.test(text) ? "Menu de coleta" : "Menu principal";
   if (type === "IF") {
-    if (/checkmobile|celcancel|celular/.test(text)) return "Celular informado e valido?";
-    if (/checkcpf|cpfcancel|cpf/.test(text)) return "CPF informado e valido?";
+    if (/checkmobile|celcancel|celular/.test(text)) return "Celular informado é válido?";
+    if (/checkcpf|cpfcancel|cpf/.test(text)) return "CPF informado é válido?";
     if (/ani/.test(text) && /(bloq|block|=)/.test(text)) return "ANI bloqueado?";
-    if (/feriado|horario|finaldesemana|indispon|closed|holiday/.test(text)) return "URA indisponivel?";
+    if (/feriado|horario|finaldesemana|indispon|closed|holiday/.test(text)) return "URA indisponível?";
     if (/consulta/.test(text) && /ok/.test(text)) return "Consulta retornou OK?";
-    return "Validacao da regra?";
+    return "Validação da regra?";
   }
   if (type === "SNIPPET") {
     if (/scriptpoint|mapa_dna|cdr/.test(text)) return "Registra CDR / rastreio";
-    if (/next_step/.test(text) && /audio/.test(text)) return "Define mensagem e proximo destino";
-    if (/next_step/.test(text)) return "Define proximo destino";
-    if (/audio/.test(text)) return "Define audio da navegacao";
+    if (/next_step/.test(text) && /audio/.test(text)) return "Define mensagem e próximo destino";
+    if (/next_step/.test(text)) return "Define próximo destino";
+    if (/audio/.test(text)) return "Define áudio da navegação";
     return "Processamento da regra";
   }
-  if (type === "RUNSCRIPT") return "Executa proximo destino";
-  if (["RUNSUB", "REST_API"].includes(type)) return "Consulta API / integracao";
+  if (type === "RUNSCRIPT") return "Executa próximo destino";
+  if (["RUNSUB", "REST_API"].includes(type)) return "Consulta API / integração";
   if (type === "REQAGENT") return "Transfere para atendimento";
   if (type === "END") return "Encerrar chamada";
   return short(action.caption || type || `Action ${action.actionId}`, 80);
@@ -79,8 +79,8 @@ function deterministicOrganizer({ rawActions, projectName }) {
     flowContext: {
       flowName: projectName || rawActions?.project?.name || "URA",
       flowType: "URA NICE",
-      businessPurpose: "Organizacao deterministica gerada sem OpenAI.",
-      audience: ["Negocio", "Desenvolvimento", "Sustentacao"],
+      businessPurpose: "Organização determinística gerada sem OpenAI.",
+      audience: ["Negócio", "Desenvolvimento", "Sustentação"],
       mainDomains: [],
       mainJourneys: menus.slice(0, 8).map((menu) => clean(menu.caption) || `Menu ${menu.actionId}`),
     },
@@ -96,7 +96,7 @@ function deterministicOrganizer({ rawActions, projectName }) {
         actionId: clean(action.actionId),
         type: clean(action.type),
         humanLabel: short(action.caption || action.type || `Action ${action.actionId}`, 80),
-        humanQuestion: clean(action.type).toUpperCase() === "IF" ? `${short(action.caption || "Condicao", 70)}?` : "",
+        humanQuestion: clean(action.type).toUpperCase() === "IF" ? `${short(action.caption || "Condição", 70)}?` : "",
         audioLabel: "",
         group: "pre-menu",
         evidence: [`ActionID ${action.actionId}`],
@@ -107,10 +107,10 @@ function deterministicOrganizer({ rawActions, projectName }) {
       .map((action) => ({
         actionId: clean(action.actionId),
         rawCondition: short(Array.isArray(action.parameters) ? action.parameters.join(" ") : "", 180),
-        humanQuestion: `${short(action.caption || "Condicao", 70)}?`,
+        humanQuestion: `${short(action.caption || "Condição", 70)}?`,
         trueLabel: "Sim",
-        falseLabel: "Nao",
-        category: "validacao",
+        falseLabel: "Não",
+        category: "validação",
         evidence: [`ActionID ${action.actionId}`],
       })),
     collectLabels: actions
@@ -130,16 +130,16 @@ function deterministicOrganizer({ rawActions, projectName }) {
       displayLabel: deterministicDisplayLabel(action),
       secondaryLabel: "",
       conditionLabel: clean(action.type).toUpperCase() === "IF" ? short(actionCode(action), 180) : "",
-      businessDescription: `${deterministicDisplayLabel(action)} extraido do XML NICE.`,
+      businessDescription: `${deterministicDisplayLabel(action)} extraído do XML NICE.`,
       audioFile: audioCandidates(action)[0] || "",
-      audioPurpose: audioCandidates(action)[0] ? "Audio executado pela navegacao." : "",
+      audioPurpose: audioCandidates(action)[0] ? "Áudio executado pela navegação." : "",
       hideFromMainFlow: shouldHideFromMainFlow(action),
       trueLabel: "Sim",
-      falseLabel: "Nao",
+      falseLabel: "Não",
       branchLabels: (Array.isArray(action.branches) ? action.branches : []).slice(0, 8).map((branch) => ({
         raw: clean(branch.name || branch.label || branch.value),
         label: clean(branch.name || branch.label || branch.value),
-        meaning: "Saida real extraida do XML.",
+        meaning: "Saída real extraída do XML.",
       })),
       evidence: [`ActionID ${action.actionId}`, `type ${action.type}`],
     })),
@@ -148,9 +148,9 @@ function deterministicOrganizer({ rawActions, projectName }) {
       actionId: clean(action.actionId),
       businessLabel: short(action.caption || action.type || `Action ${action.actionId}`, 80),
       shortLabel: short(action.caption || action.type || `Action ${action.actionId}`, 42),
-      description: `${clean(action.type)} extraida do XML NICE.`,
+      description: `${clean(action.type)} extraída do XML NICE.`,
       category: clean(action.type).toLowerCase(),
-      group: clean(action.type).toUpperCase() === "MENU" ? "Menus" : "Fluxo tecnico",
+      group: clean(action.type).toUpperCase() === "MENU" ? "Menus" : "Fluxo técnico",
       riskLevel: "low",
       confidence: 0.7,
       evidence: [`ActionID ${action.actionId}`, `type ${action.type}`],
@@ -161,8 +161,8 @@ function deterministicOrganizer({ rawActions, projectName }) {
       captureVariable: "",
       options: (Array.isArray(menu.cases) ? menu.cases : []).slice(0, 16).map((item) => ({
         digit: clean(item.value || item.name),
-        label: clean(item.value || item.name) ? `Opcao ${clean(item.value || item.name)}` : "Opcao",
-        description: "Opcao extraida deterministicamente do CASE.",
+        label: clean(item.value || item.name) ? `Opção ${clean(item.value || item.name)}` : "Opção",
+        description: "Opção extraída deterministicamente do CASE.",
         targetActionId: clean(item.target),
         confidence: 0.75,
         evidence: [`MENU ActionID ${menu.actionId}`, `CASE ${clean(item.value || item.name)}`],
@@ -175,7 +175,7 @@ function deterministicOrganizer({ rawActions, projectName }) {
       .map((action) => ({
         actionId: clean(action.actionId),
         fileName: short(JSON.stringify(action).match(/[^"\\\/]+\.wav/i)?.[0] || "", 120),
-        purpose: short(action.caption || "Audio da URA", 100),
+        purpose: short(action.caption || "Áudio da URA", 100),
         evidence: [`ActionID ${action.actionId}`],
       })),
     subflowLabels: [],
@@ -189,9 +189,9 @@ function deterministicOrganizer({ rawActions, projectName }) {
         "Jornadas Funcionais",
         "Mapa de Menus",
         "Mapa de Skills",
-        "Prompts e Transcricoes",
+        "Prompts e Transcrições",
         "CDR e Scriptpoints",
-        "Acoes NICE",
+        "Ações NICE",
       ],
     },
     issues: [],
@@ -239,14 +239,14 @@ function buildOrganizerPayload({ rawActions, preSemanticExtract, transcriptions,
     edges: edges.slice(0, 260),
     preSemanticExtract: preSemanticExtract || {},
     organizerHints: {
-      goal: "Organizar a navegacao em arvore humanizada para a aba Fluxo Principal.",
+      goal: "Organizar a navegação em árvore humanizada para a aba Fluxo Principal.",
       preserveTopology: [
         "Use apenas ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, skills, prompts e destinos presentes no payload.",
-        "Nao invente conexoes, ActionID, Skill ID, prompts, destinos ou opcoes DTMF.",
-        "Classifique as actions em pre-menu, menu principal, submenu, coleta, validacao, audio/play, API, transferencia, encerramento ou evento lateral.",
-        "Identifique o significado das opcoes do menu principal usando transcricao do audio, nome do audio, destino tecnico, caption de actions posteriores, skillName, NEXT_STEP e contexto do XML.",
-        "Nunca retorne labels genericos como 'Opcao 1' se houver evidencia de contexto.",
-        "Retorne labels curtos e dinamicos para o draw.io, sem assumir nomes fixos de uma URA especifica.",
+        "Não invente conexões, ActionID, Skill ID, prompts, destinos ou opções DTMF.",
+        "Classifique as actions em pré-menu, menu principal, submenu, coleta, validação, áudio/play, API, transferência, encerramento ou evento lateral.",
+        "Identifique o significado das opções do menu principal usando transcrição do áudio, nome do áudio, destino técnico, caption de actions posteriores, skillName, NEXT_STEP e contexto do XML.",
+        "Nunca retorne labels genéricos como 'Opção 1' se houver evidência de contexto.",
+        "Retorne labels curtos e dinâmicos para o draw.io, sem assumir nomes fixos de uma URA específica.",
       ],
       expectedFields: [
         "mainMenuCandidate",
@@ -303,15 +303,15 @@ export async function organizeUraFlowWithAi({
     return {
       organizer: deterministicOrganizer({ rawActions, projectName }),
       warnings: [
-        "IA nao utilizada: usando fallback deterministico. Verifique OPENAI_API_KEY e URA_DOCS_ENABLE_AI.",
+        "IA não utilizada: usando fallback determinístico. Verifique OPENAI_API_KEY e URA_DOCS_ENABLE_AI.",
       ],
       cacheHit: false,
       fallback: true,
       debugEvents: [
         {
           kind: "fallback",
-          title: "Organizador IA nao executado",
-          message: "Usando organizacao deterministica antes do draw.io.",
+          title: "Organizador IA não executado",
+          message: "Usando organização determinística antes do draw.io.",
           details: {
             enabled,
             hasOpenAiKey: Boolean(clean(env.OPENAI_API_KEY)),
@@ -334,29 +334,29 @@ export async function organizeUraFlowWithAi({
         {
           role: "system",
           content: [
-            "Voce organiza scripts NICE Studio em uma arvore de navegacao de URA, clara e objetiva em PT-BR.",
-            "A topologia vem dos dados deterministicos; use a IA apenas para humanizar nomes, condicoes, descricoes, audios e contexto.",
+            "Você organiza scripts NICE Studio em uma árvore de navegação de URA, clara e objetiva em PT-BR.",
+            "A topologia vem dos dados determinísticos; use a IA apenas para humanizar nomes, condições, descrições, áudios e contexto.",
             "Preserve ActionID, CASE, Branches, DefaultNextAction, NEXT_STEP, prompts, skills e destinos reais do payload.",
-            "NUNCA invente conexoes, ActionID, prompts, skills, destinos ou opcoes DTMF.",
-            "Identifique pre-menu, menu principal, submenus, coletas de dados, validacoes, audios/PLAY, APIs, transferencias, encerramentos, timeout/invalido e eventos laterais.",
-            "Sua saida sera usada diretamente em um fluxograma de negocio.",
-            "Nao use nomes tecnicos como If, Play, Snippet, Begin, Case, Menu ou RunScript como label principal.",
-            "Para IF, gere uma pergunta de negocio clara e preencha conditionLabel.",
-            "Para PLAY/MENU, identifique o audio executado e a intencao da mensagem.",
+            "NUNCA invente conexões, ActionID, prompts, skills, destinos ou opções DTMF.",
+            "Identifique pré-menu, menu principal, submenus, coletas de dados, validações, áudios/PLAY, APIs, transferências, encerramentos, timeout/inválido e eventos laterais.",
+            "Sua saída será usada diretamente em um fluxograma de negócio.",
+            "Não use nomes técnicos como If, Play, Snippet, Begin, Case, Menu ou RunScript como label principal.",
+            "Para IF, gere uma pergunta de negócio clara e preencha conditionLabel.",
+            "Para PLAY/MENU, identifique o áudio executado e a intenção da mensagem.",
             "Para SNIPPET, explique o que ele faz em linguagem funcional.",
             "Para RUNSCRIPT/NEXT_STEP, informe o destino funcional quando existir.",
-            "Identifique o significado das opcoes do menu principal usando transcricao do audio, nome do audio, destino tecnico, caption de menus posteriores, skillName, NEXT_STEP e contexto do XML.",
-            "Exemplos apenas ilustrativos, nao chumbados: target com nome de empresa vira label da empresa; target com cancelamento vira Cancelamento; target com segunda via vira Segunda via; target com renegociacao vira Renegociacao.",
-            "Nunca retorne labels genericos como Opcao 1, Opcao 2 ou Opcao 3 quando houver evidencia de contexto no payload.",
+            "Identifique o significado das opções do menu principal usando transcrição do áudio, nome do áudio, destino técnico, caption de menus posteriores, skillName, NEXT_STEP e contexto do XML.",
+            "Exemplos apenas ilustrativos, não chumbados: target com nome de empresa vira label da empresa; target com cancelamento vira Cancelamento; target com segunda via vira Segunda via; target com renegociação vira Renegociação.",
+            "Nunca retorne labels genéricos como Opção 1, Opção 2 ou Opção 3 quando houver evidência de contexto no payload.",
             "menuOptionLabels e menuLabels.options devem conter labels curtos e humanos para o draw.io.",
-            "ActionID deve ser usado apenas como evidencia, nunca como displayLabel.",
+            "ActionID deve ser usado apenas como evidência, nunca como displayLabel.",
             "Gere labels curtos para draw.io.",
-            "Nao use frases longas quando a condicao tecnica for clara.",
-            "Para IF simples, retorne apenas a condicao ou uma pergunta curta.",
-            "Exemplos: ANI=+5512992379575 -> ANI=+5512992379575; CheckCPF(CpfCancel) -> CPF valido?; CheckMobile(CelCancel) -> Celular valido?; HOURS profile 68 -> Horario 68; PLAY com semexpediente.wav -> Audio fechado/feriado; MENU de CPF -> Digitar CPF.",
-            "Nao inclua ActionID, Ref., Condicao: ou Destino: ActionID no displayLabel.",
-            "Use hideFromMainFlow=true para ScriptPoint/CDR puro ou configuracoes tecnicas sem audio, NEXT_STEP, skill ou transferencia.",
-            "Toda evidencia deve apontar para ActionID, CASE, branch, prompt ou transcricao fornecida.",
+            "Não use frases longas quando a condição técnica for clara.",
+            "Para IF simples, retorne apenas a condição ou uma pergunta curta.",
+            "Exemplos: ANI=+5512992379575 -> ANI=+5512992379575; CheckCPF(CpfCancel) -> CPF válido?; CheckMobile(CelCancel) -> Celular válido?; HOURS profile 68 -> Horário 68; PLAY com semexpediente.wav -> Áudio fechado/feriado; MENU de CPF -> Digitar CPF.",
+            "Não inclua ActionID, Ref., Condição: ou Destino: ActionID no displayLabel.",
+            "Use hideFromMainFlow=true para ScriptPoint/CDR puro ou configurações técnicas sem áudio, NEXT_STEP, skill ou transferência.",
+            "Toda evidência deve apontar para ActionID, CASE, branch, prompt ou transcrição fornecida.",
             "Retorne somente JSON no schema solicitado.",
           ].join("\n"),
         },
@@ -379,7 +379,7 @@ export async function organizeUraFlowWithAi({
     debugEvents.push({
       kind: "ai_prompt",
       title: "Prompt enviado ao OpenAI",
-      message: "Organizacao semantica do XML antes da geracao do draw.io.",
+      message: "Organização semântica do XML antes da geração do draw.io.",
       details: {
         stage: "ai_organizer",
         model,
@@ -412,7 +412,7 @@ export async function organizeUraFlowWithAi({
     debugEvents.push({
       kind: "ai_response",
       title: "Resposta recebida do OpenAI",
-      message: "Organizador semantico retornou JSON valido.",
+      message: "Organizador semântico retornou JSON válido.",
       details: {
         stage: "ai_organizer",
         model,
@@ -424,14 +424,14 @@ export async function organizeUraFlowWithAi({
   } catch (error) {
     debugEvents.push({
       kind: "fallback",
-      title: "Organizer IA indisponivel",
+      title: "Organizer IA indisponível",
       message: error?.name === "AbortError" ? `Timeout de ${Math.round(timeoutMs / 1000)}s.` : error?.message || String(error),
       details: { stage: "ai_organizer", model },
     });
     return {
       organizer: deterministicOrganizer({ rawActions, projectName }),
       warnings: [
-        `Organizer IA indisponivel. Geracao continuou com organizador deterministico. Detalhe: ${
+        `Organizer IA indisponível. Geração continuou com organizador determinístico. Detalhe: ${
           error?.name === "AbortError"
             ? `timeout de ${Math.round(timeoutMs / 1000)}s`
             : error?.message || String(error)

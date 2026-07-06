@@ -229,7 +229,7 @@ function extractWavFilesFromZip(buffer) {
       break;
     }
   }
-  if (eocd < 0) throw new Error("ZIP de audio invalido: diretorio central nao encontrado.");
+  if (eocd < 0) throw new Error("ZIP de áudio inválido: diretório central não encontrado.");
   const totalEntries = readUInt16(buffer, eocd + 10);
   let cursor = readUInt32(buffer, eocd + 16);
   for (let index = 0; index < totalEntries; index += 1) {
@@ -309,15 +309,15 @@ async function postFileToPython({ baseUrl, endpoint, file, timeoutMs }) {
       body: form,
       signal: controller.signal,
     });
-    return readJsonResponse(response, "Falha no microservico URA Docs.");
+    return readJsonResponse(response, "Falha no microserviço URA Docs.");
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(
-        `Timeout ao chamar o microservico URA Docs em ${baseUrl}${endpoint}. Verifique se o servico Python esta ativo.`
+        `Timeout ao chamar o microserviço URA Docs em ${baseUrl}${endpoint}. Verifique se o serviço Python está ativo.`
       );
     }
     throw new Error(
-      `Servico Python STT/URA Docs offline ou inacessivel em ${baseUrl}. Inicie o servico em services/stt-python. Detalhe: ${
+      `Serviço Python STT/URA Docs offline ou inacessível em ${baseUrl}. Inicie o serviço em services/stt-python. Detalhe: ${
         error?.message || String(error)
       }`
     );
@@ -336,15 +336,15 @@ async function postJsonToPython({ baseUrl, endpoint, payload, timeoutMs }) {
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    return readJsonResponse(response, "Falha no microservico URA Docs.");
+    return readJsonResponse(response, "Falha no microserviço URA Docs.");
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(
-        `Timeout ao chamar o microservico URA Docs em ${baseUrl}${endpoint}. Verifique se o servico Python esta ativo.`
+        `Timeout ao chamar o microserviço URA Docs em ${baseUrl}${endpoint}. Verifique se o serviço Python está ativo.`
       );
     }
     throw new Error(
-      `Servico Python STT/URA Docs offline ou inacessivel em ${baseUrl}. Inicie o servico em services/stt-python. Detalhe: ${
+      `Serviço Python STT/URA Docs offline ou inacessível em ${baseUrl}. Inicie o serviço em services/stt-python. Detalhe: ${
         error?.message || String(error)
       }`
     );
@@ -432,7 +432,7 @@ function validateNormalizedFlow(normalizedFlow) {
 
   if (!actions.length || !hasStructuredData) {
     throw new Error(
-      "Parser NICE nao retornou actions reais. O job foi interrompido antes de transcrever audios ou chamar IA; verifique se o XML exportado contem ActionID, Action, Caption e conexoes reconheciveis."
+      "Parser NICE não retornou actions reais. O job foi interrompido antes de transcrever áudios ou chamar IA; verifique se o XML exportado contém ActionID, Action, Caption e conexões reconhecíveis."
     );
   }
 }
@@ -450,7 +450,7 @@ function validateNavigablePackage(normalizedFlow) {
   const edges = Array.isArray(normalizedFlow?.edges) ? normalizedFlow.edges : [];
   if (hasActionStructSource(normalizedFlow) && (actions.length <= 1 || edges.length === 0)) {
     throw new Error(
-      "Parser NICE nao gerou fluxo navegavel. Reinicie o servico Python ou valide o XML enviado."
+      "Parser NICE não gerou fluxo navegável. Reinicie o serviço Python ou valide o XML enviado."
     );
   }
 }
@@ -499,12 +499,12 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       step: "saving_uploads",
       progress: 5,
       title: "Recebendo arquivos",
-      message: "Salvando XML NICE e audios enviados no storage temporario do job.",
+      message: "Salvando XML NICE e áudios enviados no storage temporário do job.",
       kind: "file",
     });
 
     const niceFile = files.nice_file?.[0];
-    if (!niceFile) throw new Error("Arquivo NICE nao enviado.");
+    if (!niceFile) throw new Error("Arquivo NICE não enviado.");
 
     await store.writeBuffer(
       job,
@@ -524,7 +524,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       step: "saving_uploads",
       progress: 10,
       title: "Uploads salvos",
-      message: `${niceFile.originalname} salvo. ${audioFiles.length} audio(s) disponivel(is) para matching/transcricao.`,
+      message: `${niceFile.originalname} salvo. ${audioFiles.length} áudio(s) disponível(is) para matching/transcrição.`,
       kind: "file",
       details: {
         niceFile: niceFile.originalname,
@@ -548,22 +548,22 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
           );
         }
         audioFiles = [...audioFiles, ...zipAudios];
-        store.addWarning(jobId, `audio_zip extraido: ${zipAudios.length} WAV(s) adicionados para matching/transcricao.`);
+        store.addWarning(jobId, `audio_zip extraído: ${zipAudios.length} WAV(s) adicionados para matching/transcrição.`);
       } catch (error) {
-        store.addWarning(jobId, `Falha ao extrair audio_zip. A geracao continuou com WAVs enviados fora do ZIP. Detalhe: ${error?.message || String(error)}`);
+        store.addWarning(jobId, `Falha ao extrair audio_zip. A geração continuou com WAVs enviados fora do ZIP. Detalhe: ${error?.message || String(error)}`);
       }
     }
 
     store.updateJob(jobId, {
       step: "parse",
       progress: 18,
-      message: "Executando parser deterministico NICE...",
+      message: "Executando parser determinístico NICE...",
     });
     addJobActivity(store, jobId, {
       step: "parse",
       progress: 18,
       title: "Parser NICE iniciado",
-      message: "Enviando XML para o servico Python extrair actions, conexoes, menus, prompts e skills.",
+      message: "Enviando XML para o serviço Python extrair actions, conexões, menus, prompts e skills.",
       kind: "parser",
     });
 
@@ -584,8 +584,8 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     addJobActivity(store, jobId, {
       step: "parse",
       progress: 28,
-      title: "Parser NICE concluido",
-      message: `Fluxo extraido com ${normalizedFlow?.actions?.length || 0} actions e ${normalizedFlow?.edges?.length || 0} conexoes.`,
+      title: "Parser NICE concluído",
+      message: `Fluxo extraído com ${normalizedFlow?.actions?.length || 0} actions e ${normalizedFlow?.edges?.length || 0} conexões.`,
       kind: "parser",
       details: {
         actions: normalizedFlow?.actions?.length || 0,
@@ -598,15 +598,15 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     store.updateJob(jobId, {
       step: "transcription",
       progress: 35,
-      message: "Transcrevendo audios enviados...",
+      message: "Transcrevendo áudios enviados...",
     });
     addJobActivity(store, jobId, {
       step: "transcription",
       progress: 35,
-      title: "Transcricao local iniciada",
+      title: "Transcrição local iniciada",
       message: audioFiles.length
-        ? `Processando ${audioFiles.length} audio(s) no Python local.`
-        : "Nenhum audio enviado; usando apenas nomes de prompts do XML.",
+        ? `Processando ${audioFiles.length} áudio(s) no Python local.`
+        : "Nenhum áudio enviado; usando apenas nomes de prompts do XML.",
       kind: "audio",
     });
 
@@ -617,7 +617,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       store.updateJob(jobId, {
         step: "transcription",
         progress: Math.min(audioProgress, 53),
-        message: `Transcrevendo audio localmente ${index + 1} de ${
+        message: `Transcrevendo áudio localmente ${index + 1} de ${
           audioFiles.length
         }: ${file.originalname}`,
       });
@@ -626,7 +626,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       addJobActivity(store, jobId, {
         step: "transcription",
         progress: Math.min(audioProgress, 53),
-        title: item.status === "failed" ? "Falha na transcricao" : "Audio transcrito",
+        title: item.status === "failed" ? "Falha na transcrição" : "Áudio transcrito",
         message: `${file.originalname}: ${item.status || "processado"}`,
         kind: item.status === "failed" ? "warning" : "audio",
         details: {
@@ -661,7 +661,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     addJobActivity(store, jobId, {
       step: "ai_organizer",
       progress: 55,
-      title: "Organizacao semantica iniciada",
+      title: "Organização semântica iniciada",
       message: "Preparando uma leitura funcional do XML antes de montar o draw.io.",
       kind: "ai",
     });
@@ -680,9 +680,9 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     addJobActivity(store, jobId, {
       step: "ai_organizer",
       progress: 57,
-      title: organizerResult.fallback ? "Organizador deterministico aplicado" : "Organizacao semantica concluida",
+      title: organizerResult.fallback ? "Organizador determinístico aplicado" : "Organização semântica concluída",
       message: organizerResult.fallback
-        ? "A IA nao foi usada ou falhou; a organizacao continuou pelo fallback deterministico."
+        ? "A IA não foi usada ou falhou; a organização continuou pelo fallback determinístico."
         : "A IA retornou labels/contextos para melhorar a leitura do fluxo.",
       kind: organizerResult.fallback ? "fallback" : "ai",
       details: {
@@ -699,7 +699,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     addJobActivity(store, jobId, {
       step: "ai_enrichment",
       progress: 58,
-      title: "Analise IA iniciada",
+      title: "Análise IA iniciada",
       message: "Solicitando resumo funcional, regras, testes e runbook quando a IA estiver habilitada.",
       kind: "ai",
     });
@@ -747,10 +747,10 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     addJobActivity(store, jobId, {
       step: "ai_enrichment",
       progress: 72,
-      title: aiResult.cacheHit ? "Analise IA recuperada do cache" : "Analise funcional consolidada",
+      title: aiResult.cacheHit ? "Análise IA recuperada do cache" : "Análise funcional consolidada",
       message: aiResult.analysis
         ? "Resumo funcional, regras, testes e runbook preparados para o pacote."
-        : "A geracao continuou com resumo deterministico.",
+        : "A geração continuou com resumo determinístico.",
       kind: aiResult.cacheHit ? "cache" : "ai",
       details: {
         cacheHit: aiResult.cacheHit,
@@ -761,13 +761,13 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     store.updateJob(jobId, {
       step: "package",
       progress: 78,
-      message: "Gerando draw.io, documentacao e matrizes...",
+      message: "Gerando draw.io, documentação e matrizes...",
     });
     addJobActivity(store, jobId, {
       step: "package",
       progress: 78,
-      title: "Geracao do pacote iniciada",
-      message: "Enviando fluxo normalizado, transcricoes e enriquecimento para gerar draw.io, HTML, Markdown e matrizes.",
+      title: "Geração do pacote iniciada",
+      message: "Enviando fluxo normalizado, transcrições e enriquecimento para gerar draw.io, HTML, Markdown e matrizes.",
       kind: "package",
     });
 
@@ -787,7 +787,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       step: "package",
       progress: 88,
       title: "Pacote recebido do Python",
-      message: "Arquivos gerados em memoria; salvando artefatos finais no storage do job.",
+      message: "Arquivos gerados em memória; salvando artefatos finais no storage do job.",
       kind: "package",
       details: {
         files: Object.keys(packageResult?.files || {}),
@@ -824,7 +824,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       status: "completed",
       step: "completed",
       progress: 100,
-      message: "Documentacao da URA gerada com sucesso.",
+      message: "Documentação da URA gerada com sucesso.",
       summary,
       aiInsights: aiEnrichment,
       files: filesMap,
@@ -832,8 +832,8 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     addJobActivity(store, jobId, {
       step: "completed",
       progress: 100,
-      title: "Documentacao concluida",
-      message: "Draw.io, documentacao e matrizes foram gerados com sucesso.",
+      title: "Documentação concluída",
+      message: "Draw.io, documentação e matrizes foram gerados com sucesso.",
       status: "completed",
       kind: "success",
       details: summary,

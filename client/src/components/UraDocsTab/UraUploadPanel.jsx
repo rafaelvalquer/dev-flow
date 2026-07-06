@@ -10,7 +10,7 @@ function FileField({ label, icon: Icon, accept, multiple, onChange }) {
         </span>
         <div>
           <span className="block text-sm font-semibold text-zinc-900">{label}</span>
-          <span className="text-xs text-zinc-500">{multiple ? "Multiplos arquivos" : "Arquivo unico"}</span>
+          <span className="text-xs text-zinc-500">{multiple ? "Múltiplos arquivos" : "Arquivo único"}</span>
         </div>
       </div>
       <input
@@ -55,7 +55,7 @@ export default function UraUploadPanel({
           disabled={submitting || !niceFile || disabled}
           className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
         >
-          {submitting ? "Enviando..." : "Gerar documentacao"}
+          {submitting ? "Enviando..." : "Gerar documentação"}
         </button>
       </div>
 
@@ -74,7 +74,7 @@ export default function UraUploadPanel({
           onChange={(files) => onAudioFilesChange(Array.from(files || []))}
         />
         <FileField
-          label={audioZip ? audioZip.name : "ZIP de audios"}
+          label={audioZip ? audioZip.name : "ZIP de áudios"}
           icon={Package}
           accept=".zip,application/zip"
           onChange={(files) => onAudioZipChange(files?.[0] || null)}

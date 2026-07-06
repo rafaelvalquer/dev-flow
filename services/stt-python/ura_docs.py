@@ -3858,6 +3858,80 @@ def human_branch_label(label: Any) -> str:
     return edge_label({"label": raw})
 
 
+def is_hours_action(action: Optional[Dict[str, Any]]) -> bool:
+    return clean_text((action or {}).get("type")).upper() == "HOURS"
+
+
+def hours_key(action: Optional[Dict[str, Any]]) -> str:
+    parameters = (action or {}).get("parameters") or []
+    if isinstance(parameters, list) and parameters:
+        value = clean_text(parameters[0])
+        if value:
+            return value
+    code = action_code(action or {})
+    match = re.search(r"\b(\d{1,4})\b", code)
+    if match:
+        return match.group(1)
+    return clean_text((action or {}).get("actionId"))
+
+
+def human_hours_branch_label(label: Any) -> str:
+    raw = clean_text(label)
+    low = raw.lower()
+    mapping = {
+        "open": "Aberto",
+        "aberto": "Aberto",
+        "closed": "Fechado",
+        "fechado": "Fechado",
+        "holiday": "Feriado",
+        "feriado": "Feriado",
+        "meeting": "Reunião",
+        "reuniao": "Reunião",
+        "reunião": "Reunião",
+        "emergency": "Emergência",
+        "emergencia": "Emergência",
+        "emergência": "Emergência",
+    }
+    if low in mapping:
+        return mapping[low]
+    return clean_option_label_token(raw) or human_branch_label(raw)
+
+
+def is_open_hours_branch(label: Any) -> bool:
+    return clean_text(label).lower() in {"open", "aberto"}
+
+
+def is_unavailable_hours_branch(label: Any) -> bool:
+    return clean_text(label).lower() in {
+        "closed",
+        "holiday",
+        "feriado",
+        "fechado",
+        "meeting",
+        "emergency",
+        "reuniao",
+        "reunião",
+        "emergencia",
+        "emergência",
+    }
+
+
+def hours_display_label(action: Optional[Dict[str, Any]]) -> str:
+    key = hours_key(action)
+    return f"Horário {key}" if key else "Valida horário"
+
+
+def humanize_hours_play(action: Dict[str, Any], audio: Dict[str, Any]) -> str:
+    text = " ".join([clean_text(action.get("caption")), clean_text(audio.get("fileName")), action_code(action)]).lower()
+    if any(token in text for token in ["feriado", "holiday"]):
+        return "Áudio de feriado"
+    if any(token in text for token in ["reuniao", "reunião", "meeting", "emergencia", "emergência", "emergency"]):
+        return "Áudio de reunião/emergência"
+    if any(token in text for token in ["semexpediente", "sem_expediente", "fora_horario", "forahorario", "fechado", "indisponivel", "indisponível"]):
+        return "Áudio fechado ou fora de horário"
+    return "Áudio de indisponibilidade"
+
+
 GENERIC_TECHNICAL_LABELS = {
     "if",
     "play",
@@ -3955,7 +4029,7 @@ def friendly_action_label(action: Dict[str, Any], ai_organizer: Dict[str, Any]) 
     if atype == "BEGIN":
         return "Inicio da URA"
     if atype == "HOURS":
-        return "Validacao de horario"
+        return hours_display_label(action)
     if atype == "PLAY":
         return "Mensagem de audio"
     if atype == "MENU":
@@ -4127,9 +4201,8 @@ def build_display_node_from_action(action: Dict[str, Any], semantic_model: Dict[
     if atype == "IF":
         label, condition = humanize_if_short(action, ai_organizer)
     elif atype == "HOURS":
-        condition = clean_display_text(condition_label_for_action(action))
-        profile = re.search(r"\b(\d{1,4})\b", condition)
-        label = f"Horario {profile.group(1)}" if profile else "Validacao de horario"
+        condition = ""
+        label = hours_display_label(action)
     elif atype == "MENU" and is_collect_action(action):
         label = humanize_collect_menu(action, semantic_model, ai_organizer)
     elif atype == "MENU":
@@ -4167,6 +4240,7 @@ def build_display_node_from_action(action: Dict[str, Any], semantic_model: Dict[
         "audio": audio,
         "showTechnicalRef": False,
         "hideFromMainFlow": should_hide_from_main_flow(action, ai_label),
+        "hideCondition": atype == "HOURS",
         "evidence": [f"ActionID {aid}"],
     }
     if not node["displayLabel"] and should_hide_from_main_flow(action, node):
@@ -4279,6 +4353,9 @@ def build_display_nodes(navigation_story: Dict[str, Any], semantic_model: Dict[s
                 "evidence": item.get("evidence") or [],
             }
         node["branches"] = item.get("branches") or []
+        node["hoursKey"] = item.get("hoursKey")
+        node["mainBranch"] = item.get("mainBranch") or {}
+        node["sideBranches"] = item.get("sideBranches") or []
         node["options"] = item.get("options") or []
         return node
 
@@ -5288,6 +5365,90 @@ def default_next_id(action: Optional[Dict[str, Any]], adjacency: Dict[str, List[
     return clean_text(preferred.get("target"))
 
 
+def is_terminal_or_treatment_target(action: Optional[Dict[str, Any]]) -> bool:
+    if not action:
+        return False
+    atype = clean_text(action.get("type")).upper()
+    text = action_search_text(action)
+    if atype in {"END", "LOOP", "ONRELEASE"}:
+        return True
+    if atype in {"PLAY", "RUNSCRIPT"}:
+        return any(token in text for token in ["desliga", "tchau", "encerra", "timeout", "maxsil", "maxinv", "maxrej", "erro", "reject"])
+    return False
+
+
+def target_leads_to_terminal_treatment(target_id: str, actions_map: Dict[str, Dict[str, Any]], adjacency: Dict[str, List[Dict[str, Any]]], max_depth: int = 6) -> bool:
+    current_id = clean_text(target_id)
+    visited = set()
+    depth = 0
+    while current_id and current_id not in visited and depth < max_depth:
+        visited.add(current_id)
+        action = actions_map.get(current_id)
+        if not action:
+            return False
+        atype = clean_text(action.get("type")).upper()
+        if is_terminal_or_treatment_target(action):
+            return True
+        if atype in {"MENU", "HOURS", "IF", "LOCATE", "CASE", "RUNSUB", "REST_API", "REQAGENT"}:
+            return False
+        next_id = default_next_id(action, adjacency)
+        if not next_id:
+            return False
+        current_id = next_id
+        depth += 1
+    return False
+
+
+def edge_navigation_score(edge: Dict[str, Any], actions_map: Dict[str, Dict[str, Any]], adjacency: Dict[str, List[Dict[str, Any]]]) -> int:
+    target_id = clean_text(edge.get("target"))
+    target = actions_map.get(target_id)
+    if not target:
+        return 1
+    atype = clean_text(target.get("type")).upper()
+    if is_terminal_or_treatment_target(target) or target_leads_to_terminal_treatment(target_id, actions_map, adjacency):
+        return -20
+    if atype in {"MENU", "HOURS", "IF", "LOCATE", "CASE", "SNIPPET", "PLAY", "RUNSUB", "REST_API", "RUNSCRIPT", "REQAGENT"}:
+        return 10
+    return 2
+
+
+def choose_functional_main_edge(action: Dict[str, Any], outgoing_edges: List[Dict[str, Any]], semantic_model: Dict[str, Any], trace_context: Optional[Dict[str, str]] = None, option_digit: str = "") -> Optional[Dict[str, Any]]:
+    if not outgoing_edges:
+        return None
+    if is_hours_action(action):
+        return choose_main_navigation_edge(action, outgoing_edges, trace_context or {}, option_digit)
+    actions_map = action_by_id(semantic_model)
+    _actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    atype = clean_text(action.get("type")).upper()
+    if atype == "IF":
+        navigable = [edge for edge in outgoing_edges if edge_navigation_score(edge, actions_map, adjacency) > 0]
+        if navigable:
+            preferred = next((edge for edge in navigable if edge_label_text(edge).lower() in {"false", "nao", "não", "no"}), None)
+            return preferred or sorted(navigable, key=lambda edge: -edge_navigation_score(edge, actions_map, adjacency))[0]
+        return None
+    return choose_main_navigation_edge(action, outgoing_edges, trace_context or {}, option_digit)
+
+
+def build_decision_side_branches(action: Dict[str, Any], outgoing_edges: List[Dict[str, Any]], main_edge: Optional[Dict[str, Any]], semantic_model: Dict[str, Any]) -> List[Dict[str, Any]]:
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    main_target = clean_text((main_edge or {}).get("target"))
+    branches = []
+    for edge in outgoing_edges:
+        target_id = clean_text(edge.get("target"))
+        if not target_id or target_id == main_target:
+            continue
+        target = actions_map.get(target_id)
+        branches.append(
+            {
+                "label": human_branch_label(edge_label_text(edge)),
+                "targetActionId": target_id,
+                "meaning": branch_meaning(edge_label_text(edge), semantic_model, target_id),
+                "terminal": is_terminal_or_treatment_target(target) or target_leads_to_terminal_treatment(target_id, actions_map, adjacency),
+            }
+        )
+    return branches[:4]
+
+
 def trace_pre_menu_path(semantic_model: Dict[str, Any], main_menu_action_id: str, ai_organizer: Dict[str, Any]) -> List[Dict[str, Any]]:
     actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
     begin = next((action for action in semantic_model.get("actions", []) if clean_text(action.get("type")).upper() == "BEGIN"), None)
@@ -5303,30 +5464,49 @@ def trace_pre_menu_path(semantic_model: Dict[str, Any], main_menu_action_id: str
             break
         atype = clean_text(action.get("type")).upper()
         if atype in {"BEGIN", "IF", "HOURS", "PLAY", "SNIPPET", "RUNSUB", "REST_API", "RUNSCRIPT", "END"} or is_technical_noise_action(action):
-            story.append(
-                {
-                    "actionId": current_id,
-                    "type": atype,
-                    "label": action_story_label(action, ai_organizer),
-                    "displayLabel": friendly_action_label(action, ai_organizer),
-                    "technicalLabel": f"{atype} ActionID {current_id}",
-                    "conditionLabel": humanize_if_for_display(action, ai_organizer)[1] if atype == "IF" else "",
-                    "businessDescription": clean_text(ai_display_label_for_action(current_id, ai_organizer).get("businessDescription")),
-                    "shape": "decision" if atype in {"IF", "HOURS"} else "terminal_end" if atype == "END" else "terminal_start" if atype == "BEGIN" else "process",
-                    "audio": audio_context_for_action(action, semantic_model),
-                    "branches": [
-                        {
-                            "label": human_branch_label(edge_label_text(edge)),
-                            "targetActionId": clean_text(edge.get("target")),
-                            "meaning": branch_meaning(edge_label_text(edge), semantic_model, clean_text(edge.get("target"))),
-                        }
-                        for edge in adjacency.get(current_id, [])
-                        if edge_label_text(edge).lower() not in {"", "default"}
-                    ][:4],
-                    "evidence": [f"ActionID {current_id}"],
-                }
-            )
-        current_id = default_next_id(action, adjacency)
+            outgoing = adjacency.get(current_id, [])
+            main_edge = choose_functional_main_edge(action, outgoing, semantic_model, {}, "")
+            item = {
+                "actionId": current_id,
+                "type": atype,
+                "label": action_story_label(action, ai_organizer),
+                "displayLabel": hours_display_label(action) if atype == "HOURS" else friendly_action_label(action, ai_organizer),
+                "technicalLabel": f"{atype} ActionID {current_id}",
+                "conditionLabel": humanize_if_for_display(action, ai_organizer)[1] if atype == "IF" else "",
+                "businessDescription": clean_text(ai_display_label_for_action(current_id, ai_organizer).get("businessDescription")),
+                "shape": "decision" if atype in {"IF", "HOURS"} else "terminal_end" if atype == "END" else "terminal_start" if atype == "BEGIN" else "process",
+                "audio": audio_context_for_action(action, semantic_model),
+                "branches": build_decision_side_branches(action, outgoing, main_edge, semantic_model) if atype == "IF" else [
+                    {
+                        "label": human_branch_label(edge_label_text(edge)),
+                        "targetActionId": clean_text(edge.get("target")),
+                        "meaning": branch_meaning(edge_label_text(edge), semantic_model, clean_text(edge.get("target"))),
+                    }
+                    for edge in outgoing
+                    if edge_label_text(edge).lower() not in {"", "default"}
+                ][:4],
+                "evidence": [f"ActionID {current_id}"],
+            }
+            if atype == "HOURS":
+                item.update(extract_hours_treatments_for_step(action, semantic_model, {}, ai_organizer))
+                item["branches"] = []
+            story.append(item)
+            if atype == "END":
+                break
+        if atype == "HOURS":
+            main_edge = choose_main_navigation_edge(action, adjacency.get(current_id, []), {}, "")
+            current_id = clean_text((main_edge or {}).get("target"))
+        elif atype == "IF":
+            main_edge = choose_functional_main_edge(action, adjacency.get(current_id, []), semantic_model, {}, "")
+            if not main_edge:
+                if story:
+                    story[-1]["stopBeforeMenu"] = True
+                break
+            current_id = clean_text((main_edge or {}).get("target"))
+            if not current_id:
+                break
+        else:
+            current_id = default_next_id(action, adjacency)
     if not story:
         story.append({"actionId": "", "type": "BEGIN", "label": "Inicio da URA", "shape": "terminal_start", "audio": {}, "branches": [], "evidence": []})
     return story
@@ -5512,6 +5692,8 @@ def step_from_action(action: Dict[str, Any], semantic_model: Dict[str, Any], ai_
     condition_label = ""
     if atype == "IF":
         label, condition_label = humanize_if_for_display(action, ai_organizer)
+    elif atype == "HOURS":
+        label = hours_display_label(action)
     if atype == "RUNSCRIPT":
         label = "Executa proximo passo"
     elif atype in {"RUNSUB", "REST_API"}:
@@ -5658,7 +5840,7 @@ def choose_main_navigation_edge(action: Dict[str, Any], outgoing_edges: List[Dic
         return next((edge for edge, label in labels if label in wanted_set), None)
 
     if atype == "HOURS":
-        return first_label("open", "aberto") or default_edge_from_list(outgoing_edges)
+        return next((edge for edge, label in labels if is_open_hours_branch(label)), None) or default_edge_from_list(outgoing_edges)
     if atype == "LOCATE":
         return first_label("found", "encontrado") or default_edge_from_list(outgoing_edges)
     if atype == "IF":
@@ -5692,6 +5874,8 @@ def default_edge_from_list(edges: List[Dict[str, Any]]) -> Optional[Dict[str, An
 
 def collect_side_treatments(action: Dict[str, Any], outgoing_edges: List[Dict[str, Any]], main_edge: Optional[Dict[str, Any]]) -> List[Dict[str, str]]:
     treatments = []
+    if is_hours_action(action):
+        return treatments
     main_target = clean_text((main_edge or {}).get("target"))
     for edge in outgoing_edges:
         target = clean_text(edge.get("target"))
@@ -5701,6 +5885,250 @@ def collect_side_treatments(action: Dict[str, Any], outgoing_edges: List[Dict[st
         if is_side_treatment_edge(action, edge):
             treatments.append({"label": human_branch_label(label), "targetActionId": target, "kind": "side_treatment"})
     return treatments
+
+
+def hours_branch_signature(branch: Dict[str, Any]) -> Tuple[Any, ...]:
+    blocks = []
+    for block in branch.get("blocks") or []:
+        audio = block.get("audio") if isinstance(block.get("audio"), dict) else {}
+        blocks.append(
+            (
+                clean_text(block.get("type")).lower(),
+                clean_text(block.get("resolvedTarget") or block.get("nextStep") or block.get("transferCode")),
+                clean_text(audio.get("fileName")).lower(),
+                clean_display_text(block.get("displayLabel") or block.get("label")).lower(),
+            )
+        )
+    terminal = branch.get("terminal") if isinstance(branch.get("terminal"), dict) else {}
+    return tuple(blocks + [(clean_text(terminal.get("type")).lower(), clean_text(terminal.get("label")).lower())])
+
+
+def merge_equivalent_hours_side_branches(side_branches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    grouped: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+    order: List[Tuple[Any, ...]] = []
+    for branch in side_branches:
+        signature = hours_branch_signature(branch)
+        if signature not in grouped:
+            grouped[signature] = {**branch, "branchTypes": list(branch.get("branchTypes") or [clean_text(branch.get("rawLabel") or branch.get("label"))])}
+            order.append(signature)
+            continue
+        existing = grouped[signature]
+        labels = [clean_text(item) for item in re.split(r"\s*/\s*", clean_text(existing.get("label"))) if clean_text(item)]
+        label = clean_text(branch.get("label"))
+        if label and label not in labels:
+            labels.append(label)
+        existing["label"] = "/".join(labels)
+        existing.setdefault("evidence", []).extend(item for item in branch.get("evidence") or [] if item not in existing.get("evidence", []))
+        existing.setdefault("branchTypes", []).extend(
+            item for item in (branch.get("branchTypes") or [clean_text(branch.get("rawLabel") or branch.get("label"))]) if item not in existing.get("branchTypes", [])
+        )
+    return [grouped[key] for key in order]
+
+
+def trace_hours_branch_outcome(
+    hours_action: Dict[str, Any],
+    branch: Dict[str, Any],
+    semantic_model: Dict[str, Any],
+    trace_context: Dict[str, str],
+    ai_organizer: Dict[str, Any],
+    max_depth: int = 14,
+) -> Dict[str, Any]:
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    raw_label = edge_label_text(branch)
+    target_id = clean_text(branch.get("target"))
+    local_context = dict(trace_context or {})
+    current_id = target_id
+    visited: set = set()
+    blocks: List[Dict[str, Any]] = []
+    terminal: Dict[str, str] = {}
+    evidence = [f"HOURS {clean_text(hours_action.get('actionId'))} {clean_text(raw_label)} -> {target_id}"]
+    depth = 0
+    while current_id and depth < max_depth:
+        if current_id in visited:
+            terminal = {"type": "loop", "label": "Retorno para ponto visitado", "actionId": current_id}
+            blocks.append(
+                {
+                    "type": "loop",
+                    "actionId": current_id,
+                    "displayLabel": "Retorno para ponto visitado",
+                    "evidence": [f"ActionID {current_id}"],
+                    "context": dict(local_context),
+                }
+            )
+            break
+        visited.add(current_id)
+        action = actions_map.get(current_id)
+        if not action:
+            terminal = {"type": "external", "label": current_id, "actionId": current_id}
+            blocks.append(
+                {
+                    "type": "continuation",
+                    "actionId": current_id,
+                    "displayLabel": "Destino não detalhado",
+                    "secondaryLabel": current_id,
+                    "evidence": [f"Target {current_id}"],
+                    "context": dict(local_context),
+                }
+            )
+            break
+        selected_case = apply_matching_switch_case(action, local_context, clean_text(local_context.get("MRES")))
+        atype = clean_text(action.get("type")).upper()
+        output = summarize_action_output(action)
+        assignments = parse_assignments(action_code(action))
+        if output:
+            update_trace_context_from_assignments(local_context, {key: value for key, value in output.items() if clean_text(value)})
+        if assignments:
+            update_trace_context_from_assignments(local_context, assignments)
+
+        should_add = False
+        step = step_from_action(action, semantic_model, ai_organizer, edge_label_value=raw_label, trace_context=local_context)
+        step["context"] = dict(local_context)
+        step["contextSnapshot"] = context_snapshot(local_context)
+        if selected_case:
+            step["matchedCase"] = {
+                "switchVariable": selected_case.get("switchVariable"),
+                "caseValues": selected_case.get("caseValues") or [],
+                "caseRangeLabel": selected_case.get("caseRangeLabel"),
+            }
+
+        if atype == "PLAY":
+            audio = resolve_audio_for_step(step, local_context, semantic_model)
+            step["type"] = "play"
+            step["displayLabel"] = humanize_hours_play(action, audio)
+            step["audio"] = audio
+            should_add = True
+        elif atype == "END":
+            step["type"] = "end"
+            step["displayLabel"] = "Fim"
+            should_add = True
+            terminal = {"type": "end", "label": "Fim", "actionId": current_id}
+        elif atype == "RUNSCRIPT":
+            resolved = clean_text(output.get("nextStep") or local_context.get("NEXT_STEP") or local_context.get("__last_next_step") or action.get("caption"))
+            step["type"] = "runscript"
+            step["displayLabel"] = "Executa próximo fluxo"
+            step["resolvedTarget"] = resolved
+            step["nextStep"] = resolved
+            should_add = True
+            terminal = {"type": "runscript", "label": resolved or "Próximo fluxo", "actionId": current_id}
+        elif atype == "REQAGENT":
+            skill = clean_text(output.get("skillName") or output.get("skillId") or local_context.get("SKILL_NAME") or local_context.get("SKILL_ID"))
+            step["type"] = "reqagent"
+            step["displayLabel"] = "Transferência"
+            step["secondaryLabel"] = skill
+            should_add = True
+            terminal = {"type": "reqagent", "label": skill or "Transferência", "actionId": current_id}
+        elif atype in {"REST_API", "RUNSUB"}:
+            step["type"] = "api"
+            step["displayLabel"] = "Consulta API / integração"
+            should_add = True
+            terminal = {"type": atype.lower(), "label": clean_text(action.get("caption")) or step["displayLabel"], "actionId": current_id}
+        elif atype == "MENU":
+            step["type"] = "menu"
+            step["displayLabel"] = "Segue para menu"
+            step["secondaryLabel"] = clean_option_label_token(action.get("caption"))
+            should_add = True
+            terminal = {"type": "menu", "label": step["secondaryLabel"] or "Menu", "actionId": current_id}
+        elif atype in {"IF", "HOURS"}:
+            step["type"] = "decision"
+            step["displayLabel"] = hours_display_label(action) if atype == "HOURS" else humanize_if_short(action, ai_organizer)[0]
+            step["hideCondition"] = atype == "HOURS"
+            should_add = True
+            terminal = {"type": "decision", "label": step["displayLabel"], "actionId": current_id}
+        elif atype == "SNIPPET" and any(clean_text(output.get(key)) for key in ["audio", "nextStep", "transferCode", "skillId", "skillName"]):
+            step["type"] = "process"
+            step["displayLabel"] = clean_text(step.get("displayLabel")) or friendly_action_label(action, ai_organizer)
+            should_add = True
+        elif not is_technical_noise_action(action) and atype not in {"ONANSWER", "ONRELEASE"}:
+            should_add = True
+
+        if should_add:
+            blocks.append(step)
+        if terminal:
+            break
+        if atype == "CASE":
+            matched_target = ""
+            for case in action.get("cases") or []:
+                case_value = clean_text(case.get("value") or case.get("name"))
+                switch_value = clean_text(local_context.get("MRESF1") or local_context.get("MRESF") or local_context.get("MRES3") or local_context.get("MRES2") or local_context.get("MRES1") or local_context.get("MRES"))
+                if case_value and case_value == switch_value:
+                    matched_target = clean_text(case.get("target"))
+                    break
+            if matched_target:
+                current_id = matched_target
+                depth += 1
+                continue
+        main_edge = choose_main_navigation_edge(action, adjacency.get(current_id, []), local_context, clean_text(local_context.get("MRES")))
+        if not main_edge:
+            break
+        current_id = clean_text(main_edge.get("target"))
+        depth += 1
+    if not blocks and target_id:
+        blocks.append(
+            {
+                "type": "continuation",
+                "actionId": target_id,
+                "displayLabel": "Destino não detalhado",
+                "secondaryLabel": target_id,
+                "evidence": [f"Target {target_id}"],
+                "context": dict(local_context),
+            }
+        )
+    return {
+        "branchLabel": human_hours_branch_label(raw_label),
+        "label": human_hours_branch_label(raw_label),
+        "rawLabel": clean_text(raw_label),
+        "branchType": "open" if is_open_hours_branch(raw_label) else "unavailable" if is_unavailable_hours_branch(raw_label) else "other",
+        "branchTypes": [clean_text(raw_label)],
+        "targetActionId": target_id,
+        "blocks": blocks[:6],
+        "terminal": terminal,
+        "evidence": evidence,
+    }
+
+
+def extract_hours_treatments_for_step(
+    step_or_action: Dict[str, Any],
+    semantic_model: Dict[str, Any],
+    trace_context: Dict[str, str],
+    ai_organizer: Dict[str, Any],
+) -> Dict[str, Any]:
+    actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    action_id = clean_text(step_or_action.get("actionId"))
+    action = actions_map.get(action_id) or step_or_action
+    if not is_hours_action(action):
+        return {}
+    outgoing = adjacency.get(clean_text(action.get("actionId")), [])
+    if not outgoing:
+        return {
+            "hoursKey": hours_key(action),
+            "displayLabel": hours_display_label(action),
+            "mainBranch": {},
+            "sideBranches": [],
+            "evidence": [f"ActionID {clean_text(action.get('actionId'))}", f"HOURS {hours_key(action)}"],
+        }
+    main_edge = next((edge for edge in outgoing if is_open_hours_branch(edge_label_text(edge))), None)
+    evidence = [f"ActionID {clean_text(action.get('actionId'))}", f"HOURS {hours_key(action)}"]
+    if main_edge is None:
+        main_edge = outgoing[0]
+        evidence.append("HOURS sem branch Open identificada.")
+    main_target = clean_text((main_edge or {}).get("target"))
+    side_branches = [
+        trace_hours_branch_outcome(action, edge, semantic_model, dict(trace_context or {}), ai_organizer)
+        for edge in outgoing
+        if clean_text(edge.get("target")) != main_target
+    ]
+    return {
+        "hoursKey": hours_key(action),
+        "displayLabel": hours_display_label(action),
+        "conditionLabel": "",
+        "hideCondition": True,
+        "mainBranch": {
+            "label": human_hours_branch_label(edge_label_text(main_edge or {})),
+            "targetActionId": main_target,
+        },
+        "sideBranches": merge_equivalent_hours_side_branches(side_branches),
+        "evidence": evidence,
+    }
 
 
 def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, Any]], dispatcher: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
@@ -5762,6 +6190,8 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
                     "caseValues": selected_case.get("caseValues") or [],
                     "caseRangeLabel": selected_case.get("caseRangeLabel"),
                 }
+            if is_hours_action(action):
+                step.update(extract_hours_treatments_for_step(action, semantic_model, trace_context, ai_organizer))
             raw_steps.append(step)
         atype = clean_text(action.get("type")).upper()
         output = summarize_action_output(action)
@@ -5805,7 +6235,8 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
                 continue
         outgoing = adjacency.get(current_id, [])
         main_edge = choose_main_navigation_edge(action, outgoing, trace_context, digit)
-        side_treatments.extend(collect_side_treatments(action, outgoing, main_edge))
+        if not is_hours_action(action):
+            side_treatments.extend(collect_side_treatments(action, outgoing, main_edge))
         if not main_edge:
             terminal = {"type": "terminal", "actionId": current_id, "label": friendly_action_label(action, ai_organizer)}
             break
@@ -5884,9 +6315,8 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
         audio = raw_step.get("audio") or {}
     elif atype == "HOURS":
         kind = "decision"
-        if label.lower() in {"validacao de horario", "hours"}:
-            profile = re.search(r"\b(\d{1,4})\b", action_code(action or {}))
-            label = f"Horario {profile.group(1)}" if profile else "Horario"
+        label = clean_display_text(raw_step.get("displayLabel")) or hours_display_label(action)
+        secondary = ""
     elif atype == "MENU":
         kind = "menu"
         if action and is_collect_action(action):
@@ -5961,7 +6391,10 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
         "contextSnapshot": raw_step.get("contextSnapshot") or context_snapshot(context),
         "hideFromMainFlow": False,
         "technicalCondition": clean_text(locals().get("technical_condition", "")),
-        "hideCondition": bool(locals().get("hide_condition", False)),
+        "hideCondition": bool(raw_step.get("hideCondition") or locals().get("hide_condition", False)),
+        "hoursKey": raw_step.get("hoursKey"),
+        "mainBranch": raw_step.get("mainBranch") or {},
+        "sideBranches": raw_step.get("sideBranches") or [],
     }
 
 
@@ -6356,6 +6789,7 @@ def business_step_from_action(action: Dict[str, Any], semantic_model: Dict[str, 
                     "targetActionId": clean_text(edge.get("target")),
                 }
             )
+    hours_treatments = extract_hours_treatments_for_step(action, semantic_model, trace_context, ai_organizer) if atype == "HOURS" else {}
     rules = []
     for case in parse_switch_case_tree(action_code(action))[:8]:
         values = _case_range_label(case.get("caseValues") or [])
@@ -6366,6 +6800,7 @@ def business_step_from_action(action: Dict[str, Any], semantic_model: Dict[str, 
     kind = {
         "BEGIN": "start",
         "IF": "decision",
+        "HOURS": "decision",
         "PLAY": "play",
         "RUNSUB": "api",
         "REST_API": "api",
@@ -6375,6 +6810,8 @@ def business_step_from_action(action: Dict[str, Any], semantic_model: Dict[str, 
     next_step = output.get("nextStep") or clean_text(trace_context.get("NEXT_STEP"))
     if atype == "RUNSCRIPT" and "{NEXT_STEP}" in action_code(action) and next_step:
         label = "Executa proximo fluxo"
+    if atype == "HOURS":
+        label = hours_display_label(action)
     return {
         "nodeKey": f"rule_{aid}",
         "actionId": aid,
@@ -6389,6 +6826,10 @@ def business_step_from_action(action: Dict[str, Any], semantic_model: Dict[str, 
         "composedAudio": composed,
         "api": clean_text(action.get("caption")) if atype in {"RUNSUB", "REST_API"} else "",
         "nextStep": next_step,
+        "hoursKey": hours_treatments.get("hoursKey"),
+        "mainBranch": hours_treatments.get("mainBranch") or {},
+        "sideBranches": hours_treatments.get("sideBranches") or [],
+        "hideCondition": bool(hours_treatments.get("hideCondition")),
         "evidence": [f"ActionID {aid}"],
     }
 
@@ -6631,6 +7072,9 @@ def build_visual_block_from_step(step: Dict[str, Any], semantic_model: Dict[str,
         "composedAudio": step.get("composedAudio") or {},
         "hideCondition": bool(step.get("hideCondition")),
         "technicalCondition": clean_text(step.get("technicalCondition")),
+        "hoursKey": step.get("hoursKey"),
+        "mainBranch": step.get("mainBranch") or {},
+        "sideBranches": step.get("sideBranches") or [],
     }
     block["audio"] = resolve_audio_for_visual_block(block, context, semantic_model)
     block["audioResolvedFrom"] = clean_text(block.get("audioResolvedFrom") or (block.get("audio") or {}).get("resolvedFrom") or (block.get("audio") or {}).get("origin"))
@@ -6671,7 +7115,10 @@ def trace_branch_tree(start_action_id: Any, semantic_model: Dict[str, Any], cont
         if step:
             block = build_visual_block_from_step(step, semantic_model, local_context)
             if block.get("type") == "decision":
-                block["branches"] = build_visual_branches_for_decision(block, semantic_model, local_context, ai_organizer, max_depth=max(3, max_depth - depth - 1), nested=True)
+                if block.get("sideBranches"):
+                    block["branches"] = []
+                else:
+                    block["branches"] = build_visual_branches_for_decision(block, semantic_model, local_context, ai_organizer, max_depth=max(3, max_depth - depth - 1), nested=True)
                 blocks.append(block)
                 break
             blocks.append(block)
@@ -6692,6 +7139,9 @@ def build_visual_branches_for_decision(block: Dict[str, Any], semantic_model: Di
     if not aid:
         return []
     actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
+    action = actions_map.get(aid)
+    if is_hours_action(action):
+        return (extract_hours_treatments_for_step(action or {"actionId": aid}, semantic_model, context, ai_organizer).get("sideBranches") or [])
     branches: List[Dict[str, Any]] = []
     for edge in adjacency.get(aid, [])[:4]:
         target_id = clean_text(edge.get("target"))
@@ -6721,7 +7171,7 @@ def build_visual_blocks(navigation_story: Dict[str, Any], semantic_model: Dict[s
             if not isinstance(step, dict):
                 continue
             block = build_visual_block_from_step(step, semantic_model, step.get("context") or {})
-            if block.get("type") == "decision":
+            if block.get("type") == "decision" and not block.get("sideBranches"):
                 block["branches"] = build_visual_branches_for_decision(block, semantic_model, block.get("context") or {}, ai_organizer)
             blocks.append(block)
         result["blocks"] = blocks
@@ -7424,9 +7874,6 @@ def render_visual_block_label(block: Dict[str, Any]) -> str:
     next_step = clean_text(block.get("nextStep"))
     if next_step:
         lines.append(short_label(clean_option_label_token(next_step) or next_step, 70))
-    evidence = [clean_text(item) for item in block.get("evidence") or [] if clean_text(item)]
-    if evidence:
-        lines.append(short_label(evidence[0], 58))
     return "\n".join(unique_visual_lines(lines))
 
 
@@ -7457,6 +7904,114 @@ def visual_block_height(block: Dict[str, Any]) -> int:
     return min(max(height, 86), 220)
 
 
+def hours_side_depth(step: Dict[str, Any]) -> int:
+    return max((len(branch.get("blocks") or []) for branch in step.get("sideBranches") or [] if isinstance(branch, dict)), default=0)
+
+
+def hours_side_branch_height(branch: Dict[str, Any]) -> int:
+    blocks = [block for block in branch.get("blocks") or [] if isinstance(block, dict)]
+    if not blocks:
+        return 58
+    total = 0
+    for index, block in enumerate(blocks[:5]):
+        kind = clean_text(block.get("type")).lower()
+        total += 44 if kind in {"end", "terminal"} else 68
+        if index < min(len(blocks), 5) - 1:
+            total += 18
+    return total
+
+
+def hours_side_total_height(step: Dict[str, Any]) -> int:
+    branches = [branch for branch in step.get("sideBranches") or [] if isinstance(branch, dict)]
+    if not branches:
+        return 0
+    return sum(hours_side_branch_height(branch) for branch in branches[:4]) + max(0, len(branches[:4]) - 1) * 26
+
+
+def visual_step_layout_units(step: Dict[str, Any]) -> int:
+    side_height = hours_side_total_height(step)
+    if side_height:
+        return max(1, (side_height + 125) // 128)
+    return max(1, hours_side_depth(step))
+
+
+def flow_item_layout_units(flow_item: Dict[str, Any]) -> int:
+    steps = (flow_item.get("visibleSteps") or flow_item.get("steps") or [])[:18]
+    return max(1, sum(visual_step_layout_units(step) for step in steps if isinstance(step, dict)))
+
+
+def hours_side_block_style(block: Dict[str, Any]) -> str:
+    kind = clean_text(block.get("type")).lower()
+    if kind in {"end", "terminal"}:
+        return "terminal_end"
+    if kind in {"runscript", "runsub", "rest_api", "reqagent", "transfer", "api", "routing"}:
+        return "transfer"
+    if kind in {"decision", "if", "hours", "menu"}:
+        return "decision"
+    if kind in {"loop", "continuation"}:
+        return "warning"
+    return "process"
+
+
+def render_hours_side_block_label(block: Dict[str, Any]) -> str:
+    lines = [short_label(block.get("displayLabel") or block.get("label"), 42)]
+    secondary = clean_display_text(block.get("secondaryLabel") or block.get("resolvedTarget") or block.get("nextStep") or block.get("transferCode"))
+    if secondary and should_render_condition(lines[0] if lines else "", secondary):
+        lines.append(short_label(secondary, 42))
+    audio_line = render_audio_line(block.get("audio") or {})
+    if audio_line:
+        lines.append(short_label(audio_line.replace("Áudio: ", ""), 42))
+    if not any(clean_text(line) for line in lines):
+        lines.append(short_label(block.get("actionId") or "Destino não detalhado", 54))
+    return "\n".join(unique_visual_lines(lines))
+
+
+def render_hours_side_branches(cells: List[str], source_id: str, step: Dict[str, Any], prefix: str, source_x: int, source_y: int, source_w: int, page_width: int = 1600, reserved_right: int = 0) -> int:
+    side_branches = [branch for branch in step.get("sideBranches") or [] if isinstance(branch, dict)]
+    if not side_branches:
+        return source_y + 116
+    side_w = 190
+    gap = 20
+    side_x = source_x + source_w + gap
+    if reserved_right and side_x + side_w > source_x + source_w + reserved_right:
+        side_x = source_x + max(0, source_w - side_w)
+    if side_x + side_w > page_width - 35:
+        side_x = max(35, source_x - side_w - gap)
+    bottom = source_y + 116
+    branch_y = source_y
+    for branch_index, branch in enumerate(side_branches[:4]):
+        blocks = [block for block in branch.get("blocks") or [] if isinstance(block, dict)]
+        if not blocks:
+            blocks = [
+                {
+                    "type": "continuation",
+                    "displayLabel": "Destino não detalhado",
+                    "secondaryLabel": branch.get("targetActionId"),
+                }
+            ]
+        previous = source_id
+        child_y = branch_y
+        for block_index, block in enumerate(blocks[:5]):
+            block_id = f"{prefix}_hours_{branch_index}_{block_index}_{safe_drawio_id(block.get('actionId') or block.get('displayLabel') or branch.get('label'))}"
+            is_end = clean_text(block.get("type")).lower() in {"end", "terminal"}
+            block_h = 44 if is_end else 68
+            block_w = 120 if is_end else side_w
+            block_x = side_x + (side_w - block_w) // 2 if is_end else side_x
+            cells.append(mx_node(block_id, render_hours_side_block_label(block), block_x, child_y, block_w, block_h, hours_side_block_style(block)))
+            cells.append(mx_edge(f"{block_id}_edge", previous, block_id, clean_text(branch.get("label")) if block_index == 0 else "segue"))
+            previous = block_id
+            child_y += block_h + 18
+        bottom = max(bottom, child_y)
+        branch_y = child_y + 26
+    return bottom
+
+
+def render_hours_step_with_side_branches(cells: List[str], step: Dict[str, Any], step_id: str, x: int, y: int, width: int, label: str, page_width: int = 1600, reserved_right: int = 0) -> int:
+    node_label = clean_text(label) or hours_display_label({"actionId": step.get("actionId"), "parameters": [step.get("hoursKey")] if step.get("hoursKey") else []})
+    cells.append(mx_node(step_id, node_label, x, y, width, 116, "decision"))
+    return render_hours_side_branches(cells, step_id, step, step_id, x, y, width, page_width, reserved_right)
+
+
 def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semantic_model: Dict[str, Any], visual_blocks: Optional[Dict[str, Any]] = None) -> str:
     flow_kind = story.get("flowKind") or {}
     project = semantic_model.get("project") or {}
@@ -7474,13 +8029,20 @@ def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semant
     x = 610
     y = 135
     prev_id = ""
+    pending_main_label = ""
     max_bottom = y
     for index, step in enumerate(steps[:24]):
         step_id = f"rule_step_{index}_{safe_drawio_id(step.get('actionId') or step.get('nodeKey'))}"
         height = visual_block_height(step)
-        cells.append(mx_node(step_id, render_visual_block_label(step), x, y, 380, height, visual_block_style(step)))
+        if step.get("sideBranches"):
+            max_bottom = max(max_bottom, render_hours_step_with_side_branches(cells, step, step_id, x, y, 380, render_visual_block_label(step)))
+        else:
+            cells.append(mx_node(step_id, render_visual_block_label(step), x, y, 380, height, visual_block_style(step)))
         if prev_id:
-            cells.append(mx_edge(f"rule_e_{index}", prev_id, step_id, "segue"))
+            cells.append(mx_edge(f"rule_e_{index}", prev_id, step_id, pending_main_label or "segue"))
+        pending_main_label = ""
+        if step.get("sideBranches"):
+            pending_main_label = clean_text((step.get("mainBranch") or {}).get("label")) or "Aberto"
         for branch_index, branch in enumerate((step.get("branches") or [])[:2]):
             lane_x = 1050 if branch_index == 0 else 175
             branch_y = y + branch_index * 95
@@ -7514,7 +8076,7 @@ def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semant
                 cells.append(mx_edge(f"{branch_root_id}_edge", step_id, branch_root_id, clean_text(branch.get("label"))))
                 max_bottom = max(max_bottom, branch_y + 95)
         prev_id = step_id
-        y += height + 82
+        y += max(height, visual_step_layout_units(step) * 110) + 82
         max_bottom = max(max_bottom, y)
     if not steps:
         cells.append(mx_node("rule_empty", "Nenhuma jornada funcional foi identificada.\nConsulte o Fluxograma Tecnico Editavel.", 470, 180, 520, 120, "note"))
@@ -7545,6 +8107,8 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             ]
             pre_nodes = story.get("preMenu") or []
             previous = ""
+            pre_pending_main_label = ""
+            pre_stop_before_menu = False
             center_x = 670
             y = 125
             for index, item in enumerate(pre_nodes[:8]):
@@ -7556,19 +8120,25 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 label = render_main_flow_display_node(display_node)
                 if not clean_text(label):
                     continue
-                cells.append(
-                    mx_node(
-                        node_id,
-                        label,
-                        center_x,
-                        y,
-                        300,
-                        110 if clean_text(display_node.get("conditionLabel")) or clean_text((display_node.get("audio") or {}).get("fileName")) else 78,
-                        clean_text(item.get("shape")) or ("decision" if item.get("type") == "IF" else "process"),
+                node_h = 110 if clean_text(display_node.get("conditionLabel")) or clean_text((display_node.get("audio") or {}).get("fileName")) else 78
+                if clean_text(item.get("type")).upper() == "HOURS" and item.get("sideBranches"):
+                    node_h = 116
+                    render_hours_step_with_side_branches(cells, item, node_id, center_x, y, 300, label)
+                else:
+                    cells.append(
+                        mx_node(
+                            node_id,
+                            label,
+                            center_x,
+                            y,
+                            300,
+                            node_h,
+                            clean_text(item.get("shape")) or ("decision" if item.get("type") == "IF" else "process"),
+                        )
                     )
-                )
                 if previous:
-                    cells.append(mx_edge(f"story_pre_e_{index}", previous, node_id, "segue"))
+                    cells.append(mx_edge(f"story_pre_e_{index}", previous, node_id, pre_pending_main_label or "segue"))
+                pre_pending_main_label = ""
                 branches = item.get("branches") or []
                 if clean_text(item.get("type")).upper() in {"IF", "HOURS"} and branches:
                     for branch_index, branch in enumerate(branches[:2]):
@@ -7584,7 +8154,11 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                         cells.append(mx_node(branch_id, branch_label, branch_x, branch_y, 250, 76, "warning"))
                         cells.append(mx_edge(f"{branch_id}_edge", node_id, branch_id, clean_text(branch.get("label"))))
                 previous = node_id
-                y += 145
+                if clean_text(item.get("type")).upper() == "HOURS":
+                    pre_pending_main_label = clean_text((item.get("mainBranch") or {}).get("label")) or "Aberto"
+                if item.get("stopBeforeMenu"):
+                    pre_stop_before_menu = True
+                y += max(145, visual_step_layout_units(item) * 110 + 45)
 
             main_menu = story.get("mainMenu") or {}
             main_action = actions_map_all.get(clean_text(main_menu.get("actionId")))
@@ -7595,7 +8169,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 main_display = {**main_display, "audio": menu_audio}
             menu_label = render_main_flow_display_node(main_display, menu_options)
             cells.append(mx_node("story_main_menu", menu_label, 610, y + 10, 390, 190, "decision"))
-            if previous:
+            if previous and not pre_stop_before_menu:
                 cells.append(mx_edge("story_menu_in", previous, "story_main_menu", "segue"))
             loop_items = story.get("loops") or []
             for loop_index, loop in enumerate(loop_items[:2]):
@@ -7622,8 +8196,14 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             y += 270
 
             option_flows = story.get("optionFlows") or []
-            lane_xs = [55, 365, 675, 985, 1295]
+            has_hours_side_branches = any(
+                any((step.get("sideBranches") for step in (flow_item.get("visibleSteps") or flow_item.get("steps") or []) if isinstance(step, dict)))
+                for flow_item in option_flows
+                if isinstance(flow_item, dict)
+            )
+            lane_xs = [55, 555, 1055] if has_hours_side_branches else [55, 365, 675, 985, 1295]
             lane_w = 270
+            lane_slot_w = 500 if has_hours_side_branches else 270
             row_h = 128
             flow_limit = min(len(option_flows), 10)
             max_steps = 0
@@ -7632,10 +8212,10 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 row = index // len(lane_xs)
                 x = lane_xs[col]
                 row_flows = option_flows[row * len(lane_xs) : (row + 1) * len(lane_xs)]
-                row_max_steps = max((len(item.get("visibleSteps") or item.get("steps") or []) for item in row_flows), default=1)
+                row_max_steps = max((flow_item_layout_units(item) for item in row_flows), default=1)
                 row_block_height = 165 + min(max(row_max_steps, 1), 18) * row_h + 170
                 base_y = y + sum(
-                    165 + min(max(max((len(item.get("visibleSteps") or item.get("steps") or []) for item in option_flows[r * len(lane_xs) : (r + 1) * len(lane_xs)]), default=1), 1), 18) * row_h + 170
+                    165 + min(max(max((flow_item_layout_units(item) for item in option_flows[r * len(lane_xs) : (r + 1) * len(lane_xs)]), default=1), 1), 18) * row_h + 170
                     for r in range(row)
                 )
                 option_id = f"story_option_{index}_{safe_drawio_id(flow_item.get('digit'))}"
@@ -7650,6 +8230,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 steps = flow_item.get("visibleSteps") or flow_item.get("steps") or []
                 max_steps = max(max_steps, len(steps))
                 visible_step_index = 0
+                option_pending_main_label = ""
                 for step_index, step in enumerate(steps[:18]):
                     step_action = actions_map_all.get(clean_text(step.get("actionId")))
                     base_display = build_display_node_from_action(step_action, semantic_model, semantic_ai) if step_action else {}
@@ -7691,10 +8272,17 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                         if step_kind in {"end", "terminal", "continuation"}
                         else "process"
                     )
-                    cells.append(mx_node(step_id, "\n".join(line for line in step_lines if clean_text(line)), x, base_y + 140 + visible_step_index * row_h, lane_w, 116, style))
-                    cells.append(mx_edge(f"story_option_{index}_step_e_{step_index}", previous_node, step_id, clean_text(step.get("edgeLabel")) or "segue"))
+                    step_y = base_y + 140 + visible_step_index * row_h
+                    if step_kind in {"hours", "decision"} and step.get("sideBranches"):
+                        render_hours_step_with_side_branches(cells, step, step_id, x, step_y, lane_w, "\n".join(line for line in step_lines if clean_text(line)), reserved_right=lane_slot_w - lane_w)
+                    else:
+                        cells.append(mx_node(step_id, "\n".join(line for line in step_lines if clean_text(line)), x, step_y, lane_w, 116, style))
+                    cells.append(mx_edge(f"story_option_{index}_step_e_{step_index}", previous_node, step_id, option_pending_main_label or clean_text(step.get("edgeLabel")) or "segue"))
+                    option_pending_main_label = ""
                     previous_node = step_id
-                    visible_step_index += 1
+                    if step.get("sideBranches"):
+                        option_pending_main_label = clean_text((step.get("mainBranch") or {}).get("label")) or "Aberto"
+                    visible_step_index += visual_step_layout_units(step)
                 treatments = flow_item.get("sideTreatments") or []
                 if treatments:
                     treatment_id = f"story_option_{index}_treatments"
@@ -7702,7 +8290,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                         short_label(item.get("label") or "Tratamento alternativo", 46)
                         for item in treatments[:4]
                     ]
-                    cells.append(mx_node(treatment_id, "Loop / tratamento\n" + "\n".join(treatment_lines), x, base_y + 140 + min(len(steps), 18) * row_h, lane_w, 105, "warning"))
+                    cells.append(mx_node(treatment_id, "Loop / tratamento\n" + "\n".join(treatment_lines), x, base_y + 140 + flow_item_layout_units(flow_item) * row_h, lane_w, 105, "warning"))
                     cells.append(mx_edge(f"story_option_{index}_treatments_e", option_id, treatment_id, "timeout/invalido"))
                     cells.append(mx_edge(f"story_option_{index}_treatments_return", treatment_id, option_id, "retorno"))
                 terminal = flow_item.get("terminal") or {}
@@ -7715,7 +8303,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
 
             rows_count = max(1, (flow_limit + len(lane_xs) - 1) // len(lane_xs))
             bottom_y = y + sum(
-                165 + min(max(max((len(item.get("visibleSteps") or item.get("steps") or []) for item in option_flows[r * len(lane_xs) : (r + 1) * len(lane_xs)]), default=1), 1), 18) * row_h + 170
+                165 + min(max(max((flow_item_layout_units(item) for item in option_flows[r * len(lane_xs) : (r + 1) * len(lane_xs)]), default=1), 1), 18) * row_h + 170
                 for r in range(rows_count)
             )
             side_events = story.get("sideEvents") or []

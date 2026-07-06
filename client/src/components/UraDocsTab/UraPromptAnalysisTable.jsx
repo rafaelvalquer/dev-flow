@@ -7,7 +7,7 @@ export default function UraPromptAnalysisTable({ prompts = [] }) {
       <div className="mt-3 overflow-auto">
         <table className="min-w-full text-left text-sm">
           <thead className="text-xs text-zinc-500">
-            <tr><th className="p-2">Arquivo</th><th className="p-2">Intencao</th><th className="p-2">Transcricao limpa</th></tr>
+            <tr><th className="p-2">Arquivo</th><th className="p-2">Intenção</th><th className="p-2">Transcrição limpa</th></tr>
           </thead>
           <tbody>
             {prompts.map((item, index) => (
@@ -19,7 +19,7 @@ export default function UraPromptAnalysisTable({ prompts = [] }) {
             ))}
           </tbody>
         </table>
-        {!prompts.length ? <p className="text-sm text-zinc-500">Nenhuma analise de prompt disponivel.</p> : null}
+        {!prompts.length ? <p className="text-sm text-zinc-500">Nenhuma análise de prompt disponível.</p> : null}
       </div>
     </section>
   );
