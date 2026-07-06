@@ -319,38 +319,38 @@ function buildDeterministicAnalysis({
     context: {
       ...base.context,
       uraName: projectName || normalizedFlow?.project?.name || "URA",
-      businessPurpose: "Atendimento telefonico automatizado baseado em fluxo NICE.",
-      audience: ["Usuarios da URA"],
+      businessPurpose: "Atendimento telefônico automatizado baseado em fluxo NICE.",
+      audience: ["Usuários da URA"],
       mainCompanies: companies,
-      mainDomains: menus.length ? ["Menus", "Roteamento", "Transferencias"] : [],
+      mainDomains: menus.length ? ["Menus", "Roteamento", "Transferências"] : [],
       flowType: "NICE Studio",
       language: "pt-BR",
     },
     functionalOverview:
       `Fluxo NICE parseado deterministicamente com ${digest.counts.actions} actions, ` +
-      `${digest.counts.edges} conexoes, ${digest.counts.menus} menus e ` +
+      `${digest.counts.edges} conexões, ${digest.counts.menus} menus e ` +
       `${digest.counts.prompts} prompts. O draw.io e as matrizes foram gerados sem depender da IA.`,
     executiveSummary:
-      `Documentacao gerada a partir do XML NICE de ${projectName || "URA"}. ` +
+      `Documentação gerada a partir do XML NICE de ${projectName || "URA"}. ` +
       `Foram identificados ${digest.counts.menus} menus, ${digest.counts.prompts} prompts ` +
-      `e ${digest.counts.skills} skills/transferencias.`,
+      `e ${digest.counts.skills} skills/transferências.`,
     developerSummary:
-      "Conexoes, menus, prompts e transferencias vieram do parser deterministico. A IA, quando disponivel, apenas complementa contexto textual.",
+      "Conexões, menus, prompts e transferências vieram do parser determinístico. A IA, quando disponível, apenas complementa contexto textual.",
     businessSummary:
       companies.length
         ? `Fluxo com rotas relacionadas a ${companies.join(", ")}.`
-        : "Fluxo documentado a partir das actions e conexoes NICE extraidas.",
+        : "Fluxo documentado a partir das actions e conexões NICE extraídas.",
     menuInterpretation: menus.slice(0, 30).map((menu, index) => ({
       company:
         companyFromText(
           [menu.caption, menu.audio, menu.nextStep, JSON.stringify(menu.parameters || {})].join(" ")
-        ) || "Nao identificado",
+        ) || "Não identificado",
       level: index + 1,
       menuName: String(menu.caption || `Menu ${menu.actionId || index + 1}`),
       actionId: String(menu.actionId || ""),
       options: (menu.cases || []).slice(0, 10).map((item) => ({
         digit: String(item.value || item.name || ""),
-        label: String(item.name || item.value || "Opcao"),
+        label: String(item.name || item.value || "Opção"),
         target: String(item.target || ""),
         confidence: 1,
         evidence: [`MENU ActionID ${menu.actionId}`],
@@ -359,7 +359,7 @@ function buildDeterministicAnalysis({
     promptAnalysis: prompts.slice(0, 60).map((prompt) => ({
       fileName: String(prompt.fileName || ""),
       cleanTranscript: truncateText(prompt.transcription || prompt.rawTranscription, 700),
-      intent: prompt.transcription ? "Prompt transcrito para verbalizacao da URA." : "Prompt sem transcricao disponivel.",
+      intent: prompt.transcription ? "Prompt transcrito para verbalização da URA." : "Prompt sem transcrição disponível.",
       menuOptions: [],
       issues: [],
     })),
@@ -367,26 +367,26 @@ function buildDeterministicAnalysis({
       id: `TC${String(index + 1).padStart(3, "0")}`,
       title: `Validar menu ${menu.caption || menu.actionId}`,
       steps: [
-        `Acessar o fluxo ate a ActionID ${menu.actionId}.`,
-        "Selecionar cada opcao configurada no menu.",
+        `Acessar o fluxo até a ActionID ${menu.actionId}.`,
+        "Selecionar cada opção configurada no menu.",
       ],
-      expectedResult: "Cada opcao deve encaminhar para o target definido no XML NICE.",
+      expectedResult: "Cada opção deve encaminhar para o target definido no XML NICE.",
       type: "funcional",
       priority: index < 5 ? "alta" : "media",
       evidence: [`MENU ActionID ${menu.actionId}`],
     })),
     runbook: [
       {
-        problem: "Fluxo nao segue a opcao escolhida pelo usuario.",
+        problem: "Fluxo não segue a opção escolhida pelo usuário.",
         whereToCheck: "Verificar Cases/Branches do menu no normalized_flow.json e no draw.io.",
         technicalCheck: "Comparar ActionID de origem, label da edge e target NICE.",
         businessImpact: "Cliente pode ser direcionado para atendimento incorreto ou encerramento indevido.",
       },
       {
-        problem: "Audio sem frase exibida no fluxograma.",
-        whereToCheck: "Verificar se o arquivo de audio foi enviado e transcrito com sucesso.",
+        problem: "Áudio sem frase exibida no fluxograma.",
+        whereToCheck: "Verificar se o arquivo de áudio foi enviado e transcrito com sucesso.",
         technicalCheck: "Conferir prompts[].sourceActionId e prompts[].transcription.",
-        businessImpact: "Documentacao fica menos clara para validacao de negocio.",
+        businessImpact: "Documentação fica menos clara para validação de negócio.",
       },
     ],
   };
@@ -503,13 +503,13 @@ export async function openAiGenerateJson({
         role: "system",
         content:
           attempt > 0
-            ? `${prompt}\n\nRetorne somente JSON valido, sem markdown, sem texto fora do objeto JSON.`
+            ? `${prompt}\n\nRetorne somente JSON válido, sem markdown, sem texto fora do objeto JSON.`
             : prompt,
       },
       {
         role: "user",
         content:
-          "Entrada JSON deterministica. Preserve ActionID e evidencias. Nao invente conexoes, skills ou prompts.\n" +
+          "Entrada JSON determinística. Preserve ActionID e evidências. Não invente conexões, skills ou prompts.\n" +
           JSON.stringify(payload || {}),
       },
     ],
@@ -578,7 +578,7 @@ export async function openAiGenerateJson({
       const parsed = tryParseJson(text);
       if (!parsed) {
         throw new Error(
-          `OpenAI retornou conteudo nao interpretavel como JSON: ${text.slice(
+          `OpenAI retornou conteúdo não interpretável como JSON: ${text.slice(
             0,
             500
           )}`
@@ -588,7 +588,7 @@ export async function openAiGenerateJson({
         debugEvents.push({
           kind: "ai_response",
           title: "Resposta recebida do OpenAI",
-          message: "OpenAI retornou JSON interpretavel.",
+          message: "OpenAI retornou JSON interpretável.",
           details: {
             stage: debugStage,
             model,
@@ -626,10 +626,10 @@ export async function openAiGenerateJson({
 export async function analyzeUraChunk({ chunk, context, env }) {
   const { debugEvents, ...safeContext } = context || {};
   const prompt = [
-    "Voce e um especialista em URA NICE Studio.",
+    "Você é um especialista em URA NICE Studio.",
     "Analise somente o chunk fornecido e gere enriquecimento funcional em PT-BR.",
-    "Use evidencias com ActionID, prompt, skill ou variavel sempre que possivel.",
-    "A estrutura real do fluxo ja veio do parser; nao altere conexoes reais.",
+    "Use evidências com ActionID, prompt, skill ou variável sempre que possível.",
+    "A estrutura real do fluxo já veio do parser; não altere conexões reais.",
     "Retorne apenas JSON aderente ao schema.",
   ].join("\n");
 
@@ -712,18 +712,18 @@ export async function analyzeUraContext({
       }),
       warnings: [
         [
-          "IA nao executada por configuracao.",
-          `Etapa: pre_validacao. Modo: ${env.URA_DOCS_AI_MODE || options.aiMode || "summary"}. includeAiAnalysis=${options.includeAiAnalysis !== false}. URA_DOCS_ENABLE_AI=${env.URA_DOCS_ENABLE_AI}.`,
-          "Fluxo preservado: draw.io/matrizes foram gerados pelo parser NICE deterministico.",
-          "Acao sugerida: habilite URA_DOCS_ENABLE_AI=true e mantenha includeAiAnalysis ativo se quiser enriquecimento textual.",
+          "IA não executada por configuração.",
+          `Etapa: pré-validação. Modo: ${env.URA_DOCS_AI_MODE || options.aiMode || "summary"}. includeAiAnalysis=${options.includeAiAnalysis !== false}. URA_DOCS_ENABLE_AI=${env.URA_DOCS_ENABLE_AI}.`,
+          "Fluxo preservado: draw.io/matrizes foram gerados pelo parser NICE determinístico.",
+          "Ação sugerida: habilite URA_DOCS_ENABLE_AI=true e mantenha includeAiAnalysis ativo se quiser enriquecimento textual.",
         ].join("\n"),
       ],
       cacheHit: false,
       debugEvents: [
         {
           kind: "fallback",
-          title: "Analise IA desabilitada",
-          message: "Usando resumo deterministico.",
+          title: "Análise IA desabilitada",
+          message: "Usando resumo determinístico.",
           details: {
             stage: "pre_validacao",
             mode: env.URA_DOCS_AI_MODE || options.aiMode || "summary",
@@ -740,12 +740,12 @@ export async function analyzeUraContext({
         normalizedFlow,
         transcriptions,
         projectName,
-        reason: "OPENAI_API_KEY nao configurado.",
+        reason: "OPENAI_API_KEY não configurado.",
       }),
       warnings: [
         buildAiWarning({
           stage: "pre_validacao",
-          error: "OPENAI_API_KEY nao configurado.",
+          error: "OPENAI_API_KEY não configurado.",
           normalizedFlow,
           transcriptions,
           projectName,
@@ -757,8 +757,8 @@ export async function analyzeUraContext({
       debugEvents: [
         {
           kind: "fallback",
-          title: "OpenAI nao configurada",
-          message: "OPENAI_API_KEY nao configurado. Usando resumo deterministico.",
+          title: "OpenAI não configurada",
+          message: "OPENAI_API_KEY não configurado. Usando resumo determinístico.",
           details: { stage: "pre_validacao" },
         },
       ],
@@ -787,7 +787,7 @@ export async function analyzeUraContext({
         debugEvents: [
           {
             kind: "cache",
-            title: "Analise IA recuperada do cache",
+            title: "Análise IA recuperada do cache",
             message: "Resultado de enriquecimento reutilizado.",
             details: { stage: "cache", cacheFile: path.basename(cacheFile) },
           },
@@ -835,13 +835,13 @@ export async function analyzeUraContext({
   }
 
   const globalPrompt = [
-    "Consolide as analises parciais de uma URA NICE.",
-    "Gere resumo executivo, visao funcional, regras, inconsistencias, testes, runbook e contexto para um draw.io humanizado.",
-    "Interprete menus, snippets SWITCH/CASE, NEXT_STEP, SKILL_ID/SKILL_NAME, RUNSCRIPT, RUNSUB, REST_API, prompts e saidas.",
-    "Preencha drawioAnnotations para actions importantes com title curto de negocio, subtitle, description, badge, group e riskLevel.",
-    "Preencha menuInterpretation com nome humano dos menus e labels claros para cada opcao DTMF.",
-    "A primeira pagina do draw.io deve ficar compreensivel para negocio: jornadas, opcoes, regras, transferencias e encerramentos.",
-    "Nao invente conexoes, skills, prompts ou ActionID. Toda inferencia textual deve ter evidencia nos campos disponiveis.",
+    "Consolide as análises parciais de uma URA NICE.",
+    "Gere resumo executivo, visão funcional, regras, inconsistências, testes, runbook e contexto para um draw.io humanizado.",
+    "Interprete menus, snippets SWITCH/CASE, NEXT_STEP, SKILL_ID/SKILL_NAME, RUNSCRIPT, RUNSUB, REST_API, prompts e saídas.",
+    "Preencha drawioAnnotations para actions importantes com title curto de negócio, subtitle, description, badge, group e riskLevel.",
+    "Preencha menuInterpretation com nome humano dos menus e labels claros para cada opção DTMF.",
+    "A primeira página do draw.io deve ficar compreensível para negócio: jornadas, opções, regras, transferências e encerramentos.",
+    "Não invente conexões, skills, prompts ou ActionID. Toda inferência textual deve ter evidência nos campos disponíveis.",
     "Retorne apenas JSON aderente ao schema.",
   ].join("\n");
 
@@ -898,7 +898,7 @@ export async function analyzeUraContext({
     warnings.push(
       buildAiWarning({
         stage: "sem_resultado",
-        error: "OpenAI nao retornou enriquecimento adicional.",
+        error: "OpenAI não retornou enriquecimento adicional.",
         normalizedFlow,
         transcriptions,
         projectName,

@@ -319,7 +319,7 @@ def parse_source_text(text: str) -> Any:
         return json.loads(stripped)
     if stripped.startswith("<"):
         return parse_xml_to_actions(stripped)
-    raise ValueError("Formato NICE nao reconhecido. Envie XML, JSON ou COPYCUTCOMMAND.")
+    raise ValueError("Formato NICE não reconhecido. Envie XML, JSON ou COPYCUTCOMMAND.")
 
 
 def direct_child(node: ET.Element, tag_name: str) -> Any:
@@ -971,10 +971,10 @@ def validate_normalized_flow(flow: Dict[str, Any], payload: Any) -> None:
     ]
     if not real_actions:
         message = (
-            "Parser NICE nao encontrou actions reais no XML. "
+            "Parser NICE não encontrou actions reais no XML. "
             "Verifique se o arquivo exportado contem ActionID/Action/Caption ou compartilhe uma amostra do XML NICE para mapear a variante."
         )
-        raise ValueError(message if has_xml else "Arquivo NICE nao contem actions reconheciveis.")
+        raise ValueError(message if has_xml else "Arquivo NICE não contém actions reconhecíveis.")
 
 
 def validate_package_flow(flow: Dict[str, Any]) -> None:
@@ -990,7 +990,7 @@ def validate_package_flow(flow: Dict[str, Any]) -> None:
     if has_empty_single_action or (has_typed_source and (len(actions) <= 1 or not edges)):
         raise HTTPException(
             status_code=422,
-            detail="Parser NICE nao gerou fluxo navegavel. Reinicie o servico Python ou valide o XML enviado.",
+            detail="Parser NICE não gerou fluxo navegável. Reinicie o serviço Python ou valide o XML enviado.",
         )
 
 
@@ -1152,7 +1152,7 @@ def edge_label(edge: Dict[str, Any]) -> str:
     if low in {"true", "verdadeiro"}:
         return "Sim"
     if low in {"false", "falso"}:
-        return "Nao"
+        return "Não"
     if "timeout" in low:
         return "Timeout"
     if "sil" in low:
@@ -1358,7 +1358,7 @@ def build_navigation_page(
             cells.append(mx_edge(f"nav_{safe_drawio_id(name)}_e{edge_index}", source_id, target_id, label))
 
     if not order:
-        cells.append(mx_node(f"{safe_drawio_id(name)}_empty", "Nenhuma action navegavel encontrada.", 420, 180, 420, 90, "warning"))
+        cells.append(mx_node(f"{safe_drawio_id(name)}_empty", "Nenhuma action navegável encontrada.", 420, 180, 420, 90, "warning"))
 
     width = max(1600, 160 + (max(levels.values(), default=0) + 1) * 315)
     height = max(1000, 220 + (max(level_rows.values(), default=1)) * 185)
@@ -1370,7 +1370,7 @@ def build_main_flow_page(flow: Dict[str, Any]) -> str:
         flow,
         "Fluxo Principal",
         title=f"Fluxograma {flow.get('project', {}).get('name', 'URA')} - navegacao completa",
-        subtitle="Fluxo funcional completo gerado do XML NICE. A IA nao cria conexoes; ela apenas contextualiza textos.",
+        subtitle="Fluxo funcional completo gerado do XML NICE. A IA não cria conexões; ela apenas contextualiza textos.",
     )
 
 
@@ -1394,7 +1394,7 @@ def build_company_flow_pages(flow: Dict[str, Any]) -> List[str]:
                 f"Fluxo {company}",
                 allowed_ids=expanded,
                 title=f"Fluxo {company}",
-                subtitle=f"Recorte navegavel das actions relacionadas a {company}, com entradas, saidas e retornos.",
+                subtitle=f"Recorte navegável das actions relacionadas a {company}, com entradas, saídas e retornos.",
                 max_nodes=120,
             )
         )
@@ -1556,7 +1556,7 @@ def category_for_subject(subject: Any) -> str:
     for category in CATEGORY_ORDER:
         if category.upper() in upper or upper in category.upper():
             return category
-    return text or "Categoria nao identificada"
+    return text or "Categoria não identificada"
 
 
 def audio_subject_from_path(path: Any) -> str:
@@ -1792,7 +1792,7 @@ def build_company_lane(
         mx_edge(f"e_{ids['hdr']}_9", ids["rule1"], ids["aviso2"]),
         mx_edge(f"e_{ids['hdr']}_10", ids["aviso2"], ids["transfer_decision"]),
         mx_edge(f"e_{ids['hdr']}_11", ids["transfer_decision"], ids["req"], "Sim"),
-        mx_edge(f"e_{ids['hdr']}_12", ids["transfer_decision"], ids["menu2"], "Nao"),
+        mx_edge(f"e_{ids['hdr']}_12", ids["transfer_decision"], ids["menu2"], "Não"),
         mx_edge(f"e_{ids['hdr']}_13", ids["menu2"], ids["rule2"]),
         mx_edge(f"e_{ids['hdr']}_14", ids["rule2"], ids["req"], "Transferir"),
     ]
@@ -1831,7 +1831,7 @@ def build_human_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[str, Any]
             90,
             "process",
         ),
-        mx_node("E", f"URA indisponivel?\n{action_ref(valida_horario)}", 650, 570, 150, 80, "decision"),
+        mx_node("E", f"URA indisponível?\n{action_ref(valida_horario)}", 650, 570, 150, 80, "decision"),
         mx_node("E1", "Play audio de\nindisponibilidade", 910, 570, 190, 60, "warning"),
         mx_node("F", f"Dados_CDR\ninicializa variaveis e CDR\n{action_ref(cdr)}", 610, 700, 230, 70, "data"),
         mx_node("G", "Bem-vindo", 640, 810, 170, 50, "warning"),
@@ -1871,17 +1871,17 @@ def build_human_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[str, Any]
         [
             mx_edge("p1_e1", "A", "B"),
             mx_edge("p1_e2", "B", "Z", "Sim"),
-            mx_edge("p1_e3", "B", "C", "Nao"),
+            mx_edge("p1_e3", "B", "C", "Não"),
             mx_edge("p1_e4", "C", "C1", "Reuniao/emergencia"),
             mx_edge("p1_e5", "C1", "Z"),
             mx_edge("p1_e6", "C", "D", "Normal"),
             mx_edge("p1_e7", "D", "E"),
             mx_edge("p1_e8", "E", "E1", "Sim"),
             mx_edge("p1_e9", "E1", "Z"),
-            mx_edge("p1_e10", "E", "F", "Nao"),
+            mx_edge("p1_e10", "E", "F", "Não"),
             mx_edge("p1_e11", "F", "G"),
             mx_edge("p1_e12", "G", "H"),
-            mx_edge("p1_e13", "H", "J", "Timeout/invalido"),
+            mx_edge("p1_e13", "H", "J", "Timeout/inválido"),
             mx_edge("p1_e14", "J", "H", "Repete"),
             mx_edge("p1_e15", "J", "K", "Limite"),
             mx_edge("p1_e16", "K", "Z"),
@@ -1944,7 +1944,7 @@ def build_menu_table_page(flow: Dict[str, Any]) -> str:
             for col_index, ((_, width), value) in enumerate(zip(columns, row_values)):
                 cells.append(table_cell(f"p2_{company}_{row_index}_{col_index}", short_label(value, 120), x, row_y, width, 34))
                 x += width
-        cells.append(mx_node(f"p2_note_{company}", "* DTMF inferido pela ordem deterministica quando o XML nao explicita o digito nesta tabela.", 40, y + 78 + min(len(rows[:11]), 11) * 34 + 8, 760, 26, "subtitle"))
+        cells.append(mx_node(f"p2_note_{company}", "* DTMF inferido pela ordem determinística quando o XML não explicita o dígito nesta tabela.", 40, y + 78 + min(len(rows[:11]), 11) * 34 + 8, 760, 26, "subtitle"))
     return mx_diagram("Mapa de Menus", cells, 1300, 1760)
 
 
@@ -1987,7 +1987,7 @@ def build_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[str, Any]] = No
 
 TECHNICAL_GROUPS = [
     ("Entrada", "Tecnico - Entrada", "Entrada comum, horario, CDR e saudacao"),
-    ("Coleta Dados", "Tecnico - Coleta Dados", "Captura e validacao de CPF/celular"),
+    ("Coleta Dados", "Técnico - Coleta Dados", "Captura e validação de CPF/celular"),
     ("Claro", "Tecnico - Claro", "Navegacao e roteamento Claro"),
     ("BCC", "Tecnico - BCC", "Navegacao e roteamento BCC"),
     ("HITSS", "Tecnico - HITSS", "Navegacao e roteamento HITSS"),
@@ -2060,8 +2060,8 @@ def technical_node_label(action: Dict[str, Any], prompt_index: Dict[str, List[Di
 
 def build_technical_index_page(page_defs: List[Dict[str, Any]]) -> str:
     cells = [
-        mx_node("tech_index_title", "Acoes NICE completas - indice tecnico", 360, 30, 980, 44, "title"),
-        mx_node("tech_index_sub", "O grafo completo foi dividido em paginas menores. Cada pagina mantem edges reais locais e referencias para continuacao em outro subfluxo.", 250, 78, 1200, 34, "subtitle"),
+        mx_node("tech_index_title", "Ações NICE completas - índice técnico", 360, 30, 980, 44, "title"),
+        mx_node("tech_index_sub", "O grafo completo foi dividido em páginas menores. Cada página mantém edges reais locais e referências para continuação em outro subfluxo.", 250, 78, 1200, 34, "subtitle"),
     ]
     for index, page_def in enumerate(page_defs):
         group_id = page_def["groupId"]
@@ -2863,7 +2863,7 @@ def build_generic_human_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[s
 
     cells = [
         mx_node("human_title", f"Fluxograma {project.get('name', 'NICE')} - visao funcional", 300, 25, 1000, 42, "title"),
-        mx_node("human_sub", "Resumo humanizado gerado do XML NICE com apoio da IA quando disponivel. A navegacao real fica preservada na pagina tecnica.", 220, 68, 1160, 30, "subtitle"),
+        mx_node("human_sub", "Resumo humanizado gerado do XML NICE com apoio da IA quando disponível. A navegação real fica preservada na página técnica.", 220, 68, 1160, 30, "subtitle"),
         mx_node("human_start", f"Inicio\n{action_ref(begin)}", 690, 130, 180, 58, "terminal_start"),
         mx_node(
             "human_prepare",
@@ -2947,7 +2947,7 @@ def build_generic_human_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[s
         end_source = route_node_ids[0] if route_node_ids else "human_menu"
 
     end_y = integration_y + (210 if integrations else 70)
-    cells.append(mx_node("human_end", "Fim / retorno ao fluxo tecnico", 690, end_y, 180, 60, "terminal_end"))
+    cells.append(mx_node("human_end", "Fim / retorno ao fluxo técnico", 690, end_y, 180, 60, "terminal_end"))
     cells.append(mx_edge("human_end_edge", end_source, "human_end"))
 
     note_lines = [
@@ -2956,7 +2956,7 @@ def build_generic_human_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[s
         f"Menus: {len(flow.get('menus', []))}",
         f"Skills: {len(flow.get('skills', []))}",
     ]
-    cells.append(mx_node("human_note", "Resumo tecnico\n" + "\n".join(note_lines), 70, end_y + 15, 260, 110, "note"))
+    cells.append(mx_node("human_note", "Resumo técnico\n" + "\n".join(note_lines), 70, end_y + 15, 260, 110, "note"))
     height = max(1100, end_y + 200)
     return mx_diagram("Fluxo Principal", cells, 1600, height)
 
@@ -3056,7 +3056,7 @@ def build_dynamic_human_main_flow_page(flow: Dict[str, Any], ai: Optional[Dict[s
                 hidden_edges += 1
 
     section_text = "\n".join(f"- {short_label(item, 50)}" for item in dynamic_sections(flow)[:10])
-    continuation = f"\n\n{hidden_edges} conexoes continuam nas paginas tecnicas." if hidden_edges else ""
+    continuation = f"\n\n{hidden_edges} conexões continuam nas páginas técnicas." if hidden_edges else ""
     cells.append(mx_node("dyn_main_sections", "Principais agrupamentos detectados\n" + section_text + continuation, 70, y + 30, 620, 165, "note"))
     height = max(1000, y + 260)
     return mx_diagram("Fluxo Principal", cells, 1600, height)
@@ -3197,7 +3197,7 @@ def build_consolidated_functional_main_page(flow: Dict[str, Any], ai: Optional[D
         mx_node("main_title", f"Fluxograma {project.get('name', 'NICE')} - fluxo completo humanizado", 300, 25, 1040, 42, "title"),
         mx_node(
             "main_sub",
-            "Fluxo funcional consolidado em uma pagina. Menus, submenus, audios, regras, integracoes e transferencias foram extraidos do XML NICE.",
+            "Fluxo funcional consolidado em uma página. Menus, submenus, áudios, regras, integrações e transferências foram extraídos do XML NICE.",
             170,
             68,
             1300,
@@ -3330,7 +3330,7 @@ def build_consolidated_functional_main_page(flow: Dict[str, Any], ai: Optional[D
         f"Menus: {len(flow.get('menus', []))}",
         f"Prompts: {len(flow.get('prompts', []))}",
     ]
-    cells.append(mx_node("main_summary", "Resumo tecnico\n" + "\n".join(note_lines), 60, y_cursor, 280, 116, "note"))
+    cells.append(mx_node("main_summary", "Resumo técnico\n" + "\n".join(note_lines), 60, y_cursor, 280, 116, "note"))
     cells.append(mx_node("main_end", "Fim / transferencia / retorno", 675, y_cursor + 20, 250, 70, "terminal_end"))
     cells.append(mx_edge("main_e_end", previous_anchor, "main_end", "fim"))
     return mx_diagram("Fluxo Principal", cells, 1650, max(1200, y_cursor + 180))
@@ -3349,7 +3349,7 @@ def build_single_technical_page(flow: Dict[str, Any], ai: Dict[str, Any]) -> str
         mx_node("single_tech_title", "Fluxograma Técnico Editável", 420, 25, 900, 42, "title"),
         mx_node(
             "single_tech_sub",
-            "Todas as actions e conexoes reais do XML NICE em uma unica pagina tecnica, agrupadas por tipo funcional.",
+            "Todas as actions e conexões reais do XML NICE em uma única página técnica, agrupadas por tipo funcional.",
             280,
             68,
             1180,
@@ -3422,7 +3422,7 @@ def build_single_technical_page(flow: Dict[str, Any], ai: Dict[str, Any]) -> str
         cells.append(mx_edge(f"single_tech_e{edge_count}", node_ids[source], node_ids[target], edge_label(edge)))
 
     if not node_ids:
-        cells.append(mx_node("single_tech_empty", "Nenhuma action tecnica encontrada.", 560, 180, 480, 80, "warning"))
+        cells.append(mx_node("single_tech_empty", "Nenhuma action técnica encontrada.", 560, 180, 480, 80, "warning"))
     return mx_diagram("Fluxograma Técnico Editável", cells, 1800, max(1000, y_cursor + 80))
 
 
@@ -3519,7 +3519,7 @@ def deterministic_ai_organizer(flow: Dict[str, Any]) -> Dict[str, Any]:
         "flowContext": {
             "flowName": flow.get("project", {}).get("name", "URA"),
             "flowType": "URA NICE",
-            "businessPurpose": "Documentacao funcional gerada deterministicamente.",
+            "businessPurpose": "Documentação funcional gerada deterministicamente.",
             "audience": ["Negocio", "Desenvolvimento", "Sustentacao"],
             "mainDomains": [],
             "mainJourneys": [clean_text(menu.get("caption")) for menu in menus[:8]],
@@ -3535,7 +3535,7 @@ def deterministic_ai_organizer(flow: Dict[str, Any]) -> Dict[str, Any]:
                 "Fluxo Principal",
                 "Mapa de Menus",
                 "Mapa de Skills",
-                "Fluxograma Tecnico Editavel",
+                "Fluxograma Técnico Editável",
             ],
         },
         "issues": [],
@@ -3825,7 +3825,7 @@ def _legacy_humanize_if_condition(action: Dict[str, Any], ai_organizer: Dict[str
     if "ani" in text and ("bloq" in text or "block" in text):
         return "ANI bloqueado?"
     if "finaldesemana" in text or "feriado" in text or "horario" in text or "indispon" in text:
-        return "URA esta disponivel?"
+        return "URA está disponível?"
     caption = clean_text(action.get("caption")) or f"IF {aid}"
     return short_label(caption, 80) + "?"
 
@@ -3836,7 +3836,7 @@ def human_branch_label(label: Any) -> str:
     if low in {"true", "verdadeiro", "sim"}:
         return "Sim"
     if low in {"false", "falso", "nao", "não"}:
-        return "Nao"
+        return "Não"
     if low == "finished":
         return "Limite atingido"
     if low == "repeat":
@@ -4007,13 +4007,13 @@ def humanize_if_for_display(action: Dict[str, Any], ai_organizer: Dict[str, Any]
     if "portal_renegociacao" in text or "renegociacao" in text:
         return "Cliente esta elegivel para renegociacao?", condition
     if "antifraude" in text:
-        return "Cliente passa na validacao antifraude?", condition
+        return "Cliente passa na validação antifraude?", condition
     if "consulta" in text and "ret" in text and "ok" in text:
         return "Consulta retornou OK?", condition
     if "ani" in text and ("bloq" in text or "block" in text or "=" in text):
         return "ANI bloqueado?", condition
     if any(token in text for token in ["finaldesemana", "feriado", "horario", "indispon", "closed", "holiday"]):
-        return "URA indisponivel?", condition
+        return "URA indisponível?", condition
     return short_label(clean_text(action.get("caption")) or "Validacao", 70) + "?", condition
 
 
@@ -4036,9 +4036,9 @@ def friendly_action_label(action: Dict[str, Any], ai_organizer: Dict[str, Any]) 
         return "Menu de coleta" if is_collect_action(action) else "Menu principal"
     output = summarize_action_output(action)
     if atype == "CASE":
-        return "Direciona opcao escolhida"
+        return "Direciona opção escolhida"
     if atype == "LOCATE":
-        return "Valida opcao digitada"
+        return "Valida opção digitada"
     if atype == "LOOP":
         return "Controle de tentativas"
     if atype == "ASSIGN":
@@ -4087,7 +4087,7 @@ def branch_meaning(raw_label: Any, semantic_model: Dict[str, Any], target_action
         return f"{label}: segue para menu"
     if label in {"Sim", "Aberto"}:
         return f"{label}: segue no fluxo"
-    if label in {"Nao", "Fechado", "Feriado", "Reuniao/Emergencia"}:
+    if label in {"Não", "Fechado", "Feriado", "Reunião/Emergência"}:
         return f"{label}: tratamento alternativo"
     return label
 
@@ -4249,6 +4249,8 @@ def build_display_node_from_action(action: Dict[str, Any], semantic_model: Dict[
 
 
 def render_main_flow_display_node(display_node: Dict[str, Any], options: Optional[List[Dict[str, Any]]] = None) -> str:
+    if clean_text(display_node.get("audioRole")) == "next_prompt" or clean_text(display_node.get("targetType")) in {"next_step", "transfer", "skill"} or clean_text(display_node.get("type")).lower() == "routing":
+        return render_routing_assignment_label(display_node)
     lines = []
     label = clean_display_text(display_node.get("displayLabel"))
     if label:
@@ -4260,7 +4262,7 @@ def render_main_flow_display_node(display_node: Dict[str, Any], options: Optiona
     if not display_node.get("hideCondition") and should_render_condition(label, condition):
         lines.append(short_label(condition, 62))
     audio = display_node.get("audio") or {}
-    audio_line = render_audio_line(audio)
+    audio_line = render_audio_role_line(audio, clean_text(display_node.get("audioLabel")) or "Áudio inicial") if clean_text(display_node.get("audioRole")) == "next_prompt" else render_audio_line(audio)
     if audio_line:
         lines.append(audio_line)
     for option in (options or [])[:8]:
@@ -4754,7 +4756,7 @@ def resolve_audio_with_trace_context(value: Any, trace_context: Dict[str, str], 
                     "origin": origin,
                     "resolvedFrom": " -> ".join(chain),
                     "candidates": candidates,
-                    "description": "Audio varia conforme a opcao escolhida nesta trilha.",
+                    "description": "Áudio varia conforme a opção escolhida nesta trilha.",
                 }
             break
         current = candidate
@@ -4797,7 +4799,7 @@ def dynamic_menu_audio_for_action(action: Optional[Dict[str, Any]], semantic_mod
                 "origin": origin or f"ActionID {action.get('actionId')}",
                 "resolvedFrom": variable,
                 "candidates": candidates,
-                "description": "Audio varia conforme a opcao escolhida neste menu.",
+                "description": "Áudio varia conforme a opção escolhida neste menu.",
             }
     return {"fileName": "", "transcription": "", "origin": origin}
 
@@ -5256,18 +5258,18 @@ def action_story_label(action: Dict[str, Any], ai_organizer: Dict[str, Any]) -> 
     if atype == "BEGIN":
         return "Inicio da URA"
     if atype == "HOURS":
-        return "Validacao de horario"
+        return "Validação de horário"
     if atype == "IF":
         return humanize_if_condition(action, ai_organizer)
     if atype == "PLAY":
-        return "Mensagem de audio"
+        return "Mensagem de áudio"
     if atype in {"RUNSUB", "REST_API"}:
         return "Consulta API / integracao"
     if atype == "RUNSCRIPT":
         output = summarize_action_output(action)
         return "Direciona para " + short_label(output.get("nextStep") or action.get("caption") or "proximo script", 40)
     if is_technical_noise_action(action):
-        return "Preparacao tecnica / CDR"
+        return "Preparação técnica / CDR"
     return short_label(clean_text(action.get("businessLabel") or action.get("caption") or atype), 70)
 
 
@@ -5301,7 +5303,7 @@ def build_pre_menu_story(semantic_model: Dict[str, Any], pre_semantic_extract: D
         if len(story) >= 8:
             break
     if not story:
-        story.append({"actionId": "", "type": "BEGIN", "label": "Inicio da URA", "shape": "terminal_start", "audio": {}, "evidence": []})
+        story.append({"actionId": "", "type": "BEGIN", "label": "Início da URA", "shape": "terminal_start", "audio": {}, "evidence": []})
     return story
 
 
@@ -5508,7 +5510,7 @@ def trace_pre_menu_path(semantic_model: Dict[str, Any], main_menu_action_id: str
         else:
             current_id = default_next_id(action, adjacency)
     if not story:
-        story.append({"actionId": "", "type": "BEGIN", "label": "Inicio da URA", "shape": "terminal_start", "audio": {}, "branches": [], "evidence": []})
+        story.append({"actionId": "", "type": "BEGIN", "label": "Início da URA", "shape": "terminal_start", "audio": {}, "branches": [], "evidence": []})
     return story
 
 
@@ -5787,6 +5789,124 @@ def resolve_value_from_context(value: Any, context: Any) -> str:
 
 def resolve_context_value(value: Any, trace_context: Dict[str, str]) -> str:
     return resolve_value_from_context(value, trace_context)
+
+
+def first_context_value(context: Dict[str, Any], keys: List[str]) -> str:
+    for key in keys:
+        value = context_lookup_any(context, key)
+        if clean_text(value):
+            return clean_text(value)
+    return ""
+
+
+def resolve_next_step_value(value: Any, context: Dict[str, Any]) -> str:
+    resolved = resolve_value_from_context(value, context)
+    return clean_flow_target_value(resolved)
+
+
+def extract_routing_assignments_from_context(raw_step: Dict[str, Any], semantic_model: Dict[str, Any]) -> Dict[str, Any]:
+    context = {}
+    if isinstance(raw_step.get("context"), dict):
+        context.update(raw_step.get("context") or {})
+    if isinstance(raw_step.get("contextSnapshot"), dict):
+        context.update({key: value for key, value in (raw_step.get("contextSnapshot") or {}).items() if clean_text(value)})
+
+    context_next = first_context_value(context, ["NEXT_STEP", "next_step", "__last_next_step"])
+    next_raw = (
+        context_next
+        or clean_text(raw_step.get("nextStep"))
+        or clean_text(raw_step.get("resolvedTarget"))
+    )
+    next_step = resolve_next_step_value(next_raw, context)
+
+    context_transfer = first_context_value(context, ["transferCode", "TransferCode", "TRANSFERCODE", "transfercode"])
+    transfer_raw = (
+        context_transfer
+        or clean_text(raw_step.get("transferCode"))
+    )
+    transfer_code = clean_flow_target_value(resolve_value_from_context(transfer_raw, context))
+
+    skill_id = (
+        clean_text(raw_step.get("skillId"))
+        or first_context_value(context, ["SKILL_ID", "skillId", "skill_id"])
+    )
+    skill_name = (
+        clean_text(raw_step.get("skillName"))
+        or first_context_value(context, ["SKILL_NAME", "skillName", "skill_name"])
+    )
+
+    audio = {}
+    audio_raw = first_context_value(
+        context,
+        ["AUDIO", "audio", "NOTEMENU", "noteini", "noteinc", "noteINV", "notesil", "noteREJ", "__last_audio"],
+    )
+    if audio_raw:
+        audio = resolve_audio_with_trace_context(audio_raw, context, semantic_model, clean_text(raw_step.get("source")) or "routing")
+    if not clean_text((audio or {}).get("fileName")) and clean_text((audio or {}).get("mode")) != "dynamic":
+        audio = raw_step.get("audio") if isinstance(raw_step.get("audio"), dict) else {}
+    if not clean_text((audio or {}).get("fileName")) and clean_text((audio or {}).get("mode")) != "dynamic" and clean_text(raw_step.get("audioResolvedFrom")):
+        audio = resolve_audio_with_trace_context(raw_step.get("audioResolvedFrom"), context, semantic_model, clean_text(raw_step.get("source")) or "routing")
+
+    return {
+        "nextStep": next_step,
+        "transferCode": transfer_code,
+        "skillId": clean_text(skill_id),
+        "skillName": clean_text(skill_name),
+        "audio": audio or {},
+        "context": context,
+    }
+
+
+def build_routing_assignment_step(raw_step: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
+    extracted = extract_routing_assignments_from_context(raw_step, semantic_model)
+    next_step = clean_text(extracted.get("nextStep"))
+    transfer_code = clean_text(extracted.get("transferCode"))
+    skill_id = clean_text(extracted.get("skillId"))
+    skill_name = clean_text(extracted.get("skillName"))
+    audio = extracted.get("audio") if isinstance(extracted.get("audio"), dict) else {}
+    has_output = any([next_step, transfer_code, skill_id, skill_name, clean_text(audio.get("fileName")), clean_text(audio.get("mode")) == "dynamic"])
+
+    if skill_id or skill_name:
+        kind = "transfer"
+        label = "Transferência para skill"
+        secondary = skill_name or skill_id
+        target_type = "skill"
+    elif transfer_code:
+        kind = "transfer"
+        label = "Transferência"
+        secondary = next_step or transfer_code
+        target_type = "transfer"
+    elif next_step:
+        kind = "routing"
+        label = "Próximo fluxo definido"
+        secondary = next_step
+        target_type = "next_step"
+    else:
+        kind = "routing"
+        label = "Define parâmetros da opção"
+        secondary = ""
+        target_type = "parameters"
+
+    return {
+        **raw_step,
+        "type": kind if has_output else "process",
+        "displayLabel": label,
+        "label": label,
+        "secondaryLabel": secondary,
+        "conditionLabel": clean_display_text(raw_step.get("conditionLabel")),
+        "audio": audio,
+        "audioRole": "next_prompt" if clean_text(audio.get("fileName")) or clean_text(audio.get("mode")) == "dynamic" else "",
+        "audioLabel": "Áudio inicial",
+        "nextStep": next_step,
+        "transferCode": transfer_code,
+        "skillId": skill_id,
+        "skillName": skill_name,
+        "resolvedTarget": next_step or transfer_code or skill_name or skill_id or clean_text(raw_step.get("resolvedTarget")),
+        "targetType": target_type,
+        "hideFromMainFlow": False,
+        "contextSnapshot": raw_step.get("contextSnapshot") or context_snapshot(extracted.get("context") or {}),
+        "evidence": list(dict.fromkeys([*(raw_step.get("evidence") or []), clean_text(raw_step.get("source"))])),
+    }
 
 
 def update_trace_context_from_assignments(trace_context: Dict[str, str], assignments: Dict[str, str]) -> None:
@@ -6131,6 +6251,21 @@ def extract_hours_treatments_for_step(
     }
 
 
+def dispatcher_case_for_digit(dispatcher: Dict[str, Any], digit: str) -> Dict[str, Any]:
+    selected = clean_text(digit)
+    if not selected:
+        return {}
+    for item in dispatcher.get("switchCases") or []:
+        values = [clean_text(value) for value in item.get("caseValues") or []]
+        if selected in values:
+            return item
+        range_label = clean_text(item.get("caseRangeLabel"))
+        match = re.fullmatch(r"(\d+)\s*-\s*(\d+)", range_label)
+        if match and selected.isdigit() and int(match.group(1)) <= int(selected) <= int(match.group(2)):
+            return item
+    return {}
+
+
 def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[str, Any]], dispatcher: Dict[str, Any], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any]) -> Dict[str, Any]:
     actions_map, adjacency, _incoming = build_navigation_maps(semantic_model)
     raw_steps: List[Dict[str, Any]] = []
@@ -6143,6 +6278,17 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
         if digit:
             trace_context["MRES"] = digit
     case_data = option.get("case") if isinstance(option.get("case"), dict) else {}
+    if not (case_data.get("assignments") or {}) and dispatcher.get("switchCases"):
+        dispatcher_case = dispatcher_case_for_digit(dispatcher, digit)
+        if dispatcher_case:
+            case_data = {
+                **case_data,
+                "assignments": dispatcher_case.get("assignments") or {},
+                "switchVariable": dispatcher_case.get("switchVariable"),
+                "caseValues": dispatcher_case.get("caseValues") or [],
+                "caseRangeLabel": dispatcher_case.get("caseRangeLabel"),
+                "body": dispatcher_case.get("body"),
+            }
     if case_data:
         assignments = case_data.get("assignments") or {}
         update_trace_context_from_assignments(trace_context, assignments)
@@ -6151,11 +6297,11 @@ def trace_deep_option_flow(option: Dict[str, Any], menu_action: Optional[Dict[st
             {
                 "type": "snippet_case",
                 "actionId": dispatcher_id,
-                "label": f"Define saida da opcao {digit}",
-                "displayLabel": "Define saida da opcao",
+                "label": f"Define saída da opção {digit}",
+                "displayLabel": "Define saída da opção",
                 "technicalLabel": f"SNIPPET ActionID {dispatcher_id}",
-                "conditionLabel": f"Opcao {digit}",
-                "businessDescription": "Define audio, proximo destino e parametros da opcao escolhida.",
+                "conditionLabel": f"Opção {digit}",
+                "businessDescription": "Define áudio, próximo destino e parâmetros da opção escolhida.",
                 "source": option.get("source"),
                 "audio": resolve_audio_with_trace_context(audio, trace_context, semantic_model, f"CASE {digit}") if audio else {},
                 "audioResolvedFrom": clean_text(audio),
@@ -6276,7 +6422,7 @@ def humanize_play_node(action: Dict[str, Any], semantic_model: Dict[str, Any], a
     if "tchau" in text or "desliga" in text or "encerra" in text:
         label = "Tchau"
     elif any(token in text for token in ["semexpediente", "sem_expediente", "feriado", "fechado", "emergencial"]):
-        label = "Audio fechado ou feriado"
+            label = "Áudio fechado ou feriado"
     elif any(token in text for token in ["aviso", "informativo", "mensagem", "msg"]):
         label = "Play aviso"
     else:
@@ -6310,9 +6456,7 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
     kind = clean_text(raw_step.get("type") or atype).lower()
 
     if raw_step.get("type") == "snippet_case":
-        label = "Define saida da opcao"
-        kind = "process"
-        audio = raw_step.get("audio") or {}
+        return build_routing_assignment_step(raw_step, semantic_model, ai_organizer)
     elif atype == "HOURS":
         kind = "decision"
         label = clean_display_text(raw_step.get("displayLabel")) or hours_display_label(action)
@@ -6363,10 +6507,13 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
         secondary = clean_text(raw_step.get("resolvedTarget") or context.get("NEXT_STEP"))
     elif atype == "SNIPPET":
         output = summarize_action_output(action or {})
+        routing_step = build_routing_assignment_step(raw_step, semantic_model, ai_organizer)
+        if any(clean_text(routing_step.get(key)) for key in ["nextStep", "transferCode", "skillId", "skillName"]):
+            return routing_step
         if output.get("audio") or audio.get("fileName"):
             kind = "process"
             subject = audio_subject_from_path(audio.get("fileName"))
-            label = f"Preparar audio de {subject}" if subject else "Preparar audio"
+            label = f"Preparar áudio de {subject}" if subject else "Preparar áudio"
         elif output.get("nextStep") or context.get("NEXT_STEP"):
             kind = "process"
             label = "Define proximo destino"
@@ -6398,6 +6545,27 @@ def compact_step_from_raw(raw_step: Dict[str, Any], action: Optional[Dict[str, A
     }
 
 
+def should_merge_routing_runscript(previous: Dict[str, Any], current: Dict[str, Any], action: Optional[Dict[str, Any]]) -> bool:
+    if not previous or not current or clean_text((action or {}).get("type")).upper() != "RUNSCRIPT":
+        return False
+    if clean_text(previous.get("targetType")) not in {"next_step", "transfer", "skill"} and clean_text(previous.get("type")).lower() != "routing":
+        return False
+    previous_target = clean_text(previous.get("nextStep") or previous.get("resolvedTarget"))
+    current_target = clean_text(current.get("nextStep") or current.get("resolvedTarget") or current.get("secondaryLabel"))
+    code = action_code(action or {})
+    return bool(previous_target and ("{NEXT_STEP}" in code or not current_target or current_target == previous_target))
+
+
+def merge_routing_runscript(previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(previous)
+    merged["evidence"] = list(dict.fromkeys([*(previous.get("evidence") or []), *(current.get("evidence") or [])]))
+    technical_ids = [clean_text(item) for item in [previous.get("actionId"), current.get("actionId"), *(previous.get("technicalActionIds") or [])] if clean_text(item)]
+    merged["technicalActionIds"] = list(dict.fromkeys(technical_ids))
+    if not clean_text(merged.get("resolvedTarget")):
+        merged["resolvedTarget"] = clean_text(current.get("resolvedTarget") or current.get("secondaryLabel"))
+    return merged
+
+
 def compact_navigation_steps(raw_steps: List[Dict[str, Any]], semantic_model: Dict[str, Any], ai_organizer: Dict[str, Any], trace_context: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
     actions_map = action_by_id(semantic_model)
     visible: List[Dict[str, Any]] = []
@@ -6406,6 +6574,9 @@ def compact_navigation_steps(raw_steps: List[Dict[str, Any]], semantic_model: Di
         action = actions_map.get(clean_text(raw_step.get("actionId")))
         compacted = compact_step_from_raw(raw_step, action, semantic_model, ai_organizer)
         if not compacted:
+            continue
+        if visible and should_merge_routing_runscript(visible[-1], compacted, action):
+            visible[-1] = merge_routing_runscript(visible[-1], compacted)
             continue
         key = visible_step_key(compacted)
         if key == seen_consecutive:
@@ -6420,7 +6591,7 @@ def compact_navigation_steps(raw_steps: List[Dict[str, Any]], semantic_model: Di
             {
                 "type": "continuation",
                 "displayLabel": "Continua nos mapas detalhados",
-                "secondaryLabel": "Veja Mapa de Menus e Fluxograma Tecnico",
+                "secondaryLabel": "Veja Mapa de Menus e Fluxograma Técnico",
                 "audio": {},
             }
         )
@@ -6455,7 +6626,7 @@ def classify_subflow_actions(action_ids: List[str], semantic_model: Dict[str, An
 
     audio_actions = [actions_map[aid] for aid in action_ids if aid in actions_map and audio_context_for_action(actions_map[aid], semantic_model).get("fileName")]
     if audio_actions:
-        add("audio", "Audios / mensagens", [audio_context_for_action(action, semantic_model).get("fileName", "") for action in audio_actions[:4]], [clean_text(action.get("actionId")) for action in audio_actions])
+        add("audio", "Áudios / mensagens", [audio_context_for_action(action, semantic_model).get("fileName", "") for action in audio_actions[:4]], [clean_text(action.get("actionId")) for action in audio_actions])
 
     integration_actions = [
         actions_map[aid]
@@ -6671,7 +6842,7 @@ def classify_flow_kind(semantic_model: Dict[str, Any], pre_semantic_extract: Dic
     next_step_count = len([action for action in actions if summarize_action_output(action).get("nextStep") or "{NEXT_STEP}" in action_code(action)])
     snippet_rule_count = len([item for item in pre_semantic_extract.get("snippets", []) if (item.get("cases") or item.get("assignments"))])
     if menu_count and (if_count or api_count or play_count):
-        return {"kind": "hybrid_flow", "reason": "Fluxo possui menu DTMF com regras, APIs ou audios ao redor.", "confidence": 0.86}
+        return {"kind": "hybrid_flow", "reason": "Fluxo possui menu DTMF com regras, APIs ou áudios ao redor.", "confidence": 0.86}
     if menu_count:
         return {"kind": "menu_flow", "reason": "Fluxo possui menu DTMF funcional.", "confidence": 0.9}
     if api_count >= max(2, if_count) and not menu_count:
@@ -6735,9 +6906,9 @@ def rule_action_label(action: Dict[str, Any], semantic_model: Dict[str, Any], ai
     if atype == "PLAY":
         audio = audio_context_for_action(action, semantic_model)
         if clean_text(audio.get("fileName")).strip("{}").lower() in {"noteplay", "audio", "notemenu"} or "noteplay" in text:
-            return "Executa audio dinamico"
+            return "Executa áudio dinâmico"
         play = humanize_play_node(action, semantic_model, ai_organizer)
-        return clean_text(play.get("displayLabel")) or "Executa audio"
+        return clean_text(play.get("displayLabel")) or "Executa áudio"
     if atype == "IF":
         label, _condition = humanize_if_short(action, ai_organizer)
         return clean_display_text(label) or "Avalia regra"
@@ -6749,7 +6920,7 @@ def rule_action_label(action: Dict[str, Any], semantic_model: Dict[str, Any], ai
             return "Define proximo fluxo"
         audios = iter_action_audio_paths(action)
         if audios or "noteplay" in text or "concat" in text:
-            return "Monta audio dinamico"
+            return "Monta áudio dinâmico"
         if parse_switch_case_tree(action_code(action)):
             return "Aplica regras de negocio"
         if is_technical_noise_action(action):
@@ -7284,7 +7455,7 @@ def build_semantic_routes(semantic_model: Dict[str, Any]) -> Dict[str, Any]:
                         "pathLabel": clean_text(action.get("businessLabel") or action.get("caption") or action.get("type")),
                         "originMenuActionId": clean_text(action.get("actionId")),
                         "actions": [clean_text(action.get("actionId"))],
-                        "group": clean_text(action.get("group") or "Fluxo tecnico"),
+                        "group": clean_text(action.get("group") or "Fluxo técnico"),
                         "domain": clean_text(action.get("category")),
                         "treatment": clean_text(action.get("businessLabel") or action.get("caption")),
                         "prompts": action.get("prompts") or [],
@@ -7782,7 +7953,7 @@ def plan_table_page(name: str, headers: List[str], rows: List[List[Any]], width:
 def grouped_map_page(name: str, title: str, groups: List[Dict[str, Any]], headers: List[Tuple[str, int]], row_keys: List[str], width: int = 1500) -> str:
     cells = [
         mx_node(f"{safe_drawio_id(name)}_title", title or name, 300, 25, 900, 42, "title"),
-        mx_node(f"{safe_drawio_id(name)}_sub", "Visao funcional agrupada gerada a partir do XML NICE. Detalhes tecnicos permanecem nos JSONs e no fluxograma tecnico.", 180, 70, 1150, 34, "subtitle"),
+        mx_node(f"{safe_drawio_id(name)}_sub", "Visão funcional agrupada gerada a partir do XML NICE. Detalhes técnicos permanecem nos JSONs e no fluxograma técnico.", 180, 70, 1150, 34, "subtitle"),
     ]
     x0 = 60
     y = 130
@@ -7821,7 +7992,64 @@ def empty_table_page(name: str, message: str, width: int = 1500) -> str:
     return mx_diagram(name, cells, width, 900)
 
 
+def render_audio_role_line(audio: Any, label: str = "Áudio inicial") -> str:
+    if not isinstance(audio, dict):
+        audio = {"fileName": clean_text(audio), "transcription": ""}
+    if clean_text(audio.get("mode")) == "dynamic":
+        variable = clean_text(audio.get("variable")) or "dinâmico"
+        return short_label(f"{label}: {variable}", 78)
+    file_name = clean_text(audio.get("fileName"))
+    if file_name:
+        return short_label(f"{label}: {file_name}", 78)
+    spoken = clean_text(audio.get("transcription") or audio.get("text"))
+    if spoken:
+        return short_label(f"{label}: {spoken}", 78)
+    return ""
+
+
+def drawio_html_multiline_label(lines: List[str], bold_first: bool = False) -> str:
+    safe_lines = unique_visual_lines([clean_text(line) for line in lines if clean_text(line)])
+    if not safe_lines:
+        return ""
+    escaped_lines = [html.escape(line) for line in safe_lines]
+    if bold_first and escaped_lines:
+        escaped_lines[0] = f"<b>{escaped_lines[0]}</b>"
+    return "<br/>".join(escaped_lines)
+
+
+def render_routing_assignment_label(step: Dict[str, Any]) -> str:
+    next_step = clean_text(step.get("nextStep"))
+    transfer_code = clean_text(step.get("transferCode"))
+    skill_id = clean_text(step.get("skillId"))
+    skill_name = clean_text(step.get("skillName"))
+    audio = step.get("audio") or {}
+
+    if transfer_code:
+        title = "Transferência"
+    elif skill_name or skill_id:
+        title = "Transferência para skill"
+    elif next_step:
+        title = "Próximo fluxo definido"
+    else:
+        title = clean_text(step.get("displayLabel")) or "Define parâmetros da opção"
+
+    lines = [title]
+    if next_step:
+        lines.append(short_label(f"Próximo fluxo: {next_step}", 78))
+    if skill_name or skill_id:
+        skill = skill_name if not skill_id or skill_id == skill_name else f"{skill_name} ({skill_id})" if skill_name else skill_id
+        lines.append(short_label(f"Skill: {skill}", 78))
+    audio_line = render_audio_role_line(audio, clean_text(step.get("audioLabel")) or "Áudio inicial")
+    if audio_line:
+        lines.append(audio_line)
+    if transfer_code:
+        lines.append(short_label(f"TransferCode: {transfer_code}", 78))
+    return drawio_html_multiline_label(lines, bold_first=True)
+
+
 def render_rule_step_label(step: Dict[str, Any]) -> str:
+    if clean_text(step.get("audioRole")) == "next_prompt" or clean_text(step.get("targetType")) in {"next_step", "transfer", "skill"} or clean_text(step.get("type")).lower() == "routing":
+        return render_routing_assignment_label(step)
     lines = [short_label(step.get("displayLabel"), 70)]
     if clean_text(step.get("api")):
         lines.append(short_label(step.get("api"), 70))
@@ -7851,6 +8079,8 @@ def render_rule_step_label(step: Dict[str, Any]) -> str:
 
 
 def render_visual_block_label(block: Dict[str, Any]) -> str:
+    if clean_text(block.get("audioRole")) == "next_prompt" or clean_text(block.get("targetType")) in {"next_step", "transfer", "skill"} or clean_text(block.get("type")).lower() == "routing":
+        return render_routing_assignment_label(block)
     lines = [short_label(block.get("label") or block.get("displayLabel"), 72)]
     subtitle = clean_display_text(block.get("subtitle") or block.get("secondaryLabel"))
     if not block.get("hideCondition") and should_render_condition(block.get("label") or block.get("displayLabel"), subtitle):
@@ -8079,7 +8309,7 @@ def render_rule_flow_page(story: Dict[str, Any], context: Dict[str, Any], semant
         y += max(height, visual_step_layout_units(step) * 110) + 82
         max_bottom = max(max_bottom, y)
     if not steps:
-        cells.append(mx_node("rule_empty", "Nenhuma jornada funcional foi identificada.\nConsulte o Fluxograma Tecnico Editavel.", 470, 180, 520, 120, "note"))
+        cells.append(mx_node("rule_empty", "Nenhuma jornada funcional foi identificada.\nConsulte o Fluxograma Técnico Editável.", 470, 180, 520, 120, "note"))
     return mx_diagram("Fluxo Principal", cells, 1600, max(1050, max_bottom + 180))
 
 
@@ -8236,32 +8466,34 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                     base_display = build_display_node_from_action(step_action, semantic_model, semantic_ai) if step_action else {}
                     display_node = {
                         **base_display,
+                        "type": step.get("type"),
                         "displayLabel": step.get("displayLabel") or step.get("label"),
                         "secondaryLabel": step.get("secondaryLabel", ""),
                         "conditionLabel": step.get("conditionLabel", ""),
                         "audio": step.get("audio") or {},
+                        "audioRole": step.get("audioRole", ""),
+                        "audioLabel": step.get("audioLabel", ""),
+                        "nextStep": step.get("nextStep", ""),
+                        "transferCode": step.get("transferCode", ""),
+                        "skillId": step.get("skillId", ""),
+                        "skillName": step.get("skillName", ""),
+                        "resolvedTarget": step.get("resolvedTarget", ""),
+                        "targetType": step.get("targetType", ""),
                         "hideFromMainFlow": False,
                         "hideCondition": bool(step.get("hideCondition")),
                         "technicalCondition": clean_text(step.get("technicalCondition")),
                     }
-                    if step.get("type") == "snippet_case":
-                        display_node = {
-                            **display_node,
-                            "displayLabel": "Define saida da opcao",
-                            "conditionLabel": clean_display_text(step.get("conditionLabel")),
-                            "audio": step.get("audio") or display_node.get("audio") or {},
-                            "hideFromMainFlow": False,
-                        }
                     if display_node.get("hideFromMainFlow"):
                         continue
                     step_id = f"story_option_{index}_step_{step_index}_{safe_drawio_id(step.get('actionId'))}"
                     step_lines = [render_main_flow_display_node(display_node)]
-                    if clean_text(step.get("nextStep")):
-                        step_lines.append("Saida: " + short_label(step.get("nextStep"), 44))
-                    if clean_text(step.get("transferCode")):
-                        step_lines.append("Transfer: " + short_label(step.get("transferCode"), 44))
-                    if clean_text(step.get("resolvedTarget")) and not clean_text(step.get("nextStep")) and not clean_text(step.get("transferCode")):
-                        step_lines.append("Saida: " + short_label(step.get("resolvedTarget"), 44))
+                    if not (clean_text(step.get("audioRole")) == "next_prompt" or clean_text(step.get("targetType")) in {"next_step", "transfer", "skill"} or clean_text(step.get("type")).lower() == "routing"):
+                        if clean_text(step.get("nextStep")):
+                            step_lines.append("Saída: " + short_label(step.get("nextStep"), 44))
+                        if clean_text(step.get("transferCode")):
+                            step_lines.append("Transfer: " + short_label(step.get("transferCode"), 44))
+                        if clean_text(step.get("resolvedTarget")) and not clean_text(step.get("nextStep")) and not clean_text(step.get("transferCode")):
+                            step_lines.append("Saída: " + short_label(step.get("resolvedTarget"), 44))
                     step_kind = clean_text(step.get("type")).lower()
                     style = (
                         "decision"
@@ -8291,7 +8523,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                         for item in treatments[:4]
                     ]
                     cells.append(mx_node(treatment_id, "Loop / tratamento\n" + "\n".join(treatment_lines), x, base_y + 140 + flow_item_layout_units(flow_item) * row_h, lane_w, 105, "warning"))
-                    cells.append(mx_edge(f"story_option_{index}_treatments_e", option_id, treatment_id, "timeout/invalido"))
+                    cells.append(mx_edge(f"story_option_{index}_treatments_e", option_id, treatment_id, "timeout/inválido"))
                     cells.append(mx_edge(f"story_option_{index}_treatments_return", treatment_id, option_id, "retorno"))
                 terminal = flow_item.get("terminal") or {}
                 if clean_text(terminal.get("label")) and previous_node != option_id:
@@ -8310,16 +8542,16 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
             if side_events:
                 side_lines = [short_label(item.get("label") or item.get("type"), 58) for item in side_events[:7]]
                 cells.append(mx_node("story_side_events", "Eventos laterais / CDR\n" + "\n".join(side_lines), 60, bottom_y, 430, 145, "note"))
-            cells.append(mx_node("story_end", "Transferencia / API / encerramento\nDetalhes nos mapas e tecnico editavel", 650, bottom_y + 30, 330, 85, "terminal_end"))
+            cells.append(mx_node("story_end", "Transferência / API / encerramento\nDetalhes nos mapas e técnico editável", 650, bottom_y + 30, 330, 85, "terminal_end"))
             diagrams.append(mx_diagram("Fluxo Principal", cells, 1600, max(1050, bottom_y + 230)))
         elif ptype == "menu_map":
             flow_kind = ((plan.get("navigationStory") or {}).get("flowKind") or {}).get("kind")
             if flow_kind in {"rule_flow", "api_flow"} or not functional_menus(semantic_model):
-                diagrams.append(empty_table_page("Mapa de Menus", "Este XML nao possui menus DTMF identificados.", 1500))
+                diagrams.append(empty_table_page("Mapa de Menus", "Este XML não possui menus DTMF identificados.", 1500))
                 continue
             menu_rows = page.get("menuMapRows") or plan.get("menuMapRows") or []
             if not menu_rows:
-                diagrams.append(empty_table_page("Mapa de Menus", "Este XML nao possui menus DTMF identificados.", 1500))
+                diagrams.append(empty_table_page("Mapa de Menus", "Este XML não possui menus DTMF identificados.", 1500))
                 continue
             groups_payload = page.get("menuMapGroups") or plan.get("menuMapGroups") or {}
             diagrams.append(
@@ -8335,7 +8567,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
         elif ptype == "skill_map":
             skill_rows = page.get("skillMapRows") or plan.get("skillMapRows") or []
             if not skill_rows:
-                diagrams.append(empty_table_page("Mapa de Skills", "Este XML nao possui skills identificadas.", 1500))
+                diagrams.append(empty_table_page("Mapa de Skills", "Este XML não possui skills identificadas.", 1500))
                 continue
             groups_payload = page.get("skillMapGroups") or plan.get("skillMapGroups") or {}
             diagrams.append(
@@ -8359,7 +8591,7 @@ def render_drawio_from_plan(plan: Dict[str, Any], semantic_model: Dict[str, Any]
                 levels = {clean_text(action.get("actionId")): index // 5 for index, action in enumerate(group_actions)}
             cells = [
                 mx_node("tech_full_title", "Fluxograma Técnico Editável", 350, 25, 900, 42, "title"),
-                mx_node("tech_full_sub", "Grafo tecnico completo do NICE com todas as actions e conexoes reais extraidas do XML.", 230, 70, 1100, 34, "subtitle"),
+                mx_node("tech_full_sub", "Grafo técnico completo do NICE com todas as actions e conexões reais extraídas do XML.", 230, 70, 1100, 34, "subtitle"),
             ]
             node_ids = {}
             columns = 5
@@ -8523,10 +8755,10 @@ def build_markdown(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dic
         if isinstance(action, dict) and clean_text(action.get("type")).upper() in {"RUNSCRIPT", "RUNSUB", "REST_API", "REQAGENT"}
     ]
     lines = [
-        f"# Documentacao URA - {project.get('name', 'URA')}",
+        f"# Documentação URA - {project.get('name', 'URA')}",
         "",
         "## Resumo executivo",
-        ai.get("executiveSummary") or ai.get("functionalOverview") or "Resumo executivo nao gerado.",
+        ai.get("executiveSummary") or ai.get("functionalOverview") or "Resumo executivo não gerado.",
         "",
         "## Dados extraidos do NICE",
         f"- Actions: {len(flow.get('actions', []))}",
@@ -8597,10 +8829,10 @@ def build_markdown(flow: Dict[str, Any], transcriptions: Dict[str, Any], ai: Dic
     by_name = {item.get("fileName"): item for item in transcriptions.get("items", [])}
     for prompt in flow.get("prompts", []):
         trx = by_name.get(prompt.get("fileName"), {})
-        lines.append(f"- `{prompt.get('fileName')}`: {trx.get('rawTranscription') or prompt.get('transcription') or 'sem transcricao'}")
-    lines.extend(["", "## Analises geradas por IA"])
-    lines.append(ai.get("businessSummary") or "IA indisponivel ou sem resumo.")
-    lines.extend(["", "## Inconsistencias"])
+        lines.append(f"- `{prompt.get('fileName')}`: {trx.get('rawTranscription') or prompt.get('transcription') or 'sem transcrição'}")
+    lines.extend(["", "## Análises geradas por IA"])
+    lines.append(ai.get("businessSummary") or "IA indisponível ou sem resumo.")
+    lines.extend(["", "## Inconsistências"])
     for issue in ai.get("issues", []):
         lines.append(f"- **{issue.get('severity', 'info')}** {issue.get('title', '')}: {issue.get('description', '')}")
     lines.extend(["", "## Plano de testes"])
@@ -8625,7 +8857,7 @@ def build_html(markdown: str) -> str:
             body.append(f"<p>{html.escape(line)}</p>")
     return (
         "<!doctype html><html lang=\"pt-BR\"><head><meta charset=\"utf-8\" />"
-        "<title>Documentacao URA</title><style>body{font-family:Inter,Arial,sans-serif;max-width:1100px;margin:40px auto;line-height:1.55;color:#18181b}h1,h2{color:#991b1b}li{margin:6px 0}code{background:#f4f4f5;padding:2px 5px;border-radius:4px}</style></head><body>"
+        "<title>Documentação URA</title><style>body{font-family:Inter,Arial,sans-serif;max-width:1100px;margin:40px auto;line-height:1.55;color:#18181b}h1,h2{color:#991b1b}li{margin:6px 0}code{background:#f4f4f5;padding:2px 5px;border-radius:4px}</style></head><body>"
         + "\n".join(body)
         + "</body></html>"
     )
@@ -8661,7 +8893,7 @@ async def parse(file: UploadFile = File(...)):
         payload = parse_source_text(decode_upload(data))
         return {"normalized_flow": normalize_flow(payload, file.filename or "URA")}
     except ET.ParseError as error:
-        raise HTTPException(status_code=400, detail=f"XML NICE invalido: {error}") from error
+        raise HTTPException(status_code=400, detail=f"XML NICE inválido: {error}") from error
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
