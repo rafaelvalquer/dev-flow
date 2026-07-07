@@ -384,6 +384,9 @@ export async function organizeUraFlowWithAi({
         stage: "ai_organizer",
         model,
         mode: "organizer",
+        attempt: 1,
+        retries: 1,
+        timeoutMs,
         promptChars: JSON.stringify(body.messages).length,
         payloadPreview: debugText(JSON.stringify({
           counts: payload.counts,
@@ -409,6 +412,7 @@ export async function organizeUraFlowWithAi({
     const data = await response.json();
     const text = extractOpenAiText(data);
     const organizer = JSON.parse(text);
+    const usage = data?.usage || {};
     debugEvents.push({
       kind: "ai_response",
       title: "Resposta recebida do OpenAI",
@@ -416,8 +420,15 @@ export async function organizeUraFlowWithAi({
       details: {
         stage: "ai_organizer",
         model,
+        mode: "organizer",
+        attempt: 1,
         responseChars: text.length,
         responsePreview: debugText(text),
+        usage: {
+          promptTokens: usage.prompt_tokens ?? usage.promptTokens ?? null,
+          completionTokens: usage.completion_tokens ?? usage.completionTokens ?? null,
+          totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+        },
       },
     });
     return { organizer, warnings: [], cacheHit: false, fallback: false, debugEvents };
@@ -426,7 +437,15 @@ export async function organizeUraFlowWithAi({
       kind: "fallback",
       title: "Organizer IA indisponível",
       message: error?.name === "AbortError" ? `Timeout de ${Math.round(timeoutMs / 1000)}s.` : error?.message || String(error),
-      details: { stage: "ai_organizer", model },
+      details: {
+        stage: "ai_organizer",
+        model,
+        mode: "organizer",
+        attempt: 1,
+        retries: 1,
+        timeoutMs,
+        errorCategory: error?.name === "AbortError" ? "timeout" : "organizer_fallback",
+      },
     });
     return {
       organizer: deterministicOrganizer({ rawActions, projectName }),

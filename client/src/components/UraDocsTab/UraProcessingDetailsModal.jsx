@@ -196,6 +196,72 @@ function LiveDots() {
   );
 }
 
+const EVENT_FILTERS = [
+  { id: "all", label: "Todos" },
+  { id: "errors", label: "Erros" },
+  { id: "warnings", label: "Warnings" },
+  { id: "ai", label: "IA" },
+  { id: "parser", label: "Parser" },
+  { id: "audio", label: "Áudio" },
+  { id: "package", label: "Pacote" },
+];
+
+function matchesFilter(event, filter) {
+  const kind = String(event?.kind || "").toLowerCase();
+  const step = String(event?.step || "").toLowerCase();
+  const status = String(event?.status || "").toLowerCase();
+  if (filter === "all") return true;
+  if (filter === "errors") return kind.includes("error") || status === "failed";
+  if (filter === "warnings") return kind === "warning" || kind === "fallback" || kind === "ai_error";
+  if (filter === "ai") return kind.includes("ai") || kind === "cache" || kind === "fallback" || step.includes("ai");
+  if (filter === "parser") return kind === "parser" || step.includes("parse") || step.includes("parser");
+  if (filter === "audio") return kind === "audio" || step.includes("audio") || step.includes("transcription");
+  if (filter === "package") return kind === "package" || step.includes("package") || step.includes("drawio");
+  return true;
+}
+
+function formatDuration(value) {
+  const ms = Number(value || 0);
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function EventSummary({ events, status }) {
+  const warnings = events.filter((event) => matchesFilter(event, "warnings")).length;
+  const errors = events.filter((event) => matchesFilter(event, "errors")).length;
+  const aiEvents = events.filter((event) => matchesFilter(event, "ai")).length;
+  const latestDuration = [...events]
+    .reverse()
+    .map((event) => event?.details?.durationMs)
+    .find((value) => Number(value) > 0);
+  const summary = status?.summary?.counts || {};
+  const items = [
+    { label: "Eventos", value: events.length },
+    { label: "Warnings", value: warnings },
+    { label: "Erros", value: errors },
+    { label: "Eventos IA", value: aiEvents },
+    { label: "Última duração", value: formatDuration(latestDuration) || "-" },
+  ];
+  if (summary.actions || summary.semanticRoutes || summary.drawioPages) {
+    items.push(
+      { label: "Actions", value: summary.actions || 0 },
+      { label: "Rotas", value: summary.semanticRoutes || 0 },
+      { label: "Páginas", value: summary.drawioPages || 0 }
+    );
+  }
+  return (
+    <section className="grid gap-2 rounded-xl border border-zinc-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-4">
+      {items.map((item) => (
+        <div key={item.label} className="rounded-lg bg-zinc-50 px-3 py-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{item.label}</div>
+          <div className="mt-1 text-sm font-semibold text-zinc-950">{item.value}</div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function EventDetails({ event }) {
   const details = event.details;
   if (!details) return null;
@@ -333,11 +399,16 @@ export default function UraProcessingDetailsModal({ open, onOpenChange, status }
   const jobIdRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const [animatedKeys, setAnimatedKeys] = useState(() => new Set());
+  const [activeFilter, setActiveFilter] = useState("all");
 
   const events = useMemo(() => {
     const activity = Array.isArray(status?.activityLog) ? status.activityLog : [];
     return activity.length ? activity : buildFallbackEvents(status);
   }, [status]);
+  const visibleEvents = useMemo(
+    () => events.filter((event) => matchesFilter(event, activeFilter)),
+    [events, activeFilter]
+  );
   const latest = events[events.length - 1] || {};
   const isProcessing = status?.status === "processing";
 
@@ -346,6 +417,7 @@ export default function UraProcessingDetailsModal({ open, onOpenChange, status }
     jobIdRef.current = status?.jobId || null;
     seenEventsRef.current = new Set();
     setAnimatedKeys(new Set());
+    setActiveFilter("all");
     stickToBottomRef.current = true;
   }, [status?.jobId]);
 
@@ -374,7 +446,7 @@ export default function UraProcessingDetailsModal({ open, onOpenChange, status }
   useEffect(() => {
     if (!open || !stickToBottomRef.current) return;
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [events.length, open]);
+  }, [events.length, visibleEvents.length, open]);
 
   function handleScroll(event) {
     const target = event.currentTarget;
@@ -406,11 +478,34 @@ export default function UraProcessingDetailsModal({ open, onOpenChange, status }
         >
           <div className="grid gap-4">
             <LiveStatusCard status={status} latest={latest} />
+            <EventSummary events={events} status={status} />
+
+            <div className="flex flex-wrap gap-2 rounded-xl border border-zinc-200 bg-white p-2">
+              {EVENT_FILTERS.map((filter) => {
+                const count = events.filter((event) => matchesFilter(event, filter.id)).length;
+                const active = activeFilter === filter.id;
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setActiveFilter(filter.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                      active
+                        ? "bg-red-600 text-white shadow-sm"
+                        : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                    }`}
+                  >
+                    {filter.label}
+                    <span className={active ? "ml-1 text-red-100" : "ml-1 text-zinc-500"}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
 
             <div className="space-y-3">
-              {events.map((event, index) => {
+              {visibleEvents.length ? visibleEvents.map((event, index) => {
                 const key = eventKey(event, index);
-                const isLatest = index === events.length - 1;
+                const isLatest = event === latest;
                 return (
                   <EventMessage
                     key={key}
@@ -422,7 +517,11 @@ export default function UraProcessingDetailsModal({ open, onOpenChange, status }
                     onTypingFrame={isLatest ? keepLatestVisible : undefined}
                   />
                 );
-              })}
+              }) : (
+                <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-6 text-center text-sm text-zinc-500">
+                  Nenhum evento encontrado para este filtro.
+                </div>
+              )}
             </div>
             <div ref={bottomRef} aria-hidden="true" />
           </div>

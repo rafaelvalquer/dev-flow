@@ -59,6 +59,88 @@ function addDebugActivities(store, jobId, step, events = [], progress) {
   }
 }
 
+function startActivityStep(store, jobId, timers, { step, title, message, progress, kind = "info", details = {} }) {
+  const startedAt = new Date().toISOString();
+  timers.set(step, { startedAt, startedMs: Date.now(), title });
+  addJobActivity(store, jobId, {
+    step,
+    title,
+    message,
+    progress,
+    kind,
+    details: {
+      ...details,
+      startedAt,
+    },
+  });
+}
+
+function finishActivityStep(store, jobId, timers, { step, title, message, progress, kind = "success", details = {} }) {
+  const timer = timers.get(step) || {};
+  const finishedAt = new Date().toISOString();
+  const durationMs = timer.startedMs ? Date.now() - timer.startedMs : undefined;
+  addJobActivity(store, jobId, {
+    step,
+    title,
+    message,
+    progress,
+    kind,
+    details: {
+      ...details,
+      startedAt: timer.startedAt || "",
+      finishedAt,
+      durationMs,
+      duration: Number.isFinite(durationMs) ? `${(durationMs / 1000).toFixed(1)}s` : "",
+    },
+  });
+}
+
+function warningCategory(warning) {
+  const text = String(warning || "").toLowerCase();
+  if (text.includes("openai") || text.includes("ia") || text.includes("quota") || text.includes("timeout")) return "IA";
+  if (text.includes("transcrever") || text.includes("áudio") || text.includes("audio")) return "Áudio";
+  if (text.includes("parser") || text.includes("xml")) return "Parser";
+  if (text.includes("zip")) return "Uploads";
+  return "Geral";
+}
+
+function summarizeWarning(warning) {
+  const text = String(warning || "").trim();
+  if (!text) return "";
+  return text.replace(/\s+/g, " ").slice(0, 1200);
+}
+
+function addConsolidatedWarnings(store, jobId, warnings = [], { step, progress } = {}) {
+  const groups = new Map();
+  for (const warning of warnings || []) {
+    const message = summarizeWarning(warning);
+    if (!message) continue;
+    const category = warningCategory(message);
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(message);
+  }
+  for (const [category, items] of groups.entries()) {
+    const unique = [...new Set(items)];
+    const message =
+      unique.length === 1
+        ? unique[0]
+        : `${unique.length} aviso(s) de ${category}: ${unique.slice(0, 3).join(" | ")}${unique.length > 3 ? " | ..." : ""}`;
+    store.addWarning(jobId, message);
+    addJobActivity(store, jobId, {
+      step,
+      progress,
+      title: `Aviso consolidado - ${category}`,
+      message,
+      kind: "warning",
+      details: {
+        category,
+        count: unique.length,
+        samples: unique.slice(0, 10),
+      },
+    });
+  }
+}
+
 function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
@@ -484,6 +566,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
   const sttTimeoutMs = Number(env.URA_DOCS_STT_TIMEOUT_MS || timeoutMs);
   const options = parseOptions(fields.options);
   const projectName = String(fields.project_name || fields.projectName || "").trim();
+  const stepTimers = new Map();
 
   await store.ensureRoot();
   await fs.mkdir(job.jobDir, { recursive: true });
@@ -501,6 +584,19 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       title: "Recebendo arquivos",
       message: "Salvando XML NICE e áudios enviados no storage temporário do job.",
       kind: "file",
+    });
+
+    startActivityStep(store, jobId, stepTimers, {
+      step: "saving_uploads",
+      progress: 5,
+      title: "Uploads iniciados",
+      message: "Gravando XML NICE e arquivos auxiliares no storage temporário do job.",
+      kind: "file",
+      details: {
+        niceFiles: files.nice_file?.length || 0,
+        audioFiles: files.audio_files?.length || 0,
+        hasAudioZip: Boolean(files.audio_zip?.[0]),
+      },
     });
 
     const niceFile = files.nice_file?.[0];
@@ -554,6 +650,19 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       }
     }
 
+    finishActivityStep(store, jobId, stepTimers, {
+      step: "saving_uploads",
+      progress: 12,
+      title: "Uploads finalizados",
+      message: `${niceFile.originalname} e ${audioFiles.length} áudio(s) ficaram disponíveis para processamento.`,
+      kind: "file",
+      details: {
+        niceFile: niceFile.originalname,
+        audioFiles: audioFiles.length,
+        audioZip: files.audio_zip?.[0]?.originalname || "",
+      },
+    });
+
     store.updateJob(jobId, {
       step: "parse",
       progress: 18,
@@ -565,6 +674,18 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       title: "Parser NICE iniciado",
       message: "Enviando XML para o serviço Python extrair actions, conexões, menus, prompts e skills.",
       kind: "parser",
+    });
+
+    startActivityStep(store, jobId, stepTimers, {
+      step: "parse",
+      progress: 18,
+      title: "Parser NICE iniciado",
+      message: "Extraindo actions, conexões, menus, prompts e skills no serviço Python.",
+      kind: "parser",
+      details: {
+        endpoint: "/parse",
+        pyBase,
+      },
     });
 
     const parsed = await postFileToPython({
@@ -595,6 +716,21 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       },
     });
 
+    finishActivityStep(store, jobId, stepTimers, {
+      step: "parse",
+      progress: 28,
+      title: "Parser NICE concluído",
+      message: `Parser gerou ${normalizedFlow?.actions?.length || 0} actions, ${normalizedFlow?.edges?.length || 0} conexões, ${normalizedFlow?.menus?.length || 0} menus e ${normalizedFlow?.prompts?.length || 0} prompts.`,
+      kind: "parser",
+      details: {
+        actions: normalizedFlow?.actions?.length || 0,
+        edges: normalizedFlow?.edges?.length || 0,
+        menus: normalizedFlow?.menus?.length || 0,
+        skills: normalizedFlow?.skills?.length || 0,
+        prompts: normalizedFlow?.prompts?.length || 0,
+      },
+    });
+
     store.updateJob(jobId, {
       step: "transcription",
       progress: 35,
@@ -608,6 +744,20 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
         ? `Processando ${audioFiles.length} áudio(s) no Python local.`
         : "Nenhum áudio enviado; usando apenas nomes de prompts do XML.",
       kind: "audio",
+    });
+
+    startActivityStep(store, jobId, stepTimers, {
+      step: "transcription",
+      progress: 35,
+      title: "Transcrição local iniciada",
+      message: audioFiles.length
+        ? `Transcrevendo ${audioFiles.length} áudio(s) com o serviço Python local.`
+        : "Nenhum áudio foi enviado; a documentação usará nomes de arquivos e prompts do XML.",
+      kind: "audio",
+      details: {
+        audioFiles: audioFiles.length,
+        sttTimeoutMs,
+      },
     });
 
     const transcriptionItems = [];
@@ -640,11 +790,36 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       }
     }
     const transcriptions = { items: transcriptionItems };
+    const failedTranscriptions = transcriptionItems.filter((item) => item.status === "failed");
+    finishActivityStep(store, jobId, stepTimers, {
+      step: "transcription",
+      progress: 54,
+      title: failedTranscriptions.length ? "Transcrição local concluída com avisos" : "Transcrição local concluída",
+      message: `${transcriptionItems.length - failedTranscriptions.length}/${transcriptionItems.length} áudio(s) transcrito(s).`,
+      kind: failedTranscriptions.length ? "warning" : "audio",
+      details: {
+        total: transcriptionItems.length,
+        transcribed: transcriptionItems.length - failedTranscriptions.length,
+        failed: failedTranscriptions.length,
+        failedFiles: failedTranscriptions.slice(0, 12).map((item) => ({
+          fileName: item.fileName,
+          error: item.error || "",
+        })),
+      },
+    });
     normalizedFlow = matchPromptsWithAudio(normalizedFlow, transcriptions);
     const rawActions = buildRawActions(normalizedFlow);
     const preSemanticExtract = buildPreSemanticExtract(normalizedFlow);
     const promptsDetected = buildPromptsDetected(normalizedFlow);
     const audioMatching = buildAudioMatching(normalizedFlow, transcriptions);
+    addJobActivity(store, jobId, {
+      step: "audio_matching",
+      progress: 54,
+      title: "Matching de áudio concluído",
+      message: `${audioMatching.summary?.matched || 0} prompt(s) associados a áudio/transcrição. ${audioMatching.summary?.missingAudio || 0} prompt(s) sem arquivo enviado.`,
+      kind: "audio",
+      details: audioMatching.summary || {},
+    });
 
     await store.writeJson(job, "01_raw_actions.json", rawActions);
     await store.writeJson(job, "02_pre_semantic_extract.json", preSemanticExtract);
@@ -666,6 +841,19 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       kind: "ai",
     });
 
+    startActivityStep(store, jobId, stepTimers, {
+      step: "ai_organizer",
+      progress: 55,
+      title: "Organização semântica iniciada",
+      message: "Organizando actions, menus, prompts e destinos antes de montar o draw.io.",
+      kind: "ai",
+      details: {
+        aiEnabled: String(env.URA_DOCS_ENABLE_AI ?? "true").toLowerCase() !== "false",
+        model: env.URA_DOCS_AI_MODEL || env.OPENAI_MODEL || "",
+        mode: "organizer",
+      },
+    });
+
     const organizerResult = await organizeUraBeforeDrawio({
       rawActions,
       preSemanticExtract,
@@ -675,7 +863,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       env,
     });
     addDebugActivities(store, jobId, "ai_organizer", organizerResult.debugEvents, 56);
-    for (const warning of organizerResult.warnings || []) store.addWarning(jobId, warning);
+    addConsolidatedWarnings(store, jobId, organizerResult.warnings || [], { step: "ai_organizer", progress: 56 });
     await store.writeJson(job, "03_ai_organizer.json", organizerResult.organizer);
     addJobActivity(store, jobId, {
       step: "ai_organizer",
@@ -690,6 +878,21 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
         fallback: organizerResult.fallback,
       },
     });
+    finishActivityStep(store, jobId, stepTimers, {
+      step: "ai_organizer",
+      progress: 57,
+      title: organizerResult.fallback ? "Organizador determinístico aplicado" : "Organização semântica concluída",
+      message: organizerResult.fallback
+        ? "A etapa continuou com organização determinística, sem bloquear a geração."
+        : "Labels e contexto semântico foram preparados para o draw.io.",
+      kind: organizerResult.fallback ? "fallback" : "ai",
+      details: {
+        cacheHit: Boolean(organizerResult.cacheHit),
+        fallback: Boolean(organizerResult.fallback),
+        debugEvents: organizerResult.debugEvents?.length || 0,
+        warnings: organizerResult.warnings?.length || 0,
+      },
+    });
 
     store.updateJob(jobId, {
       step: "ai_enrichment",
@@ -702,6 +905,20 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       title: "Análise IA iniciada",
       message: "Solicitando resumo funcional, regras, testes e runbook quando a IA estiver habilitada.",
       kind: "ai",
+    });
+
+    startActivityStep(store, jobId, stepTimers, {
+      step: "ai_enrichment",
+      progress: 58,
+      title: "Análise IA iniciada",
+      message: "Gerando resumo funcional, regras, plano de testes e runbook quando a IA estiver disponível.",
+      kind: "ai",
+      details: {
+        aiEnabled: String(env.URA_DOCS_ENABLE_AI ?? "true").toLowerCase() !== "false",
+        model: env.URA_DOCS_AI_MODEL || env.OPENAI_MODEL || "",
+        mode: env.URA_DOCS_AI_MODE || options.aiMode || "summary",
+        timeoutMs: Number(env.URA_DOCS_AI_TIMEOUT_MS || 60000),
+      },
     });
 
     const aiResult = await analyzeUraContext({
@@ -735,7 +952,10 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
     }));
 
     addDebugActivities(store, jobId, "ai_enrichment", aiResult.debugEvents, 64);
-    for (const warning of aiResult.warnings || []) store.addWarning(jobId, warning);
+    addConsolidatedWarnings(store, jobId, aiResult.warnings || [], { step: "ai_enrichment", progress: 64 });
+    const aiHadResponse = Boolean(
+      aiResult.cacheHit || (aiResult.debugEvents || []).some((event) => event?.kind === "ai_response")
+    );
     const aiEnrichment =
       aiResult.analysis ||
       emptyUraAiEnrichment({
@@ -751,10 +971,29 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       message: aiResult.analysis
         ? "Resumo funcional, regras, testes e runbook preparados para o pacote."
         : "A geração continuou com resumo determinístico.",
-      kind: aiResult.cacheHit ? "cache" : "ai",
+      kind: aiResult.cacheHit ? "cache" : aiHadResponse ? "ai" : "fallback",
       details: {
         cacheHit: aiResult.cacheHit,
         warnings: aiResult.warnings?.length || 0,
+        aiHadResponse,
+      },
+    });
+    finishActivityStep(store, jobId, stepTimers, {
+      step: "ai_enrichment",
+      progress: 72,
+      title: aiHadResponse ? "Análise funcional concluída" : "Fallback determinístico usado",
+      message: aiHadResponse
+        ? "Enriquecimento textual preparado para documentação e pacote."
+        : "A IA não retornou resposta utilizável; a geração continuará com resumo determinístico.",
+      kind: aiResult.cacheHit ? "cache" : aiHadResponse ? "ai" : "fallback",
+      details: {
+        cacheHit: Boolean(aiResult.cacheHit),
+        warnings: aiResult.warnings?.length || 0,
+        aiHadResponse,
+        debugEvents: aiResult.debugEvents?.length || 0,
+        businessRules: aiEnrichment.businessRules?.length || 0,
+        testCases: aiEnrichment.testCases?.length || 0,
+        runbookItems: aiEnrichment.runbook?.length || 0,
       },
     });
 
@@ -769,6 +1008,20 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       title: "Geração do pacote iniciada",
       message: "Enviando fluxo normalizado, transcrições e enriquecimento para gerar draw.io, HTML, Markdown e matrizes.",
       kind: "package",
+    });
+
+    startActivityStep(store, jobId, stepTimers, {
+      step: "package",
+      progress: 78,
+      title: "Geração do pacote iniciada",
+      message: "Gerando draw.io, HTML, Markdown, matrizes e JSONs intermediários.",
+      kind: "package",
+      details: {
+        endpoint: "/generate-package",
+        actions: normalizedFlow?.actions?.length || 0,
+        prompts: normalizedFlow?.prompts?.length || 0,
+        transcriptions: transcriptions.items?.length || 0,
+      },
     });
 
     const packageResult = await postJsonToPython({
@@ -793,6 +1046,21 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
         files: Object.keys(packageResult?.files || {}),
       },
     });
+    finishActivityStep(store, jobId, stepTimers, {
+      step: "package",
+      progress: 88,
+      title: "Pacote recebido do Python",
+      message: `${Object.keys(packageResult?.files || {}).length} arquivo(s) gerados em memória para salvar no storage do job.`,
+      kind: "package",
+      details: {
+        files: Object.keys(packageResult?.files || {}),
+        packageSummary: packageResult?.summary || {},
+        semanticRoutes: packageResult?.summary?.semanticRoutes || 0,
+        drawioPages: packageResult?.summary?.drawioPages || 0,
+        promptsDetected: packageResult?.summary?.promptsDetected || 0,
+        promptsTranscribed: packageResult?.summary?.promptsTranscribed || 0,
+      },
+    });
 
     const generatedFiles = packageResult?.files || {};
     for (const [key, value] of Object.entries(generatedFiles)) {
@@ -815,6 +1083,7 @@ export async function runUraDocsJob({ jobId, files, fields, store, env }) {
       rawActions: path.join(job.jobDir, "01_raw_actions.json"),
       preSemanticExtract: path.join(job.jobDir, "02_pre_semantic_extract.json"),
       aiOrganizer: path.join(job.jobDir, "03_ai_organizer.json"),
+      semanticRoutes: path.join(job.jobDir, "04_semantic_routes.json"),
       humanRoutes: path.join(job.jobDir, "04_human_routes.json"),
       drawioPlan: path.join(job.jobDir, "05_drawio_plan.json"),
     };

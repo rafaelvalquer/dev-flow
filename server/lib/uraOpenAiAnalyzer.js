@@ -540,7 +540,10 @@ export async function openAiGenerateJson({
           details: {
             stage: debugStage,
             model,
+            mode: "json_schema",
             attempt: attempt + 1,
+            retries: retries + 1,
+            timeoutMs,
             promptChars: JSON.stringify(body.messages).length,
             promptPreview: debugText(prompt),
             payloadPreview: debugText(JSON.stringify(payload || {})),
@@ -575,6 +578,7 @@ export async function openAiGenerateJson({
 
       const data = await response.json();
       const text = extractOpenAiText(data);
+      const usage = data?.usage || {};
       const parsed = tryParseJson(text);
       if (!parsed) {
         throw new Error(
@@ -592,9 +596,15 @@ export async function openAiGenerateJson({
           details: {
             stage: debugStage,
             model,
+            mode: "json_schema",
             attempt: attempt + 1,
             responseChars: text.length,
             responsePreview: debugText(text),
+            usage: {
+              promptTokens: usage.prompt_tokens ?? usage.promptTokens ?? null,
+              completionTokens: usage.completion_tokens ?? usage.completionTokens ?? null,
+              totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+            },
           },
         });
       }
@@ -605,6 +615,7 @@ export async function openAiGenerateJson({
           ? new Error(`Timeout de ${Math.round(timeoutMs / 1000)}s ao chamar OpenAI.`)
           : error;
       if (Array.isArray(debugEvents)) {
+        const classified = classifyAiError(lastError);
         debugEvents.push({
           kind: "ai_error",
           title: "Falha na chamada OpenAI",
@@ -612,7 +623,12 @@ export async function openAiGenerateJson({
           details: {
             stage: debugStage,
             model,
+            mode: "json_schema",
             attempt: attempt + 1,
+            retries: retries + 1,
+            timeoutMs,
+            errorCategory: classified.category,
+            suggestion: classified.suggestion,
           },
         });
       }
