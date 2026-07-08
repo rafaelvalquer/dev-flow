@@ -41,7 +41,7 @@ const PO_OPEN_STATUSES_JQL = PO_OPEN_STATUSES.map(
 ).join(", ");
 
 export const PO_JQL_BODY = {
-  jql: `project = ICON AND status IN (${PO_OPEN_STATUSES_JQL}) AND updated >= -365d ORDER BY updated DESC`,
+  jql: `project in (ICON, UPO) AND status IN (${PO_OPEN_STATUSES_JQL}) AND updated >= -365d ORDER BY updated DESC`,
   maxResults: 100,
   fields: [
     "key",
@@ -65,7 +65,7 @@ export const PO_JQL_BODY = {
 };
 
 export const PO_DONE_LAST_30D_JQL_BODY = {
-  jql: "project = ICON AND statusCategory = Done AND resolved >= -30d ORDER BY resolved ASC",
+  jql: "project in (ICON, UPO) AND statusCategory = Done AND resolved >= -30d ORDER BY resolved ASC",
   maxResults: 200,
   fields: ["key", "summary", "status", "resolutiondate", "assignee"],
 };
