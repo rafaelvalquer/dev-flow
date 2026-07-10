@@ -44,6 +44,19 @@ function pct(value, total) {
   return `${Math.round((Number(value || 0) / total) * 1000) / 10}%`;
 }
 
+const readableChartLabel = {
+  color: "#ffffff",
+  fontSize: 12,
+  fontWeight: 900,
+  lineHeight: 14,
+  textBorderColor: "rgba(15, 23, 42, 0.45)",
+  textBorderWidth: 2,
+  textShadowColor: "rgba(15, 23, 42, 0.45)",
+  textShadowBlur: 3,
+  textShadowOffsetX: 0,
+  textShadowOffsetY: 1,
+};
+
 function buildTreemapData(rows = []) {
   const statusMap = new Map();
 
@@ -154,9 +167,7 @@ export function PortfolioTreemapWidget({
           left: 8,
           label: {
             show: true,
-            color: "#ffffff",
-            fontSize: 11,
-            fontWeight: 800,
+            ...readableChartLabel,
             overflow: "truncate",
             formatter: (params) => {
               const payload = params.data?.payload || {};
@@ -172,9 +183,9 @@ export function PortfolioTreemapWidget({
           upperLabel: {
             show: true,
             height: 22,
-            color: "#ffffff",
+            ...readableChartLabel,
             fontSize: 11,
-            fontWeight: 850,
+            lineHeight: 13,
           },
           itemStyle: {
             borderColor: "#ffffff",
@@ -192,12 +203,13 @@ export function PortfolioTreemapWidget({
               upperLabel: {
                 show: true,
                 height: 24,
-                color: "#ffffff",
+                ...readableChartLabel,
                 fontSize: 11,
-                fontWeight: 850,
+                lineHeight: 13,
               },
               label: {
                 show: true,
+                ...readableChartLabel,
                 formatter: (params) => `${params.name}\n${numberBr(params.value)}`,
               },
               itemStyle: {
@@ -209,6 +221,7 @@ export function PortfolioTreemapWidget({
             {
               label: {
                 show: true,
+                ...readableChartLabel,
               },
               itemStyle: {
                 borderColor: "#ffffff",

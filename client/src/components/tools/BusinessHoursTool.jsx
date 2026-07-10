@@ -1,12 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CalendarClock,
   Check,
   Clipboard,
   Copy,
+  Database,
+  Loader2,
+  LogIn,
+  LogOut,
   Pencil,
   Plus,
   RotateCcw,
+  Search,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +36,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  getCdrAuthStatus,
+  loginCdrPortal,
+  logoutCdrPortal,
+  verifyBusinessHours,
+} from "@/lib/cdr";
 import { cn } from "@/lib/utils";
 import {
   generateBusinessHoursInserts,
@@ -54,6 +67,18 @@ const EMPTY_RULE_FORM = {
   targetUras: [],
 };
 
+const DATABASE_OPTIONS = [
+  { value: "P00HU1", label: "URA.P00HU1" },
+  { value: "P00HU2", label: "URA.P00HU2" },
+  { value: "P00HU3", label: "URA.P00HU3" },
+  { value: "P00HU3_URACLOUD", label: "URACLOUD.P00HU3" },
+  { value: "P00HU3_URACEC", label: "URA_CEC.P00HU3" },
+  { value: "P01CT2", label: "AVAYAREP.P01CT2" },
+  { value: "CSPORA", label: "ICDIVR.CSPORA" },
+  { value: "MSPORA", label: "RPT.MSPORA" },
+  { value: "AWS_ROTEAMENTO", label: "AWS Roteamento" },
+];
+
 function nextRuleId() {
   return `rule-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
@@ -77,6 +102,10 @@ function isoDateToBr(value) {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
+function numberBr(value) {
+  return new Intl.NumberFormat("pt-BR").format(Number(value || 0));
+}
+
 function formatRuleSummary(rule) {
   const hours = rule.startTime || rule.endTime
     ? `${rule.startTime || "--:--"} ate ${rule.endTime || "--:--"}`
@@ -91,6 +120,35 @@ function formatRuleScope(rule) {
   return `${targetUras.length} URAs especificas`;
 }
 
+function FieldLabel({ children }) {
+  return (
+    <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+      {children}
+    </span>
+  );
+}
+
+function SummaryCard({ title, value }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+      <p className="text-xs font-medium text-zinc-500">{title}</p>
+      <p className="mt-1 text-xl font-semibold text-zinc-950">{numberBr(value)}</p>
+    </div>
+  );
+}
+
+function coverageLabel(status) {
+  if (status === "multiple_rules") return "Multiplas regras";
+  if (status === "configured") return "Configurado";
+  return "Ausente";
+}
+
+function coverageBadgeClass(status) {
+  if (status === "multiple_rules") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "configured") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-zinc-200 bg-zinc-50 text-zinc-600";
+}
+
 export default function BusinessHoursTool() {
   const [uras] = useState(MAPPED_URAS);
   const [selectedUras, setSelectedUras] = useState([]);
@@ -99,6 +157,16 @@ export default function BusinessHoursTool() {
   const [editingRuleId, setEditingRuleId] = useState("");
   const [generatedSql, setGeneratedSql] = useState("");
   const [validationErrors, setValidationErrors] = useState([]);
+  const [portalSession, setPortalSession] = useState(null);
+  const [portalBooting, setPortalBooting] = useState(true);
+  const [portalLoginForm, setPortalLoginForm] = useState({ username: "", password: "" });
+  const [portalError, setPortalError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [database, setDatabase] = useState("AWS_ROTEAMENTO");
+  const [verifyDate, setVerifyDate] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState(null);
 
   const groupedUras = useMemo(() => {
     const groups = { RCV: [], URA: [], Outros: [] };
@@ -110,8 +178,32 @@ export default function BusinessHoursTool() {
 
   const selectedCount = selectedUras.length;
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadPortalStatus() {
+      setPortalBooting(true);
+      try {
+        const result = await getCdrAuthStatus();
+        if (active) setPortalSession(result.authenticated ? result.session : null);
+      } catch (err) {
+        if (active) {
+          setPortalError(err?.message || "Nao foi possivel verificar a sessao Portal ICC.");
+        }
+      } finally {
+        if (active) setPortalBooting(false);
+      }
+    }
+
+    loadPortalStatus();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   function toggleUra(ura) {
     setGeneratedSql("");
+    setVerifyResult(null);
     setValidationErrors([]);
     setSelectedUras((current) =>
       current.includes(ura)
@@ -123,6 +215,7 @@ export default function BusinessHoursTool() {
   function selectGroup(group) {
     const names = groupedUras[group] || [];
     setGeneratedSql("");
+    setVerifyResult(null);
     setValidationErrors([]);
     setSelectedUras((current) => [...new Set([...current, ...names])]);
   }
@@ -130,6 +223,7 @@ export default function BusinessHoursTool() {
   function clearGroup(group) {
     const names = new Set(groupedUras[group] || []);
     setGeneratedSql("");
+    setVerifyResult(null);
     setValidationErrors([]);
     setSelectedUras((current) => current.filter((item) => !names.has(item)));
   }
@@ -237,11 +331,93 @@ export default function BusinessHoursTool() {
     }
   }
 
+  async function handlePortalLogin(event) {
+    event.preventDefault();
+    setLoggingIn(true);
+    setPortalError("");
+
+    try {
+      const result = await loginCdrPortal(portalLoginForm);
+      setPortalSession(result.session || null);
+      setPortalLoginForm((current) => ({ ...current, password: "" }));
+      toast.success("Login Portal ICC realizado.");
+    } catch (err) {
+      setPortalSession(null);
+      setPortalError(err?.message || "Nao foi possivel autenticar no Portal ICC.");
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  async function handlePortalLogout() {
+    setLoggingOut(true);
+    setPortalError("");
+
+    try {
+      await logoutCdrPortal();
+      setPortalSession(null);
+      setVerifyResult(null);
+      toast.success("Sessao Portal ICC encerrada.");
+    } catch (err) {
+      setPortalError(err?.message || "Nao foi possivel encerrar a sessao Portal ICC.");
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
+  async function handleVerifyBusinessHours(event) {
+    event.preventDefault();
+
+    if (!portalSession) {
+      setPortalError("Faca login no Portal ICC antes de verificar.");
+      toast.error("Faca login no Portal ICC antes de verificar.");
+      return;
+    }
+
+    if (!verifyDate) {
+      setPortalError("Informe a data da configuracao.");
+      toast.error("Informe a data da configuracao.");
+      return;
+    }
+
+    if (!selectedUras.length) {
+      setPortalError("Selecione pelo menos uma URA para verificar.");
+      toast.error("Selecione pelo menos uma URA para verificar.");
+      return;
+    }
+
+    setVerifying(true);
+    setPortalError("");
+    setVerifyResult(null);
+
+    try {
+      const result = await verifyBusinessHours({
+        database,
+        date: verifyDate,
+        uras: selectedUras,
+      });
+      setVerifyResult(result);
+      toast.success("Verificacao concluida.");
+    } catch (err) {
+      const message = err?.message || "Nao foi possivel verificar no Portal ICC.";
+      setPortalError(message);
+      if (err?.code === "PORTAL_SESSION_EXPIRED" || err?.status === 401) {
+        setPortalSession(null);
+        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setVerifying(false);
+    }
+  }
+
   function clearConfig() {
     setSelectedUras([]);
     setRules([]);
     setGeneratedSql("");
     setValidationErrors([]);
+    setVerifyResult(null);
     resetRuleForm();
     toast.success("Configuracao limpa.");
   }
@@ -274,6 +450,293 @@ export default function BusinessHoursTool() {
         </div>
       </div>
 
+      {portalBooting ? (
+        <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+          <Loader2 className="h-4 w-4 animate-spin text-red-600" />
+          Verificando sessao Portal ICC...
+        </div>
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.5fr)]">
+          <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-zinc-50 text-red-600">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle className="text-base text-zinc-900">Portal ICC</CardTitle>
+                      <Badge
+                        className={cn(
+                          "border",
+                          portalSession
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-600",
+                        )}
+                      >
+                        {portalSession ? "Sessao ativa" : "Login necessario"}
+                      </Badge>
+                    </div>
+                    <CardDescription className="truncate">
+                      {portalSession
+                        ? `${portalSession?.username || "Usuario"} - verificacao habilitada`
+                        : "Use o mesmo login das ferramentas CDR e Busca Tarefas."}
+                    </CardDescription>
+                  </div>
+                </div>
+
+                {portalSession ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePortalLogout}
+                    disabled={loggingOut}
+                  >
+                    {loggingOut ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <LogOut className="h-4 w-4" />
+                    )}
+                    Sair do ICC
+                  </Button>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {!portalSession ? (
+                <form onSubmit={handlePortalLogin} className="grid gap-3">
+                  <label className="grid gap-1">
+                    <FieldLabel>Usuario</FieldLabel>
+                    <Input
+                      value={portalLoginForm.username}
+                      onChange={(event) =>
+                        setPortalLoginForm((current) => ({
+                          ...current,
+                          username: event.target.value,
+                        }))
+                      }
+                      placeholder="Ex: Z000000"
+                      autoComplete="username"
+                    />
+                  </label>
+                  <label className="grid gap-1">
+                    <FieldLabel>Senha</FieldLabel>
+                    <Input
+                      type="password"
+                      value={portalLoginForm.password}
+                      onChange={(event) =>
+                        setPortalLoginForm((current) => ({
+                          ...current,
+                          password: event.target.value,
+                        }))
+                      }
+                      placeholder="Senha Portal ICC"
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <Button type="submit" disabled={loggingIn}>
+                    {loggingIn ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <LogIn className="h-4 w-4" />
+                    )}
+                    Entrar
+                  </Button>
+                </form>
+              ) : (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  Sessao pronta para consultar relatorios customizados.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base text-zinc-900">Verificar configuracao</CardTitle>
+              <CardDescription>
+                Consulte a tabela TB_BUSSINESSHOURS para a data e URAs selecionadas.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <form
+                onSubmit={handleVerifyBusinessHours}
+                className="grid gap-3 lg:grid-cols-[minmax(180px,240px)_minmax(160px,200px)_auto]"
+              >
+                <label className="grid gap-1">
+                  <FieldLabel>Banco</FieldLabel>
+                  <Select
+                    value={database}
+                    onValueChange={(value) => {
+                      setDatabase(value);
+                      setVerifyResult(null);
+                    }}
+                  >
+                    <SelectTrigger className="rounded-xl">
+                      <SelectValue placeholder="Banco" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DATABASE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+
+                <label className="grid gap-1">
+                  <FieldLabel>Data</FieldLabel>
+                  <Input
+                    type="date"
+                    value={brDateToIso(verifyDate)}
+                    onChange={(event) => {
+                      setVerifyDate(isoDateToBr(event.target.value));
+                      setVerifyResult(null);
+                    }}
+                    className="rounded-xl"
+                  />
+                </label>
+
+                <div className="flex items-end">
+                  <Button
+                    type="submit"
+                    className="w-full bg-red-600 text-white hover:bg-red-700 lg:w-auto"
+                    disabled={!portalSession || !verifyDate || !selectedUras.length || verifying}
+                  >
+                    {verifying ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                    Verificar no Portal ICC
+                  </Button>
+                </div>
+              </form>
+
+              <div className="flex flex-wrap gap-2 text-xs text-zinc-500">
+                <div className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  <Database className="h-3.5 w-3.5 text-red-600" />
+                  {DATABASE_OPTIONS.find((option) => option.value === database)?.label || database}
+                </div>
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                  {selectedUras.length} URA{selectedUras.length === 1 ? "" : "s"} selecionada
+                  {selectedUras.length === 1 ? "" : "s"}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {portalError ? (
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{portalError}</span>
+        </div>
+      ) : null}
+
+      {verifyResult ? (
+        <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-base text-zinc-900">
+                  Resultado da verificacao
+                </CardTitle>
+                <CardDescription>
+                  {verifyResult.date} em {verifyResult.database}
+                </CardDescription>
+              </div>
+              <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                {verifyResult.checkedAt
+                  ? new Date(verifyResult.checkedAt).toLocaleString("pt-BR")
+                  : "Consulta concluida"}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryCard title="Selecionadas" value={verifyResult.summary?.selected} />
+              <SummaryCard title="Configuradas" value={verifyResult.summary?.configured} />
+              <SummaryCard title="Ausentes" value={verifyResult.summary?.missing} />
+              <SummaryCard title="Linhas encontradas" value={verifyResult.summary?.rows} />
+            </div>
+
+            <div className="grid gap-3">
+              {(verifyResult.coverage || []).map((item) => (
+                <div
+                  key={item.ura}
+                  className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0 truncate text-sm font-semibold text-zinc-900">
+                      {item.ura}
+                    </div>
+                    <Badge className={cn("border", coverageBadgeClass(item.status))}>
+                      {coverageLabel(item.status)}
+                    </Badge>
+                  </div>
+
+                  {item.rows?.length ? (
+                    <div className="mt-3 overflow-auto rounded-xl border border-zinc-200 bg-white">
+                      <table className="min-w-[620px] border-collapse text-left text-xs">
+                        <thead className="bg-zinc-100 text-zinc-700">
+                          <tr>
+                            <th className="border-b border-zinc-200 px-3 py-2 font-semibold">
+                              Data
+                            </th>
+                            <th className="border-b border-zinc-200 px-3 py-2 font-semibold">
+                              Abertura
+                            </th>
+                            <th className="border-b border-zinc-200 px-3 py-2 font-semibold">
+                              Fechamento
+                            </th>
+                            <th className="border-b border-zinc-200 px-3 py-2 font-semibold">
+                              Status
+                            </th>
+                            <th className="border-b border-zinc-200 px-3 py-2 font-semibold">
+                              Dia semana
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {item.rows.map((row, index) => (
+                            <tr key={`${item.ura}-${index}`} className="odd:bg-white even:bg-zinc-50">
+                              <td className="border-b border-zinc-100 px-3 py-2 text-zinc-700">
+                                {row.data || "-"}
+                              </td>
+                              <td className="border-b border-zinc-100 px-3 py-2 text-zinc-700">
+                                {row.abertura || "-"}
+                              </td>
+                              <td className="border-b border-zinc-100 px-3 py-2 text-zinc-700">
+                                {row.fechamento || "-"}
+                              </td>
+                              <td className="border-b border-zinc-100 px-3 py-2 text-zinc-700">
+                                {row.status || "-"}
+                              </td>
+                              <td className="border-b border-zinc-100 px-3 py-2 text-zinc-700">
+                                {row.diaSemana || "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-4 text-sm text-zinc-500">
+                      Nenhum registro encontrado para a data selecionada.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.45fr)]">
         <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
           <CardHeader className="pb-3">
@@ -292,6 +755,7 @@ export default function BusinessHoursTool() {
                 onClick={() => {
                   setSelectedUras(MAPPED_URAS);
                   setGeneratedSql("");
+                  setVerifyResult(null);
                   setValidationErrors([]);
                 }}
               >

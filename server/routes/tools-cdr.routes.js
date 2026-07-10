@@ -288,6 +288,23 @@ export default function toolsCdrRoutes({ env }) {
     }
   });
 
+  router.post("/business-hours/verify", requirePortal, async (req, res, next) => {
+    try {
+      const result = await req.portalIccClient.verifyBusinessHours(req.body || {});
+      return res.json({
+        ok: true,
+        source: "portal-custom-report",
+        checkedAt: new Date().toISOString(),
+        ...result,
+      });
+    } catch (err) {
+      if (err?.code === "PORTAL_SESSION_EXPIRED") {
+        removePortalIccSession(req);
+      }
+      next(toPublicError(err));
+    }
+  });
+
   router.get("/analytics", requirePortal, async (req, res, next) => {
     try {
       const { export: exportInfo, analytics } = await runCdrAnalytics(

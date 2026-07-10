@@ -121,6 +121,13 @@ export async function searchPortalTasks(filters = {}) {
   return request(`/tasks/search?${params.toString()}`);
 }
 
+export async function verifyBusinessHours(payload = {}) {
+  return request("/business-hours/verify", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function analyzeCdr(filters = {}) {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {

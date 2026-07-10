@@ -259,7 +259,7 @@ export default function ToolsTab() {
     [activeTool],
   );
   const ActiveIcon = active.icon;
-  const portalIccTools = ["cdr", "cdr-analytics", "task-file-search"];
+  const portalIccTools = ["cdr", "cdr-analytics", "task-file-search", "business-hours"];
   const usesSttHealth = !["automacao", "business-hours", ...portalIccTools].includes(activeTool);
 
   const healthSummary = useMemo(() => {

@@ -4,6 +4,7 @@ import http from "node:http";
 import https from "node:https";
 import { CookieJar } from "tough-cookie";
 import { parseCdrResponse, ensureAuthenticatedHtml } from "./cdrParser.js";
+import { parseCustomReportHtml } from "./customReportParser.js";
 import {
   normalizeTaskSearchText,
   parseTaskListPage,
@@ -20,6 +21,202 @@ const BASE_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
 };
+
+export const ALLOWED_BUSINESS_HOURS_DATABASES = new Set([
+  "P00HU1",
+  "P00HU2",
+  "P00HU3",
+  "P00HU3_URACLOUD",
+  "P00HU3_URACEC",
+  "P01CT2",
+  "CSPORA",
+  "MSPORA",
+  "AWS_ROTEAMENTO",
+]);
+
+const DEFAULT_BUSINESS_HOURS_DATABASE = "AWS_ROTEAMENTO";
+const BR_DATE_RE = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+
+function normalizeText(value = "") {
+  return String(value || "").trim();
+}
+
+function normalizeBusinessHoursDate(value) {
+  const date = normalizeText(value);
+  const match = BR_DATE_RE.exec(date);
+  if (!match) return "";
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return "";
+  }
+
+  return date;
+}
+
+function sqlString(value) {
+  return normalizeText(value).replace(/'/g, "''");
+}
+
+export function sanitizeCustomReportSql(value = "") {
+  return String(value || "").trim().replace(/;+[\s;]*$/g, "").trim();
+}
+
+function normalizeUraKey(value) {
+  return normalizeText(value).toUpperCase();
+}
+
+function uniqueBusinessHoursUras(uras = []) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of Array.isArray(uras) ? uras : []) {
+    const ura = normalizeText(value);
+    const key = normalizeUraKey(ura);
+    if (!ura || seen.has(key)) continue;
+    seen.add(key);
+    result.push(ura);
+  }
+
+  return result;
+}
+
+function pickColumn(row = {}, columnName) {
+  const wanted = normalizeUraKey(columnName);
+  const match = Object.keys(row).find((key) => normalizeUraKey(key) === wanted);
+  return match ? normalizeText(row[match]) : "";
+}
+
+export function normalizeBusinessHoursRequest({
+  database = DEFAULT_BUSINESS_HOURS_DATABASE,
+  date,
+  uras,
+} = {}) {
+  const safeDatabase = normalizeText(database || DEFAULT_BUSINESS_HOURS_DATABASE);
+  if (!ALLOWED_BUSINESS_HOURS_DATABASES.has(safeDatabase)) {
+    const error = new Error("Banco nao permitido para verificacao.");
+    error.status = 400;
+    error.code = "BUSINESS_HOURS_INVALID_DATABASE";
+    throw error;
+  }
+
+  const safeDate = normalizeBusinessHoursDate(date);
+  if (!safeDate) {
+    const error = new Error("Data deve estar no formato DD/MM/YYYY.");
+    error.status = 400;
+    error.code = "BUSINESS_HOURS_INVALID_DATE";
+    throw error;
+  }
+
+  const safeUras = uniqueBusinessHoursUras(uras);
+  if (!safeUras.length) {
+    const error = new Error("Selecione pelo menos uma URA para verificar.");
+    error.status = 400;
+    error.code = "BUSINESS_HOURS_EMPTY_URAS";
+    throw error;
+  }
+
+  return {
+    database: safeDatabase,
+    date: safeDate,
+    uras: safeUras,
+  };
+}
+
+export function buildBusinessHoursVerificationSql({ date, uras } = {}) {
+  const safeDate = normalizeBusinessHoursDate(date);
+  const safeUras = uniqueBusinessHoursUras(uras);
+
+  if (!safeDate || !safeUras.length) {
+    const error = new Error("Data e URAs validas sao obrigatorias.");
+    error.status = 400;
+    throw error;
+  }
+
+  const uraList = safeUras
+    .map((ura) => `'${sqlString(normalizeUraKey(ura))}'`)
+    .join(",\n      ");
+
+  return sanitizeCustomReportSql(`SELECT
+    NOME,
+    DIA_SEMANA,
+    DATA,
+    ABERTURA,
+    FECHAMENTO,
+    STATUS
+FROM TB_BUSSINESSHOURS
+WHERE TRIM(DATA) = '${sqlString(safeDate)}'
+  AND UPPER(TRIM(NOME)) IN (
+      ${uraList}
+  )
+ORDER BY
+    NOME,
+    ABERTURA,
+    FECHAMENTO,
+    STATUS`);
+}
+
+export function normalizeBusinessHoursReportRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      nome: pickColumn(row, "NOME"),
+      diaSemana: pickColumn(row, "DIA_SEMANA"),
+      data: pickColumn(row, "DATA"),
+      abertura: pickColumn(row, "ABERTURA"),
+      fechamento: pickColumn(row, "FECHAMENTO"),
+      status: pickColumn(row, "STATUS"),
+    }))
+    .filter((row) => row.nome || row.data || row.abertura || row.fechamento || row.status);
+}
+
+export function buildBusinessHoursCoverage({ selectedUras = [], rows = [] } = {}) {
+  const normalizedRows = normalizeBusinessHoursReportRows(rows);
+  const rowsByUra = new Map();
+
+  normalizedRows.forEach((row) => {
+    const key = normalizeUraKey(row.nome);
+    if (!key) return;
+    const current = rowsByUra.get(key) || [];
+    current.push(row);
+    rowsByUra.set(key, current);
+  });
+
+  const coverage = uniqueBusinessHoursUras(selectedUras).map((ura) => {
+    const matches = rowsByUra.get(normalizeUraKey(ura)) || [];
+    const status =
+      matches.length === 0
+        ? "missing"
+        : matches.length === 1
+          ? "configured"
+          : "multiple_rules";
+
+    return {
+      ura,
+      configured: matches.length > 0,
+      status,
+      rows: matches,
+    };
+  });
+
+  return {
+    rows: normalizedRows,
+    coverage,
+    summary: {
+      selected: coverage.length,
+      configured: coverage.filter((item) => item.configured).length,
+      missing: coverage.filter((item) => !item.configured).length,
+      rows: normalizedRows.length,
+    },
+  };
+}
 
 function normalizeBaseUrl(env) {
   return String(
@@ -401,6 +598,207 @@ export class PortalIccClient {
     }
 
     return html;
+  }
+
+  async loadCustomReportPage() {
+    const path = "/portalicc/relatorios-customizados";
+    const startedAt = Date.now();
+
+    console.log("[portal-custom-report] GET page", {
+      url: this.portalUrl(path),
+    });
+
+    let response;
+    try {
+      response = await this.client.get(path, {
+        headers: {
+          ...BASE_HEADERS,
+          Referer: this.portalUrl("/portalicc/index"),
+          "Upgrade-Insecure-Requests": "1",
+        },
+      });
+    } catch (error) {
+      logPortalError("portal-custom-report", "GET page", error);
+      if (Number(error?.response?.status) === 417) {
+        const sessionError = new Error(
+          "Sessao Portal ICC expirada. Faca login novamente.",
+        );
+        sessionError.code = "PORTAL_SESSION_EXPIRED";
+        sessionError.status = 401;
+        throw sessionError;
+      }
+      throw error;
+    }
+
+    const location = normalizePortalLocation(
+      this.baseUrl,
+      response.headers.location || "",
+    );
+    if (response.status >= 300 && response.status < 400) {
+      if (String(location || "").includes("/portalicc/login")) {
+        const error = new Error("Sessao Portal ICC expirada.");
+        error.code = "PORTAL_SESSION_EXPIRED";
+        error.status = 401;
+        throw error;
+      }
+    }
+
+    const html = String(response.data || "");
+    ensureAuthenticatedHtml(html);
+    const csrf = extractCsrf(html);
+
+    console.log("[portal-custom-report] GET page response", {
+      status: response.status,
+      location,
+      elapsedMs: Date.now() - startedAt,
+      htmlLength: html.length,
+      hasCsrf: Boolean(csrf),
+    });
+
+    if (!csrf) {
+      const error = new Error(
+        "Nao foi possivel localizar o token _csrf no relatorio customizado.",
+      );
+      error.status = 502;
+      error.code = "PORTAL_CUSTOM_REPORT_CSRF_NOT_FOUND";
+      throw error;
+    }
+
+    return { html, csrf };
+  }
+
+  async executeCustomReport({ database, sql } = {}) {
+    const safeDatabase = normalizeText(database);
+    const safeSql = sanitizeCustomReportSql(sql);
+
+    if (!safeDatabase || !safeSql) {
+      const error = new Error("Banco e SQL sao obrigatorios.");
+      error.status = 400;
+      throw error;
+    }
+
+    const page = await this.loadCustomReportPage();
+    const body = new URLSearchParams();
+    body.set("_csrf", page.csrf);
+    body.set("database", safeDatabase);
+    body.set("sql", safeSql);
+
+    const startedAt = Date.now();
+    let response;
+    try {
+      response = await this.client.post(
+        "/portalicc/relatorios-customizados",
+        body,
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: BROWSER_ACCEPT,
+            Origin: this.baseUrl,
+            Referer: this.portalUrl("/portalicc/relatorios-customizados"),
+          },
+        },
+      );
+    } catch (error) {
+      logPortalError("portal-custom-report", "POST report", error);
+      if (Number(error?.response?.status) === 417) {
+        const sessionError = new Error(
+          "Sessao Portal ICC expirada. Faca login novamente.",
+        );
+        sessionError.code = "PORTAL_SESSION_EXPIRED";
+        sessionError.status = 401;
+        throw sessionError;
+      }
+      throw error;
+    }
+
+    const location = normalizePortalLocation(
+      this.baseUrl,
+      response.headers.location || "",
+    );
+    if (response.status >= 300 && response.status < 400) {
+      if (String(location || "").includes("/portalicc/login")) {
+        const error = new Error("Sessao Portal ICC expirada.");
+        error.code = "PORTAL_SESSION_EXPIRED";
+        error.status = 401;
+        throw error;
+      }
+    }
+
+    let html = String(response.data || "");
+    let finalStatus = response.status;
+    let finalLocation = location;
+
+    if (response.status >= 300 && response.status < 400 && location) {
+      const followStartedAt = Date.now();
+      let followResponse;
+      try {
+        followResponse = await this.client.get(location, {
+          headers: {
+            ...BASE_HEADERS,
+            Referer: this.portalUrl("/portalicc/relatorios-customizados"),
+            "Upgrade-Insecure-Requests": "1",
+          },
+        });
+      } catch (error) {
+        logPortalError("portal-custom-report", "GET redirected report", error);
+        throw error;
+      }
+
+      finalStatus = followResponse.status;
+      finalLocation = normalizePortalLocation(
+        this.baseUrl,
+        followResponse.headers.location || "",
+      );
+      html = String(followResponse.data || "");
+
+      console.log("[portal-custom-report] GET redirected report response", {
+        status: finalStatus,
+        location: finalLocation,
+        elapsedMs: Date.now() - followStartedAt,
+        htmlLength: html.length,
+      });
+    }
+
+    const parsed = parseCustomReportHtml(html);
+
+    console.log("[portal-custom-report] POST report response", {
+      status: response.status,
+      finalStatus,
+      location,
+      finalLocation,
+      elapsedMs: Date.now() - startedAt,
+      htmlLength: html.length,
+      rows: parsed.rows.length,
+      total: parsed.total,
+    });
+
+    return parsed;
+  }
+
+  async verifyBusinessHours(input = {}) {
+    const request = normalizeBusinessHoursRequest(input);
+    const sql = buildBusinessHoursVerificationSql(request);
+    const report = await this.executeCustomReport({
+      database: request.database,
+      sql,
+    });
+    const coverage = buildBusinessHoursCoverage({
+      selectedUras: request.uras,
+      rows: report.rows,
+    });
+
+    return {
+      database: request.database,
+      date: request.date,
+      selectedUras: request.uras,
+      summary: coverage.summary,
+      coverage: coverage.coverage,
+      raw: {
+        columns: report.columns,
+        rows: report.rows,
+        total: report.total,
+      },
+    };
   }
 
   async searchCdr(filters = {}) {
