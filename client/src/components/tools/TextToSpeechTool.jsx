@@ -5,6 +5,7 @@ import JSZip from "jszip";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 import {
   Play,
@@ -32,7 +33,9 @@ const TTS_VOICE_OPTIONS = [
 function safeRevokeObjectUrl(u) {
   try {
     if (u) URL.revokeObjectURL(u);
-  } catch {}
+  } catch {
+    // Ignore cleanup failures.
+  }
 }
 
 function baseName(fileName = "tts") {
@@ -83,6 +86,7 @@ function parseFilenameFromContentDisposition(cd) {
   try {
     return decodeURIComponent(m[1]);
   } catch {
+    // Keep the raw filename when decoding fails.
     return m[1];
   }
 }
@@ -110,7 +114,9 @@ async function fetchBlob(url, body) {
           msg = txt;
         }
       }
-    } catch {}
+    } catch {
+      // Keep the generic HTTP message when the body cannot be read.
+    }
     throw new Error(msg);
   }
 
@@ -121,7 +127,7 @@ async function fetchBlob(url, body) {
   return { blob, filename: fn, contentType: r.headers.get("content-type") };
 }
 
-export default function TextToSpeechTool() {
+export default function TextToSpeechTool({ serviceOnline = true }) {
   const audioRef = useRef(null);
   const [mode, setMode] = useState("single");
 
@@ -179,7 +185,9 @@ export default function TextToSpeechTool() {
       try {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
-      } catch {}
+      } catch {
+        // Ignore pause/reset failures.
+      }
     }
     safeRevokeObjectUrl(mp3Url);
     setMp3Url(null);
@@ -235,7 +243,9 @@ export default function TextToSpeechTool() {
     try {
       if (el.paused) await el.play();
       else el.pause();
-    } catch {}
+    } catch {
+      // Ignore playback failures.
+    }
   }
 
   async function downloadUlawWav() {
@@ -360,6 +370,29 @@ export default function TextToSpeechTool() {
 
   return (
     <div className="grid gap-4">
+      <ToolWorkspaceHeader
+        title="TTS (Texto → Áudio)"
+        icon={Sparkles}
+        status={
+          <Badge
+            className={cn(
+              "border",
+              serviceOnline
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-amber-200 bg-amber-50 text-amber-800",
+            )}
+          >
+            {serviceOnline ? "Online" : "Offline"}
+          </Badge>
+        }
+      />
+
+      {!serviceOnline ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Serviço STT offline. Suba o serviço Python para gerar áudio.
+        </div>
+      ) : null}
+
       <div className="inline-flex w-fit rounded-2xl bg-zinc-100 p-1">
         {[
           ["single", "Áudio único"],
@@ -398,7 +431,7 @@ export default function TextToSpeechTool() {
               <Button
                 type="button"
                 className="rounded-xl bg-red-600 text-white hover:bg-red-700"
-                disabled={!parseBatchLines(batchText).length || batchBusy}
+                disabled={!parseBatchLines(batchText).length || batchBusy || !serviceOnline}
                 onClick={generateBatch}
               >
                 {batchBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
@@ -563,7 +596,7 @@ export default function TextToSpeechTool() {
             type="button"
             className="rounded-xl bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
             onClick={generatePreviewMp3}
-            disabled={!canGenerate || busy}
+            disabled={!canGenerate || busy || !serviceOnline}
           >
             {busy && !mp3Url ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -577,7 +610,7 @@ export default function TextToSpeechTool() {
             type="button"
             className="rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
             onClick={downloadUlawWav}
-            disabled={!canGenerate || busy}
+            disabled={!canGenerate || busy || !serviceOnline}
             title="Baixar WAV μ-law 8k mono (NICE)"
           >
             {busy && mp3Url ? (

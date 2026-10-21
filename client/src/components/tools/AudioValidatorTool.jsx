@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -58,7 +59,9 @@ function ensureUniqueFilename(name, used) {
 function safeRevokeObjectUrl(url) {
   try {
     if (url) URL.revokeObjectURL(url);
-  } catch {}
+  } catch {
+    // Ignore cleanup failures.
+  }
 }
 
 async function postFile(url, file) {
@@ -71,9 +74,12 @@ async function postFile(url, file) {
       const data = await response.json();
       message = data?.error || data?.detail || message;
     } catch {
+      // Fall back to plain text when the error body is not JSON.
       try {
         message = (await response.text()) || message;
-      } catch {}
+      } catch {
+        // Ignore unreadable error bodies.
+      }
     }
     throw new Error(message);
   }
@@ -209,7 +215,6 @@ export default function AudioValidatorTool({ serviceOnline = true }) {
     if (!scope.length || running) return;
     setRunning(true);
     for (const item of scope) {
-      // eslint-disable-next-line no-await-in-loop
       await analyzeOne(item.id);
     }
     setRunning(false);
@@ -244,7 +249,6 @@ export default function AudioValidatorTool({ serviceOnline = true }) {
     if (!convertCandidates.length || running) return;
     setRunning(true);
     for (const item of convertCandidates) {
-      // eslint-disable-next-line no-await-in-loop
       await convertOne(item.id);
     }
     setRunning(false);
@@ -273,39 +277,55 @@ export default function AudioValidatorTool({ serviceOnline = true }) {
 
   return (
     <div className="grid gap-4">
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-zinc-900">
-              Validador de Áudios URA
-            </div>
-            <div className="text-xs text-zinc-600">
-              Valide arquivos em massa no padrão {TARGET_LABEL} e converta os itens fora do padrão.
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-              {totals.total} arquivos
-            </Badge>
-            <Badge className="border border-green-200 bg-green-50 text-green-700">
-              {totals.ok} OK
-            </Badge>
-            <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
-              {totals.fix} corrigir
-            </Badge>
-            <Badge className="border border-blue-200 bg-blue-50 text-blue-700">
-              {totals.converted} convertidos
-            </Badge>
-          </div>
-        </div>
+      <ToolWorkspaceHeader
+        title="Validador de Áudios URA"
+        icon={FileAudio}
+        status={
+          <Badge
+            className={cn(
+              "border",
+              serviceOnline
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-amber-200 bg-amber-50 text-amber-800",
+            )}
+          >
+            {serviceOnline ? "Online" : "Offline"}
+          </Badge>
+        }
+        actions={
+          totals.total ? (
+            <>
+              <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                {totals.total} arquivos
+              </Badge>
+              {totals.ok ? (
+                <Badge className="border border-green-200 bg-green-50 text-green-700">
+                  {totals.ok} OK
+                </Badge>
+              ) : null}
+              {totals.fix ? (
+                <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
+                  {totals.fix} corrigir
+                </Badge>
+              ) : null}
+              {totals.converted ? (
+                <Badge className="border border-blue-200 bg-blue-50 text-blue-700">
+                  {totals.converted} convertidos
+                </Badge>
+              ) : null}
+            </>
+          ) : null
+        }
+      />
 
         {!serviceOnline && (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             Serviço STT offline. Suba o serviço Python para validar e converter áudios.
           </div>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             ref={fileInputRef}
             type="file"

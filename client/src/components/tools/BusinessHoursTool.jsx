@@ -47,6 +47,7 @@ import {
   generateBusinessHoursInserts,
   validateBusinessHoursConfig,
 } from "@/utils/businessHoursInserts";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 const MAPPED_URAS = [
   "RCV_PERFIL_1A8",
@@ -424,31 +425,31 @@ export default function BusinessHoursTool() {
 
   return (
     <section className="grid gap-4">
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-red-100 bg-red-50 px-3 py-1 text-xs font-bold uppercase text-red-700">
-              <CalendarClock className="h-3.5 w-3.5" />
-              tb_bussinesshours
-            </div>
-            <h2 className="mt-3 text-xl font-bold text-zinc-950">
-              Configuração de Feriados / Fechamento de URAs
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm text-zinc-600">
-              Monte datas especiais, valide as regras e copie os inserts SQL prontos.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-              {selectedCount} URA{selectedCount === 1 ? "" : "s"}
-            </Badge>
-            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-              {rules.length} regra{rules.length === 1 ? "" : "s"}
-            </Badge>
-          </div>
-        </div>
-      </div>
+      <ToolWorkspaceHeader
+        title="Feriados e Fechamentos"
+        icon={CalendarClock}
+        status={
+          <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+            Portal ICC
+          </Badge>
+        }
+        actions={
+          selectedCount || rules.length ? (
+            <>
+              {selectedCount ? (
+                <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                  {selectedCount} URA{selectedCount === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
+              {rules.length ? (
+                <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                  {rules.length} regra{rules.length === 1 ? "" : "s"}
+                </Badge>
+              ) : null}
+            </>
+          ) : null
+        }
+      />
 
       {portalBooting ? (
         <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">

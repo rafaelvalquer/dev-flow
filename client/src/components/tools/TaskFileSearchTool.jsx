@@ -20,6 +20,7 @@ import {
   searchPortalTasks,
 } from "@/lib/cdr";
 import { cn } from "@/lib/utils";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 const EMPTY_SUMMARY = {
   pagesRead: 0,
@@ -327,15 +328,36 @@ export default function TaskFileSearchTool() {
 
   if (booting) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-        <Loader2 className="h-4 w-4 animate-spin text-red-600" />
-        Verificando sessão Portal ICC...
+      <div className="grid gap-4">
+        <ToolWorkspaceHeader
+          title="Busca de Tarefas ICC"
+          icon={FileSearch}
+          status={
+            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+              Portal ICC
+            </Badge>
+          }
+        />
+        <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+          <Loader2 className="h-4 w-4 animate-spin text-red-600" />
+          Verificando sessão Portal ICC...
+        </div>
       </div>
     );
   }
 
   return (
     <div className="grid gap-4">
+      <ToolWorkspaceHeader
+        title="Busca de Tarefas ICC"
+        icon={FileSearch}
+        status={
+          <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+            Portal ICC
+          </Badge>
+        }
+      />
+
       <PortalLoginPanel
         session={session}
         loginForm={loginForm}

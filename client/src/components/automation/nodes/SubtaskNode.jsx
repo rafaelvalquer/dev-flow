@@ -1,5 +1,5 @@
 import React, { memo, useMemo } from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position } from "@xyflow/react";
 import { CheckSquare } from "lucide-react";
 import { getNodeTone } from "@/components/automation/automationTheme";
 

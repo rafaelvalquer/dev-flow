@@ -1,5 +1,5 @@
 import React, { memo, useMemo } from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position } from "@xyflow/react";
 import { Zap, CheckCircle2, XCircle } from "lucide-react";
 import { TRIGGER_TYPES } from "@/components/automation/automationTemplates";
 import { getNodeTone } from "@/components/automation/automationTheme";

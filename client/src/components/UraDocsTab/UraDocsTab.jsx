@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FileText, HeartPulse } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import ToolWorkspaceHeader from "@/components/tools/ToolWorkspaceHeader";
 import {
   createUraDocsJob,
   fetchUraDocsHealth,
@@ -115,23 +117,16 @@ export default function UraDocsTab() {
 
   return (
     <div className="grid gap-4">
-      <section className="rounded-xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-lg bg-red-50 text-red-600">
-              <FileText className="h-5 w-5" />
-            </span>
-            <div>
-              <h2 className="text-base font-semibold text-zinc-900">Documentador Inteligente de URA NICE</h2>
-              <p className="text-sm text-zinc-500">Gere draw.io, HTML, Markdown, matrizes e análises a partir do fluxo NICE.</p>
-            </div>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-            <HeartPulse className="h-4 w-4 text-red-600" />
+      <ToolWorkspaceHeader
+        title="Documentador Inteligente de URA NICE"
+        icon={FileText}
+        status={
+          <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+            <HeartPulse className="mr-1 h-3.5 w-3.5 text-red-600" />
             {healthLabel}
-          </div>
-        </div>
-      </section>
+          </Badge>
+        }
+      />
 
         <UraUploadPanel
         projectName={projectName}

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -196,7 +197,9 @@ function summarizeDiff(expected = "", actual = "") {
 function safeRevokeObjectUrl(url) {
   try {
     if (url) URL.revokeObjectURL(url);
-  } catch {}
+  } catch {
+    // Ignore cleanup failures.
+  }
 }
 
 function escapeCsv(value = "") {
@@ -382,7 +385,9 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
         try {
           const data = await response.json();
           message = data?.error || data?.detail || data?.message || message;
-        } catch {}
+        } catch {
+          // Ignore non-JSON error bodies.
+        }
         throw new Error(message);
       }
 
@@ -421,7 +426,6 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
 
     setRunning(true);
     for (const row of comparable) {
-      // eslint-disable-next-line no-await-in-loop
       await transcribeRow(row);
     }
     setRunning(false);
@@ -457,45 +461,32 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
   }
 
   const canCompare = rows.some((row) => row.file && row.expectedText);
+  const serviceStatus = (
+    <Badge
+      className={cn(
+        "border",
+        serviceOnline
+          ? "border-green-200 bg-green-50 text-green-700"
+          : "border-amber-200 bg-amber-50 text-amber-800",
+      )}
+    >
+      {serviceOnline ? "Online" : "Offline"}
+    </Badge>
+  );
 
   return (
     <div className="grid gap-4">
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
-              <FileSearch className="h-4 w-4 text-red-600" />
-              Comparador de Audio URA
-            </div>
-            <div className="mt-1 max-w-3xl text-xs text-zinc-600">
-              Cole o roteiro aprovado, envie os áudios e compare a transcricao
-              automaticamente pelo nome do arquivo.
-            </div>
-          </div>
+      <ToolWorkspaceHeader
+        title="Comparador de Áudio URA"
+        icon={FileSearch}
+        status={serviceStatus}
+      />
 
-          <div className="flex flex-wrap gap-2">
-            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
-              {totals.total} itens
-            </Badge>
-            <Badge className="border border-green-200 bg-green-50 text-green-700">
-              {totals.approved} aprovados
-            </Badge>
-            <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
-              {totals.attention} atencao
-            </Badge>
-            <Badge className="border border-red-200 bg-red-50 text-red-700">
-              {totals.divergent} divergentes
-            </Badge>
-          </div>
+      {!serviceOnline ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Serviço STT offline. Suba o serviço Python para transcrever e comparar os áudios.
         </div>
-
-        {!serviceOnline ? (
-          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-            Serviço STT offline. Suba o serviço Python para transcrever e comparar
-            os áudios.
-          </div>
-        ) : null}
-      </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -526,10 +517,12 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
             className="mt-3 min-h-[220px] w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-red-500"
           />
 
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-500">
-            <span>{scriptRows.length} linhas validas</span>
-            <span>{totals.missingAudio} sem audio</span>
-          </div>
+          {scriptRows.length || totals.missingAudio ? (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-500">
+              {scriptRows.length ? <span>{scriptRows.length} linhas válidas</span> : null}
+              {totals.missingAudio ? <span>{totals.missingAudio} sem áudio</span> : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -625,6 +618,28 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {rows.length ? (
+              <>
+                <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                  {totals.total} itens
+                </Badge>
+                {totals.approved ? (
+                  <Badge className="border border-green-200 bg-green-50 text-green-700">
+                    {totals.approved} aprovados
+                  </Badge>
+                ) : null}
+                {totals.attention ? (
+                  <Badge className="border border-amber-200 bg-amber-50 text-amber-800">
+                    {totals.attention} atenção
+                  </Badge>
+                ) : null}
+                {totals.divergent ? (
+                  <Badge className="border border-red-200 bg-red-50 text-red-700">
+                    {totals.divergent} divergentes
+                  </Badge>
+                ) : null}
+              </>
+            ) : null}
             <Button
               type="button"
               variant="outline"

@@ -49,6 +49,7 @@ import {
 } from "@/lib/cdr";
 import { jiraUploadIssueAttachments } from "@/lib/jiraClient";
 import JiraTicketPicker from "./JiraTicketPicker";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 const FILTER_KEY = "devflow:cdr:lastFilters";
 
@@ -121,7 +122,9 @@ function loadSavedFilters() {
 function saveFilters(filters) {
   try {
     window.localStorage.setItem(FILTER_KEY, JSON.stringify(filters));
-  } catch {}
+  } catch {
+    // Ignore localStorage failures.
+  }
 }
 
 function escapeCsv(value = "") {
@@ -784,15 +787,36 @@ export default function CdrSearchTool() {
 
   if (booting) {
     return (
-      <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Verificando sessão Portal ICC...
+      <div className="grid gap-4">
+        <ToolWorkspaceHeader
+          title="Consulta CDR"
+          icon={Database}
+          status={
+            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+              Portal ICC
+            </Badge>
+          }
+        />
+        <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Verificando sessão Portal ICC...
+        </div>
       </div>
     );
   }
 
   return (
     <div className="grid gap-4">
+      <ToolWorkspaceHeader
+        title="Consulta CDR"
+        icon={Database}
+        status={
+          <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+            Portal ICC
+          </Badge>
+        }
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zinc-200 bg-white text-red-600">

@@ -110,6 +110,10 @@ export default function AutomationTemplates({ onPickTemplate }) {
                         "application/reactflow",
                         "automationTemplate"
                       );
+                      e.dataTransfer.setData(
+                        "application/xyflow",
+                        "automationTemplate"
+                      );
                       e.dataTransfer.setData("application/json", payload);
                       e.dataTransfer.setData(
                         "application/automation-template",

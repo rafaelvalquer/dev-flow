@@ -49,6 +49,7 @@ import CdrFilterPair from "./CdrFilterPair";
 import CdrCallFlowChart from "./CdrCallFlowChart";
 import CdrHourRegionHeatmap from "./CdrHourRegionHeatmap";
 import DnaJourneySankey from "./DnaJourneySankey";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 const PIE_COLORS = ["#dc2626", "#2563eb", "#16a34a", "#f59e0b", "#7c3aed"];
 const EVIDENCE_MODULES = [
@@ -602,15 +603,36 @@ export default function CdrAnalyticsTool() {
 
   if (booting) {
     return (
-      <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Verificando sessão Portal ICC...
+      <div className="grid gap-4">
+        <ToolWorkspaceHeader
+          title="Dashboard CDR"
+          icon={BarChart3}
+          status={
+            <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+              Portal ICC
+            </Badge>
+          }
+        />
+        <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Verificando sessão Portal ICC...
+        </div>
       </div>
     );
   }
 
   return (
     <div className="grid gap-4">
+      <ToolWorkspaceHeader
+        title="Dashboard CDR"
+        icon={BarChart3}
+        status={
+          <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+            Portal ICC
+          </Badge>
+        }
+      />
+
       <PortalLoginPanel
         session={session}
         loginForm={loginForm}

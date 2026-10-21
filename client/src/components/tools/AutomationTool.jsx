@@ -8,7 +8,8 @@ import React, {
 
 import { motion } from "framer-motion";
 
-import ReactFlow, {
+import {
+  FlowCanvas as BaseFlowCanvas,
   Background,
   Controls,
   MiniMap,
@@ -17,11 +18,9 @@ import ReactFlow, {
   useReactFlow,
   applyNodeChanges,
   applyEdgeChanges,
-} from "reactflow";
+} from "@/features/visualization/flow";
 
-import { Maximize2, Minimize2, ChevronDown, ChevronUp } from "lucide-react";
-
-import "reactflow/dist/style.css";
+import { Maximize2, Minimize2, ChevronDown, ChevronUp, Workflow } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +37,7 @@ import ActionNode from "@/components/automation/nodes/ActionNode";
 
 import AutomationTemplates from "@/components/automation/palette/AutomationTemplates";
 import AutomationInspector from "@/components/automation/inspector/AutomationInspector";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 import {
   listTickets,
@@ -74,6 +74,8 @@ const nodeTypes = {
   actionNode: ActionNode,
   gateNode: GateNode,
 };
+
+const MotionDiv = motion.div;
 
 function indexRuleExecutions(executions) {
   const out = {}; // { [ruleId]: { status, executedAt, eventKey, ts } }
@@ -141,7 +143,6 @@ function FlowCanvas({
   nodes,
   edges,
   nodeTypes,
-  setNodes,
   onNodesChange,
   onEdgesChange,
   setEdges,
@@ -168,7 +169,9 @@ function FlowCanvas({
       event.preventDefault();
 
       const bounds = wrapperRef.current?.getBoundingClientRect();
-      const type = event.dataTransfer.getData("application/reactflow");
+      const type =
+        event.dataTransfer.getData("application/reactflow") ||
+        event.dataTransfer.getData("application/xyflow");
       const raw = event.dataTransfer.getData("application/json");
       if (!type) return;
 
@@ -199,7 +202,7 @@ function FlowCanvas({
 
   return (
     <div ref={wrapperRef} className="h-full w-full">
-      <ReactFlow
+      <BaseFlowCanvas
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -215,7 +218,7 @@ function FlowCanvas({
       >
         <Background />
         <Controls />
-      </ReactFlow>
+      </BaseFlowCanvas>
     </div>
   );
 }
@@ -351,7 +354,7 @@ export default function AutomationTool() {
         const data = await listTickets({ q });
         if (!mounted) return;
         setTickets(Array.isArray(data?.tickets) ? data.tickets : []);
-      } catch (e) {
+      } catch {
         if (!mounted) return;
         setTickets([]);
       } finally {
@@ -444,7 +447,7 @@ export default function AutomationTool() {
   }
 
   const syncGateIntoTrigger = useCallback(
-    ({ gateId, triggerId, targets }) => {
+    ({ triggerId, targets }) => {
       const subtaskKeys = computeSubtaskKeysFromGateTargets(targets);
 
       setNodes((prev) =>
@@ -875,10 +878,6 @@ export default function AutomationTool() {
       const targetId = params?.target;
       if (!sourceId || !targetId) return false;
 
-      const byId = Object.fromEntries(nodes.map((n) => [n.id, n]));
-      const sourceNode = byId[sourceId];
-      const targetNode = byId[targetId];
-
       // gate <-> entity (subtask)
       if (isGateId(sourceId) && isEntityNode(targetId)) {
         addEntityToGate({ gateId: sourceId, entityId: targetId });
@@ -966,67 +965,65 @@ export default function AutomationTool() {
 
   return (
     <ReactFlowProvider>
-      <motion.div layout className="grid gap-4" transition={layoutSpring}>
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <Badge className="border border-red-200 bg-red-50 text-red-700">
-              Automação
-            </Badge>
-
-            {ticketKey ? (
-              <span className="text-sm text-zinc-700">
-                Ticket selecionado:{" "}
-                <span className="font-semibold">{ticketKey}</span>
-              </span>
+      <MotionDiv layout className="grid gap-4" transition={layoutSpring}>
+        <ToolWorkspaceHeader
+          title="Automação"
+          icon={Workflow}
+          status={
+            ticketKey ? (
+              <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-700">
+                {ticketKey}
+              </Badge>
             ) : (
-              <span className="text-sm text-zinc-600">
-                Selecione um ticket para montar automações.
-              </span>
-            )}
-          </div>
+              <Badge className="border border-zinc-200 bg-zinc-50 text-zinc-600">
+                Local
+              </Badge>
+            )
+          }
+          actions={
+            <>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={onValidate}
+                disabled={!ticketKey}
+              >
+                Validar
+              </Button>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={onValidate}
-              disabled={!ticketKey}
-            >
-              Validar
-            </Button>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={onDryRun}
+                disabled={!ticketKey || dryRunning}
+              >
+                {dryRunning ? "Dry-run…" : "Executar teste"}
+              </Button>
 
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={onDryRun}
-              disabled={!ticketKey || dryRunning}
-            >
-              {dryRunning ? "Dry-run…" : "Executar teste (dry-run)"}
-            </Button>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => setWideFlow((v) => !v)}
+                title="Alternar layout do editor"
+              >
+                {wideFlow ? (
+                  <Minimize2 className="mr-2 h-4 w-4" />
+                ) : (
+                  <Maximize2 className="mr-2 h-4 w-4" />
+                )}
+                {wideFlow ? "Layout normal" : "Tela ampla"}
+              </Button>
 
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              onClick={() => setWideFlow((v) => !v)}
-              title="Alternar layout do editor"
-            >
-              {wideFlow ? (
-                <Minimize2 className="mr-2 h-4 w-4" />
-              ) : (
-                <Maximize2 className="mr-2 h-4 w-4" />
-              )}
-              {wideFlow ? "Layout normal" : "Tela ampla"}
-            </Button>
-
-            <Button
-              className="rounded-xl bg-red-600 hover:bg-red-700"
-              onClick={onSave}
-              disabled={!ticketKey || saving}
-            >
-              {saving ? "Salvando…" : "Salvar"}
-            </Button>
-          </div>
-        </div>
+              <Button
+                className="rounded-xl bg-red-600 hover:bg-red-700"
+                onClick={onSave}
+                disabled={!ticketKey || saving}
+              >
+                {saving ? "Salvando…" : "Salvar"}
+              </Button>
+            </>
+          }
+        />
 
         {validationErrors.length ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -1039,7 +1036,7 @@ export default function AutomationTool() {
           </div>
         ) : null}
 
-        <motion.div
+        <MotionDiv
           layout
           transition={layoutSpring}
           className={cn(
@@ -1050,7 +1047,7 @@ export default function AutomationTool() {
           )}
         >
           {/* LEFT */}
-          <motion.div
+          <MotionDiv
             layout
             transition={layoutSpring}
             initial={false}
@@ -1206,10 +1203,10 @@ export default function AutomationTool() {
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
+          </MotionDiv>
 
           {/* CENTER */}
-          <motion.div layout transition={layoutSpring} className="min-w-0">
+          <MotionDiv layout transition={layoutSpring} className="min-w-0">
             <Card className="rounded-2xl border-zinc-200">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-2">
@@ -1255,10 +1252,10 @@ export default function AutomationTool() {
                 ) : null}
               </CardContent>
             </Card>
-          </motion.div>
+          </MotionDiv>
 
           {/* RIGHT */}
-          <motion.div
+          <MotionDiv
             layout
             transition={layoutSpring}
             initial={false}
@@ -1309,9 +1306,9 @@ export default function AutomationTool() {
                 </li>
               </ul>
             </div>
-          </motion.div>
-        </motion.div>
-      </motion.div>
+          </MotionDiv>
+        </MotionDiv>
+      </MotionDiv>
     </ReactFlowProvider>
   );
 }

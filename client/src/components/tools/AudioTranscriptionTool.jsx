@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import ToolWorkspaceHeader from "./ToolWorkspaceHeader";
 
 import {
   Mic,
@@ -62,7 +63,9 @@ function isTargetAudio(audio) {
 function safeRevokeObjectUrl(u) {
   try {
     if (u) URL.revokeObjectURL(u);
-  } catch {}
+  } catch {
+    // Ignore cleanup failures.
+  }
 }
 
 function baseName(fileName = "audio") {
@@ -106,7 +109,7 @@ function ensureUniqueFilename(name, used) {
  *  convertedBlob
  * }
  */
-export default function AudioTranscriptionTool() {
+export default function AudioTranscriptionTool({ serviceOnline = true }) {
   const fileInputRef = useRef(null);
 
   const [audios, setAudios] = useState([]);
@@ -371,7 +374,9 @@ export default function AudioTranscriptionTool() {
         try {
           const j = await r.json();
           msg = j?.error || j?.message || msg;
-        } catch {}
+        } catch {
+          // Ignore non-JSON error bodies.
+        }
         throw new Error(msg);
       }
 
@@ -406,7 +411,6 @@ export default function AudioTranscriptionTool() {
     setOverlayOpen(true);
 
     for (const item of queued) {
-      // eslint-disable-next-line no-await-in-loop
       await transcribeOne(item.id);
     }
 
@@ -479,7 +483,9 @@ export default function AudioTranscriptionTool() {
         try {
           const t = await r.text();
           msg = t || msg;
-        } catch {}
+        } catch {
+          // Ignore unreadable error bodies.
+        }
         throw new Error(msg);
       }
 
@@ -532,7 +538,6 @@ export default function AudioTranscriptionTool() {
     setOverlayOpen(true);
 
     for (const item of candidates) {
-      // eslint-disable-next-line no-await-in-loop
       await convertOne(item.id);
     }
 
@@ -542,6 +547,29 @@ export default function AudioTranscriptionTool() {
   return (
     <TooltipProvider>
       <div className="grid gap-4">
+        <ToolWorkspaceHeader
+          title="Transcrição de Áudio"
+          icon={Mic}
+          status={
+            <Badge
+              className={cn(
+                "border",
+                serviceOnline
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : "border-amber-200 bg-amber-50 text-amber-800",
+              )}
+            >
+              {serviceOnline ? "Online" : "Offline"}
+            </Badge>
+          }
+        />
+
+        {!serviceOnline ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Serviço STT offline. Suba o serviço Python para transcrever áudios.
+          </div>
+        ) : null}
+
         {/* OVERLAY PROGRESS */}
         {overlayOpen && running && (
           <div className="fixed inset-0 z-[80] grid place-items-center bg-black/30 p-4">
