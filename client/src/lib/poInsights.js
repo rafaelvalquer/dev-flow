@@ -407,7 +407,7 @@ const RESOLUTION_DEFINITIONS = {
   noSchedule: {
     label: "Sem cronograma",
     reason: "O ticket ainda nao tem cronograma estruturado.",
-    recommendedAction: "Criar cronograma com atividades, datas e responsaveis.",
+    recommendedAction: "Criar cronograma com atividades, datas e responsáveis.",
   },
   noOwner: {
     label: "Sem responsável",

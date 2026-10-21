@@ -79,7 +79,7 @@ body {
 .react-grid-item.react-grid-placeholder {
   background: rgba(59, 130, 246, 0.14) !important;
   border: 1px dashed rgba(59, 130, 246, 0.35) !important;
-  border-radius: 18px !important;
+  border-radius: var(--radius-card) !important;
 }
 
 /* sombra do item enquanto arrasta */
@@ -559,7 +559,7 @@ button {
   border: 1px solid rgba(227, 6, 19, 0.55);
   color: #c41c1c;
   padding: 10px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   font-weight: 800;
   font-size: 0.95rem;
   letter-spacing: 0.2px;
@@ -719,7 +719,7 @@ button {
 .gmud-side-empty {
   border: 1px dashed rgba(0, 0, 0, 0.15);
   background: #fff;
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   padding: 14px;
 }
 .gmud-side-empty-title {
@@ -734,7 +734,7 @@ button {
 
 /* Card moderno com seções */
 .gmud-side-card--modern {
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   overflow: hidden;
 }
 
@@ -1107,7 +1107,7 @@ button {
 .gmud-side-card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
   overflow: hidden;
 }

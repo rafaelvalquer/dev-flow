@@ -258,7 +258,7 @@ function ActionQueueCard({
 const ALARM_HELP_ITEMS = [
   {
     label: "Sem cronograma",
-    description: "Ticket nao possui atividades planejadas no cronograma.",
+    description: "Ticket não possui atividades planejadas no cronograma.",
   },
   {
     label: "Sem responsável",
@@ -270,11 +270,11 @@ const ALARM_HELP_ITEMS = [
   },
   {
     label: "Conflito de recurso",
-    description: "Mesmo recurso possui atividades sobrepostas no periodo.",
+    description: "Mesmo recurso possui atividades sobrepostas no período.",
   },
   {
-    label: "Sem inicio",
-    description: "Ticket ainda nao foi marcado como iniciado.",
+    label: "Sem início",
+    description: "Ticket ainda não foi marcado como iniciado.",
   },
   {
     label: "Vence em breve",
@@ -340,7 +340,7 @@ function OperationalItemButton({
 }) {
   const key = item?.key || item?.resource || item?.name || "item";
   const summary =
-    item?.summary || item?.activityName || item?.resource || "Sem descricao";
+    item?.summary || item?.activityName || item?.resource || "Sem descrição";
   const reason = item?.briefingReason || item?.reason || item?.statusName;
   const action = item?.recommendedAction;
   const problems = Array.isArray(item?.resolutionProblems)
@@ -716,7 +716,7 @@ export function POPresetBar({
           {showMinePreset ? (
             jiraUser?.accountId ? (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
-                Meus projetos: {jiraUser.displayName || "usuario Jira"}
+                Meus projetos: {jiraUser.displayName || "usuário Jira"}
               </div>
             ) : (
               <div className="w-full lg:w-[260px]">

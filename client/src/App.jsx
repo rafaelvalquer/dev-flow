@@ -3,7 +3,6 @@ import {
   Blocks,
   Briefcase,
   Check,
-  ChevronRight,
   Download,
   FileText,
   GitBranch,
@@ -23,6 +22,7 @@ import { Toaster, toast } from "sonner";
 import "./App.css";
 import "./module-primitives.css";
 import "./theme-overrides.css";
+import "./dark-theme.css";
 import usePoJiraData from "./hooks/usePoJiraData";
 import {
   fetchCurrentUser,
@@ -360,11 +360,15 @@ function rgbToHex({ r, g, b }) {
     .join("")}`;
 }
 
-function buildPrimaryColorVars(primaryColor) {
+function buildPrimaryColorVars(primaryColor, isDarkTheme = false) {
   const base = normalizePrimaryColor(primaryColor);
   const rgb = hexToRgb(base);
-  const dark = rgbToHex(mixRgb(rgb, { r: 0, g: 0, b: 0 }, 0.18));
-  const soft = rgbToHex(mixRgb(rgb, { r: 255, g: 255, b: 255 }, 0.88));
+  const dark = isDarkTheme
+    ? rgbToHex(mixRgb(rgb, { r: 255, g: 255, b: 255 }, 0.35))
+    : rgbToHex(mixRgb(rgb, { r: 0, g: 0, b: 0 }, 0.18));
+  const soft = isDarkTheme
+    ? rgbToHex(mixRgb(rgb, { r: 26, g: 29, b: 35 }, 0.78))
+    : rgbToHex(mixRgb(rgb, { r: 255, g: 255, b: 255 }, 0.88));
 
   return {
     "--primary": rgbToHsl(rgb),
@@ -438,10 +442,23 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
     setSidebarCollapsed(Boolean(currentUser?.preferences?.sidebarCollapsed));
   }, [currentUser?.preferences?.sidebarCollapsed]);
 
+  const currentTheme = currentUser?.preferences?.theme || "claro";
   const shellStyle = useMemo(
-    () => buildPrimaryColorVars(currentUser?.preferences?.primaryColor),
-    [currentUser?.preferences?.primaryColor],
+    () =>
+      buildPrimaryColorVars(
+        currentUser?.preferences?.primaryColor,
+        currentTheme === "escuro",
+      ),
+    [currentUser?.preferences?.primaryColor, currentTheme],
   );
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = currentTheme;
+    return () => {
+      delete root.dataset.theme;
+    };
+  }, [currentTheme]);
   const density = VALID_DENSITIES.has(currentUser?.preferences?.density)
     ? currentUser.preferences.density
     : "comfortable";
@@ -644,7 +661,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
   return (
     <>
       <div
-        data-theme={currentUser?.preferences?.theme || "claro"}
+        data-theme={currentTheme}
         data-density={density}
         style={shellStyle}
         className={`app-shell app-shell--${mainTab} ${
@@ -679,19 +696,15 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
             </button>
 
             <div className="app-brand">
-              <span className="app-brand__badge">Claro Dev Flow</span>
+              <img
+                className="app-brand__logo"
+                src="/logo.png"
+                alt="Logo Claro"
+              />
 
-              <div className="app-brand__row">
-                <img
-                  className="app-brand__logo"
-                  src="https://upload.wikimedia.org/wikipedia/commons/0/0c/Claro.svg"
-                  alt="Logo Claro"
-                />
-
-                <div>
-                  <p className="app-brand__eyebrow">Plataforma operacional</p>
-                  <h1 className="app-brand__title">Experiência unificada</h1>
-                </div>
+              <div className="app-brand__text">
+                <h1 className="app-brand__title">Dev Flow</h1>
+                <p className="app-brand__eyebrow">Plataforma operacional</p>
               </div>
             </div>
 
@@ -703,7 +716,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
               </div>
 
               <div className="app-user-card__content">
-                <strong>{currentUser?.name || "Usuario"}</strong>
+                <strong>{currentUser?.name || "Usuário"}</strong>
                 <span>{currentUser?.email}</span>
               </div>
 
@@ -718,7 +731,7 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
               </button>
             </div>
 
-            <nav className="app-nav" role="tablist" aria-label="Módulos">
+            <nav className="app-nav" aria-label="Módulos">
               {APP_NAV_GROUPS.map((group) => (
                 <div className="app-nav__group" key={group.label}>
                   <span className="app-nav__group-label">{group.label}</span>
@@ -736,28 +749,20 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
                         <button
                           key={tab.id}
                           type="button"
-                          role="tab"
-                          aria-selected={isActive}
+                          aria-current={isActive ? "page" : undefined}
                           className={`app-nav__item ${
                             isActive ? "is-active" : ""
                           }`}
                           onClick={() => selectMainTab(tab.id)}
-                          title={sidebarCollapsed ? tab.title : undefined}
+                          title={`${tab.title} — ${meta.status}`}
                         >
                           <span className="app-nav__icon">
-                            <TabIcon className="h-5 w-5" />
+                            <TabIcon className="h-[18px] w-[18px]" />
                           </span>
 
-                          <span className="app-nav__content">
-                            <span className="app-nav__label">
-                              {tab.navLabel || tab.title}
-                            </span>
-                            <span className="app-nav__caption">
-                              {meta.status}
-                            </span>
+                          <span className="app-nav__label">
+                            {tab.navLabel || tab.title}
                           </span>
-
-                          <ChevronRight className="app-nav__chevron h-4 w-4" />
                         </button>
                       );
                     })}
@@ -776,71 +781,15 @@ function AppShell({ currentUser, onLogout, onUserUpdated }) {
 
                 <div className="app-topbar__title">
                   <h2>{currentTab.navLabel || currentTab.title}</h2>
+                  {currentTab.subtitle ? (
+                    <p title={currentTab.subtitle}>{currentTab.subtitle}</p>
+                  ) : null}
                 </div>
               </div>
 
               <div className="app-topbar__context">
                 <span>{activeContext.label}</span>
                 <strong title={activeContext.value}>{activeContext.value}</strong>
-              </div>
-            </section>
-
-            <section className="app-hero app-hero--compact">
-              <div className="app-hero__copy">
-                <span className="app-hero__eyebrow">{currentTab.eyebrow}</span>
-
-                <div className="app-hero__heading">
-                  <div className="app-hero__icon">
-                    <CurrentIcon className="h-6 w-6" />
-                  </div>
-
-                  <div>
-                    <h2>{currentTab.title}</h2>
-                    <p>{currentTab.subtitle}</p>
-                  </div>
-                </div>
-
-                <div className="app-hero__chips app-hero__chips--overview">
-                  <span className="app-chip app-chip--solid">
-                    {currentTab.badge}
-                  </span>
-                  {mainTab !== "am" &&
-                  mainTab !== "tools" &&
-                  mainTab !== "gmud" &&
-                  mainTab !== "my" ? (
-                    <>
-                      <span className="app-chip">
-                        {tabMeta[mainTab].status}
-                      </span>
-                      <span className="app-chip">
-                        {tabMeta[mainTab].helper}
-                      </span>
-                    </>
-                  ) : mainTab === "tools" ? (
-                    <span className="app-chip">{tabMeta[mainTab].status}</span>
-                  ) : null}
-                </div>
-
-                {mainTab !== "am" &&
-                mainTab !== "tools" &&
-                mainTab !== "gmud" &&
-                mainTab !== "my" ? (
-                  <div className="app-hero__focus">
-                    <span className="app-hero__focus-label">Próxima ação</span>
-                    <strong>{currentTab.nextStep}</strong>
-                  </div>
-                ) : null}
-
-                {mainTab === "rdm" ? (
-                  <div className="app-hero__meta-row">
-                    <span className="app-chip">
-                      {rdmTitle ? "Título definido" : "Sem título"}
-                    </span>
-                    <span className="app-chip">
-                      {rdmDueDate ? "Janela informada" : "Sem data limite"}
-                    </span>
-                  </div>
-                ) : null}
               </div>
             </section>
 

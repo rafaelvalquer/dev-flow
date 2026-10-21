@@ -311,7 +311,7 @@ export default function BusinessHoursTool() {
     } catch (err) {
       const errors = Array.isArray(err?.errors)
         ? err.errors
-        : [err?.message || "Nao foi possivel gerar inserts."];
+        : [err?.message || "Não foi possível gerar inserts."];
       setValidationErrors(errors);
       toast.error(errors[0]);
     }
@@ -327,7 +327,7 @@ export default function BusinessHoursTool() {
       await navigator.clipboard.writeText(generatedSql);
       toast.success("Inserts copiados.");
     } catch {
-      toast.error("Nao foi possivel copiar para a area de transferencia.");
+      toast.error("Não foi possível copiar para a área de transferencia.");
     }
   }
 
@@ -357,7 +357,7 @@ export default function BusinessHoursTool() {
       await logoutCdrPortal();
       setPortalSession(null);
       setVerifyResult(null);
-      toast.success("Sessao Portal ICC encerrada.");
+      toast.success("Sessão Portal ICC encerrada.");
     } catch (err) {
       setPortalError(err?.message || "Nao foi possivel encerrar a sessao Portal ICC.");
     } finally {
@@ -370,13 +370,13 @@ export default function BusinessHoursTool() {
 
     if (!portalSession) {
       setPortalError("Faca login no Portal ICC antes de verificar.");
-      toast.error("Faca login no Portal ICC antes de verificar.");
+      toast.error("Faça login no Portal ICC antes de verificar.");
       return;
     }
 
     if (!verifyDate) {
       setPortalError("Informe a data da configuracao.");
-      toast.error("Informe a data da configuracao.");
+      toast.error("Informe a data da configuração.");
       return;
     }
 
@@ -399,11 +399,11 @@ export default function BusinessHoursTool() {
       setVerifyResult(result);
       toast.success("Verificacao concluida.");
     } catch (err) {
-      const message = err?.message || "Nao foi possivel verificar no Portal ICC.";
+      const message = err?.message || "Não foi possível verificar no Portal ICC.";
       setPortalError(message);
       if (err?.code === "PORTAL_SESSION_EXPIRED" || err?.status === 401) {
         setPortalSession(null);
-        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
+        toast.warning("Sessão Portal ICC expirada. Faça login novamente.");
       } else {
         toast.error(message);
       }
@@ -419,7 +419,7 @@ export default function BusinessHoursTool() {
     setValidationErrors([]);
     setVerifyResult(null);
     resetRuleForm();
-    toast.success("Configuracao limpa.");
+    toast.success("Configuração limpa.");
   }
 
   return (
@@ -432,7 +432,7 @@ export default function BusinessHoursTool() {
               tb_bussinesshours
             </div>
             <h2 className="mt-3 text-xl font-bold text-zinc-950">
-              Configuracao de Feriados / Fechamento de URAs
+              Configuração de Feriados / Fechamento de URAs
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-zinc-600">
               Monte datas especiais, valide as regras e copie os inserts SQL prontos.
@@ -453,7 +453,7 @@ export default function BusinessHoursTool() {
       {portalBooting ? (
         <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
           <Loader2 className="h-4 w-4 animate-spin text-red-600" />
-          Verificando sessao Portal ICC...
+          Verificando sessão Portal ICC...
         </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.5fr)]">
@@ -475,12 +475,12 @@ export default function BusinessHoursTool() {
                             : "border-zinc-200 bg-zinc-50 text-zinc-600",
                         )}
                       >
-                        {portalSession ? "Sessao ativa" : "Login necessario"}
+                        {portalSession ? "Sessão ativa" : "Login necessário"}
                       </Badge>
                     </div>
                     <CardDescription className="truncate">
                       {portalSession
-                        ? `${portalSession?.username || "Usuario"} - verificacao habilitada`
+                        ? `${portalSession?.username || "Usuário"} - verificação habilitada`
                         : "Use o mesmo login das ferramentas CDR e Busca Tarefas."}
                     </CardDescription>
                   </div>
@@ -508,7 +508,7 @@ export default function BusinessHoursTool() {
               {!portalSession ? (
                 <form onSubmit={handlePortalLogin} className="grid gap-3">
                   <label className="grid gap-1">
-                    <FieldLabel>Usuario</FieldLabel>
+                    <FieldLabel>Usuário</FieldLabel>
                     <Input
                       value={portalLoginForm.username}
                       onChange={(event) =>
@@ -547,7 +547,7 @@ export default function BusinessHoursTool() {
                 </form>
               ) : (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  Sessao pronta para consultar relatorios customizados.
+                  Sessão pronta para consultar relatórios customizados.
                 </div>
               )}
             </CardContent>
@@ -555,7 +555,7 @@ export default function BusinessHoursTool() {
 
           <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base text-zinc-900">Verificar configuracao</CardTitle>
+              <CardTitle className="text-base text-zinc-900">Verificar configuração</CardTitle>
               <CardDescription>
                 Consulte a tabela TB_BUSSINESSHOURS para a data e URAs selecionadas.
               </CardDescription>
@@ -644,7 +644,7 @@ export default function BusinessHoursTool() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <CardTitle className="text-base text-zinc-900">
-                  Resultado da verificacao
+                  Resultado da verificação
                 </CardTitle>
                 <CardDescription>
                   {verifyResult.date} em {verifyResult.database}
@@ -744,7 +744,7 @@ export default function BusinessHoursTool() {
               <div>
                 <CardTitle className="text-base text-zinc-900">URAs</CardTitle>
                 <CardDescription>
-                  Selecione uma ou varias URAs para duplicar a configuracao.
+                  Selecione uma ou várias URAs para duplicar a configuração.
                 </CardDescription>
               </div>
               <Button
@@ -1035,7 +1035,7 @@ export default function BusinessHoursTool() {
                   </Button>
                   <Button type="button" variant="outline" onClick={clearConfig}>
                     <RotateCcw className="h-4 w-4" />
-                    Limpar Configuracao
+                    Limpar Configuração
                   </Button>
                 </div>
               </div>

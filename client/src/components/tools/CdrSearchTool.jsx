@@ -172,7 +172,7 @@ function createEvidenceFile(columns, rows) {
 }
 
 function jiraConnectionMessage() {
-  return "Sem conexao com o Jira. Desconecte da VPN ou verifique sua conexao com a internet.";
+  return "Sem conexão com o Jira. Desconecte da VPN ou verifique sua conexão com a internet.";
 }
 
 function FieldLabel({ children }) {
@@ -420,7 +420,7 @@ function CdrEvidenceDialog({ open, onOpenChange, columns, rows }) {
             Salvar evidencia CDR
           </DialogTitle>
           <DialogDescription>
-            Gere um CSV da pagina atual e anexe no ticket Jira selecionado.
+            Gere um CSV da página atual e anexe no ticket Jira selecionado.
           </DialogDescription>
         </DialogHeader>
 
@@ -786,7 +786,7 @@ export default function CdrSearchTool() {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Verificando sessao Portal ICC...
+        Verificando sessão Portal ICC...
       </div>
     );
   }
@@ -814,8 +814,8 @@ export default function CdrSearchTool() {
             </div>
             <p className="truncate text-xs text-zinc-500">
               {authenticated
-                ? `${session?.username || "Usuario"} - ${session?.hasJSessionId ? "JSESSIONID capturado" : "sem JSESSIONID"}`
-                : "Autentique com usuario e senha do Portal ICC para consultar CDR."}
+                ? `${session?.username || "Usuário"} - ${session?.hasJSessionId ? "JSESSIONID capturado" : "sem JSESSIONID"}`
+                : "Autentique com usuário e senha do Portal ICC para consultar CDR."}
             </p>
           </div>
         </div>
@@ -839,13 +839,13 @@ export default function CdrSearchTool() {
           <div>
             <h3 className="text-sm font-semibold text-zinc-900">Login Portal ICC</h3>
             <p className="text-xs text-zinc-500">
-              A senha nao e armazenada e os cookies do portal ficam somente no backend.
+              A senha não é armazenada e os cookies do portal ficam somente no backend.
             </p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1">
-              <FieldLabel>Usuario</FieldLabel>
+              <FieldLabel>Usuário</FieldLabel>
               <Input
                 value={loginForm.username}
                 onChange={(event) =>

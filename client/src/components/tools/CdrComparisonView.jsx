@@ -45,7 +45,7 @@ function MetricHelp({ description }) {
         <button
           type="button"
           className="inline-grid h-5 w-5 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-          aria-label="Descricao do indicador"
+          aria-label="Descrição do indicador"
         >
           <CircleHelp className="h-3.5 w-3.5" />
         </button>
@@ -164,7 +164,7 @@ export default function CdrComparisonView({ data }) {
         />
         <ComparisonCard
           title="TMA total"
-          description="Tempo medio da chamada inteira no CDR, considerando o periodo total da ligacao do inicio ao fim."
+          description="Tempo médio da chamada inteira no CDR, considerando o período total da ligação do início ao fim."
           leftLabel={labels.left}
           rightLabel={labels.right}
           formatter={duration}
@@ -172,7 +172,7 @@ export default function CdrComparisonView({ data }) {
         />
         <ComparisonCard
           title="TMA URA"
-          description="Tempo medio apenas dentro da URA, calculado pelo periodo em que a chamada permaneceu no atendimento automatico."
+          description="Tempo médio apenas dentro da URA, calculado pelo período em que a chamada permaneceu no atendimento automático."
           leftLabel={labels.left}
           rightLabel={labels.right}
           formatter={duration}

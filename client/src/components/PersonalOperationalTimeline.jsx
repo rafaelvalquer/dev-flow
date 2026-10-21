@@ -53,7 +53,7 @@ const PERIOD_OPTIONS = [
 
 const EVENT_TYPES = {
   comment: {
-    label: "Comentario",
+    label: "Comentário",
     group: "comentarios",
     color: "#3b82f6",
     className: "border-blue-200 bg-blue-50 text-blue-700",
@@ -65,7 +65,7 @@ const EVENT_TYPES = {
     className: "border-red-200 bg-red-50 text-red-700",
   },
   assignee_changed: {
-    label: "Responsavel",
+    label: "Responsável",
     group: "responsavel",
     color: "#8b5cf6",
     className: "border-violet-200 bg-violet-50 text-violet-700",
@@ -111,7 +111,7 @@ const EVENT_TYPES = {
 const CHART_KEYS = [
   { key: "comentarios", label: "Comentarios", color: EVENT_TYPES.comment.color },
   { key: "status", label: "Status", color: EVENT_TYPES.status_changed.color },
-  { key: "responsavel", label: "Responsavel", color: EVENT_TYPES.assignee_changed.color },
+  { key: "responsavel", label: "Responsável", color: EVENT_TYPES.assignee_changed.color },
   { key: "prioridade", label: "Prioridade", color: EVENT_TYPES.priority_changed.color },
   { key: "data", label: "Data", color: EVENT_TYPES.date_changed.color },
   { key: "campo", label: "Campo", color: EVENT_TYPES.field_changed.color },
@@ -164,7 +164,7 @@ function getIssueOwner(issue) {
     issue?.assignee ||
     issue?.assigneeDisplayName ||
     issue?.fields?.assignee?.displayName ||
-    "Sem responsavel"
+    "Sem responsável"
   );
 }
 
@@ -398,7 +398,7 @@ function getCanvasGroupContent(label) {
 function getCanvasItemLabel(event) {
   if (event.type === "comment") return "Comentario";
   if (event.type === "status_changed") return "Status";
-  if (event.type === "assignee_changed") return "Responsavel";
+  if (event.type === "assignee_changed") return "Responsável";
   if (event.type === "priority_changed") return "Prioridade";
   if (event.type === "date_changed") return "Data";
   if (event.type === "label_changed") return "Label";
@@ -550,7 +550,7 @@ function EventDetailPanel({ event, onOpenDetails }) {
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
                 Comentario
               </div>
-              {event.commentBody || "Comentario sem texto."}
+              {event.commentBody || "Comentário sem texto."}
             </div>
           ) : (
             <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
@@ -1376,7 +1376,7 @@ export default function PersonalOperationalTimeline({
 
                                 {event.type === "comment" ? (
                                   <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-2 text-sm text-blue-950">
-                                    {event.commentBody || "Comentario sem texto."}
+                                    {event.commentBody || "Comentário sem texto."}
                                   </div>
                                 ) : (
                                   <div className="mt-3 grid gap-2 rounded-xl border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 md:grid-cols-2">

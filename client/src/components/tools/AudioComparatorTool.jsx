@@ -27,7 +27,7 @@ const STATUS_META = {
     rank: 5,
   },
   attention: {
-    label: "Atencao",
+    label: "Atenção",
     className: "border-amber-200 bg-amber-50 text-amber-800",
     rank: 2,
   },
@@ -468,7 +468,7 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
               Comparador de Audio URA
             </div>
             <div className="mt-1 max-w-3xl text-xs text-zinc-600">
-              Cole o roteiro aprovado, envie os audios e compare a transcricao
+              Cole o roteiro aprovado, envie os áudios e compare a transcricao
               automaticamente pelo nome do arquivo.
             </div>
           </div>
@@ -491,8 +491,8 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
 
         {!serviceOnline ? (
           <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-            Servico STT offline. Suba o servico Python para transcrever e comparar
-            os audios.
+            Serviço STT offline. Suba o serviço Python para transcrever e comparar
+            os áudios.
           </div>
         ) : null}
       </div>
@@ -506,7 +506,7 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
               </div>
               <div className="mt-1 text-xs text-zinc-600">
                 Use uma linha por audio: <b>nome_do_audio | texto esperado</b>.
-                Colagem de planilha com tab tambem funciona.
+                Colagem de planilha com tab também funciona.
               </div>
             </div>
             <Button
@@ -522,7 +522,7 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
           <textarea
             value={scriptText}
             onChange={(event) => setScriptText(event.target.value)}
-            placeholder="Pos_AparelhoOuBL_INI | Se voce quer falar sobre a compra..."
+            placeholder="Pos_AparelhoOuBL_INI | Se você quer falar sobre a compra..."
             className="mt-3 min-h-[220px] w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm leading-relaxed text-zinc-900 outline-none focus:ring-2 focus:ring-red-500"
           />
 
@@ -557,7 +557,7 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="mr-2 h-4 w-4" />
-              Adicionar audios
+              Adicionar áudios
             </Button>
 
             <Button
@@ -582,7 +582,7 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
               disabled={!files.length || running}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Limpar audios
+              Limpar áudios
             </Button>
           </div>
 
@@ -650,7 +650,7 @@ export default function AudioComparatorTool({ serviceOnline = true }) {
 
         {!rows.length ? (
           <div className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-8 text-center text-sm text-zinc-600">
-            Cole o roteiro e adicione os audios para montar a matriz de validacao.
+            Cole o roteiro e adicione os áudios para montar a matriz de validação.
           </div>
         ) : (
           <div className="mt-4 grid gap-3">

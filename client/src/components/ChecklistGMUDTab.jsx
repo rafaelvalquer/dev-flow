@@ -2005,11 +2005,11 @@ function ChecklistGMUDTab({
           <div
             style={{
               width: "min(560px, 100%)",
-              background: "#fff",
+              background: "var(--ui-surface, #fff)",
               borderRadius: 16,
               padding: 16,
               boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
-              border: "1px solid #eee",
+              border: "1px solid var(--ui-line, #eee)",
             }}
           >
             <div style={{ fontWeight: 800, fontSize: 16 }}>
@@ -2018,7 +2018,7 @@ function ChecklistGMUDTab({
                 : "Step concluído"}
             </div>
 
-            <div style={{ marginTop: 6, color: "#555", fontSize: 13 }}>
+            <div style={{ marginTop: 6, color: "var(--ui-text-2, #555)", fontSize: 13 }}>
               {stepGate.toIdx >= getWorkflow().length ? (
                 <>
                   Você concluiu a última fase:{" "}
@@ -2039,10 +2039,10 @@ function ChecklistGMUDTab({
               <div
                 style={{
                   marginTop: 12,
-                  border: "1px solid #eee",
+                  border: "1px solid var(--ui-line, #eee)",
                   borderRadius: 12,
                   padding: 10,
-                  background: "#fafafa",
+                  background: "var(--ui-surface-2, #fafafa)",
                   maxHeight: 180,
                   overflow: "auto",
                 }}
@@ -2051,7 +2051,7 @@ function ChecklistGMUDTab({
                   Itens do próximo step:
                 </div>
                 <ul
-                  style={{ margin: "0 0 0 18px", fontSize: 12, color: "#333" }}
+                  style={{ margin: "0 0 0 18px", fontSize: 12, color: "var(--ui-text, #333)" }}
                 >
                   {listNextStepPreview(stepGate.toIdx).map((line) => (
                     <li key={line}>{line}</li>
@@ -2119,11 +2119,11 @@ function ChecklistGMUDTab({
           <div
             style={{
               width: "min(560px, 100%)",
-              background: "#fff",
+              background: "var(--ui-surface, #fff)",
               borderRadius: 16,
               padding: 16,
               boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
-              border: "1px solid #eee",
+              border: "1px solid var(--ui-line, #eee)",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -2132,7 +2132,7 @@ function ChecklistGMUDTab({
                 <div style={{ fontWeight: 800, fontSize: 16 }}>
                   {syncOverlay.title}
                 </div>
-                <div style={{ marginTop: 4, color: "#555", fontSize: 13 }}>
+                <div style={{ marginTop: 4, color: "var(--ui-text-2, #555)", fontSize: 13 }}>
                   {syncOverlay.message || "Processando..."}
                 </div>
               </div>
@@ -2145,7 +2145,7 @@ function ChecklistGMUDTab({
                     display: "flex",
                     justifyContent: "space-between",
                     fontSize: 12,
-                    color: "#666",
+                    color: "var(--ui-text-2, #666)",
                   }}
                 >
                   <span>Progresso</span>
@@ -2157,7 +2157,7 @@ function ChecklistGMUDTab({
                 <div
                   style={{
                     height: 10,
-                    background: "#eee",
+                    background: "var(--ui-surface-3, #eee)",
                     borderRadius: 999,
                     overflow: "hidden",
                     marginTop: 6,
@@ -2180,19 +2180,19 @@ function ChecklistGMUDTab({
               <div
                 style={{
                   marginTop: 12,
-                  border: "1px solid #eee",
+                  border: "1px solid var(--ui-line, #eee)",
                   borderRadius: 12,
                   padding: 10,
                   maxHeight: 160,
                   overflow: "auto",
-                  background: "#fafafa",
+                  background: "var(--ui-surface-2, #fafafa)",
                 }}
               >
                 <div style={{ fontWeight: 800, fontSize: 12, marginBottom: 6 }}>
                   Subtarefas criadas:
                 </div>
                 <ul
-                  style={{ margin: "0 0 0 18px", fontSize: 12, color: "#333" }}
+                  style={{ margin: "0 0 0 18px", fontSize: 12, color: "var(--ui-text, #333)" }}
                 >
                   {syncOverlay.created.map((s) => (
                     <li key={s}>{s}</li>
@@ -2259,7 +2259,7 @@ function ChecklistGMUDTab({
           <div
             style={{
               width: "min(520px, 100%)",
-              background: "#fff",
+              background: "var(--ui-surface, #fff)",
               borderRadius: 16,
               padding: 20,
               boxShadow: "0 12px 40px rgba(0,0,0,0.3)",
@@ -2269,7 +2269,7 @@ function ChecklistGMUDTab({
               Nova Tarefa
             </div>
 
-            <div style={{ fontSize: 13, color: "#666", marginBottom: 16 }}>
+            <div style={{ fontSize: 13, color: "var(--ui-text-2, #666)", marginBottom: 16 }}>
               Adicionar no step:{" "}
               <strong>{getStepTitleByKey(customTaskModal.stepKey)}</strong>
             </div>
@@ -2290,7 +2290,7 @@ function ChecklistGMUDTab({
                 width: "100%",
                 padding: "10px",
                 borderRadius: 8,
-                border: "1px solid #ddd",
+                border: "1px solid var(--ui-line, #ddd)",
                 marginBottom: 14,
                 outline: "none",
               }}
@@ -2326,7 +2326,7 @@ function ChecklistGMUDTab({
                       flex: 1,
                       padding: "10px",
                       borderRadius: 8,
-                      border: "1px solid #ddd",
+                      border: "1px solid var(--ui-line, #ddd)",
                       outline: "none",
                     }}
                     placeholder={`Subtarefa ${idx + 1} (ex: Coletar evidência)`}
@@ -2346,8 +2346,8 @@ function ChecklistGMUDTab({
                     style={{
                       width: 42,
                       borderRadius: 8,
-                      border: "1px solid #eee",
-                      background: "#fff",
+                      border: "1px solid var(--ui-line, #eee)",
+                      background: "var(--ui-surface, #fff)",
                       cursor: "pointer",
                     }}
                   >
@@ -2366,9 +2366,9 @@ function ChecklistGMUDTab({
                 padding: "10px",
                 marginBottom: 16,
                 background: "transparent",
-                border: "1px dashed #ccc",
+                border: "1px dashed var(--ui-line, #ccc)",
                 borderRadius: 10,
-                color: "#666",
+                color: "var(--ui-text-2, #666)",
                 cursor: "pointer",
                 fontSize: 13,
               }}
@@ -2948,7 +2948,7 @@ function ChecklistGMUDTab({
                         fontSize: 13,
                         lineHeight: "1.5",
                         outline: "none",
-                        backgroundColor: "#fcfcfc",
+                        backgroundColor: "var(--ui-surface-2, #fcfcfc)",
                       }}
                       value={scriptsAlterados}
                       onChange={(e) => setScriptsAlterados(e.target.value)}
@@ -3124,14 +3124,14 @@ function ChecklistGMUDTab({
                         alignItems: "center",
                         marginBottom: 14,
                         padding: 12,
-                        background: "#f8f9fa",
+                        background: "var(--ui-surface-2, #f8f9fa)",
                         borderRadius: 10,
                       }}
                     >
                       <div
                         style={{
                           fontSize: 13,
-                          color: "#444",
+                          color: "var(--ui-text-2, #444)",
                           fontWeight: 700,
                           display: "flex",
                           alignItems: "center",
@@ -3151,7 +3151,7 @@ function ChecklistGMUDTab({
                           borderRadius: 10,
                           border: "1px solid #e1e1e1",
                           outline: "none",
-                          background: "#fff",
+                          background: "var(--ui-surface, #fff)",
                           fontSize: 13,
                         }}
                       >
@@ -3166,7 +3166,7 @@ function ChecklistGMUDTab({
                       <div
                         style={{
                           fontSize: 12,
-                          color: "#666",
+                          color: "var(--ui-text-2, #666)",
                           whiteSpace: "nowrap",
                         }}
                         title="Contagem de evidências do step selecionado"
@@ -3182,11 +3182,11 @@ function ChecklistGMUDTab({
                     {/* Upload Zone */}
                     <div
                       style={{
-                        border: "2px dashed #eee",
+                        border: "2px dashed var(--ui-line, #eee)",
                         padding: 24,
                         borderRadius: 12,
                         textAlign: "center",
-                        background: "#fafafa",
+                        background: "var(--ui-surface-2, #fafafa)",
                         marginBottom: 16,
                       }}
                     >
@@ -3212,7 +3212,7 @@ function ChecklistGMUDTab({
                             marginBottom: 10,
                           }}
                         />
-                        <div style={{ fontWeight: 600, color: "#555" }}>
+                        <div style={{ fontWeight: 600, color: "var(--ui-text-2, #555)" }}>
                           Clique para anexar arquivos
                         </div>
                         <div style={{ fontSize: 12, color: "#999" }}>
@@ -3319,10 +3319,10 @@ function ChecklistGMUDTab({
                               <div
                                 key={f.name}
                                 style={{
-                                  border: "1px solid #eee",
+                                  border: "1px solid var(--ui-line, #eee)",
                                   borderRadius: 10,
                                   padding: 8,
-                                  background: "#fff",
+                                  background: "var(--ui-surface, #fff)",
                                 }}
                               >
                                 <div
@@ -3378,9 +3378,9 @@ function ChecklistGMUDTab({
                     {/* Resumo evidências por step (rápido) */}
                     <div
                       style={{
-                        border: "1px solid #eee",
+                        border: "1px solid var(--ui-line, #eee)",
                         borderRadius: 12,
-                        background: "#fff",
+                        background: "var(--ui-surface, #fff)",
                         padding: 12,
                         marginBottom: 18,
                       }}
@@ -3396,13 +3396,13 @@ function ChecklistGMUDTab({
                           style={{
                             fontWeight: 800,
                             fontSize: 12,
-                            color: "#333",
+                            color: "var(--ui-text, #333)",
                             textTransform: "uppercase",
                           }}
                         >
                           evidências por step
                         </div>
-                        <div style={{ fontSize: 12, color: "#666" }}>
+                        <div style={{ fontSize: 12, color: "var(--ui-text-2, #666)" }}>
                           Total anexos no Jira: <b>{attachments.length}</b>
                         </div>
                       </div>
@@ -3482,8 +3482,8 @@ function ChecklistGMUDTab({
                                 display: "flex",
                                 alignItems: "center",
                                 padding: "10px 16px",
-                                background: "#fff",
-                                border: "1px solid #eee",
+                                background: "var(--ui-surface, #fff)",
+                                border: "1px solid var(--ui-line, #eee)",
                                 borderRadius: 8,
                                 gap: 12,
                               }}
@@ -3538,11 +3538,11 @@ function ChecklistGMUDTab({
                         alignItems: "center",
                         marginBottom: 12,
                         padding: "12px",
-                        background: "#f8f9fa",
+                        background: "var(--ui-surface-2, #f8f9fa)",
                         borderRadius: 8,
                       }}
                     >
-                      <div style={{ fontSize: 13, color: "#666" }}>
+                      <div style={{ fontSize: 13, color: "var(--ui-text-2, #666)" }}>
                         <i
                           className="fas fa-comments"
                           style={{ marginRight: 6 }}
@@ -3571,8 +3571,8 @@ function ChecklistGMUDTab({
 
                     <div
                       style={{
-                        background: "#fff",
-                        border: "1px solid #eee",
+                        background: "var(--ui-surface, #fff)",
+                        border: "1px solid var(--ui-line, #eee)",
                         borderRadius: 12,
                         padding: 12,
                         marginBottom: 14,
@@ -3584,7 +3584,7 @@ function ChecklistGMUDTab({
                           fontSize: 12,
                           fontWeight: 800,
                           marginBottom: 8,
-                          color: "#333",
+                          color: "var(--ui-text, #333)",
                         }}
                       >
                         Novo comentário
@@ -3601,7 +3601,7 @@ function ChecklistGMUDTab({
                           borderRadius: 10,
                           border: "1px solid #e1e1e1",
                           outline: "none",
-                          background: "#fcfcfc",
+                          background: "var(--ui-surface-2, #fcfcfc)",
                           fontSize: 13,
                           lineHeight: "1.5",
                           resize: "vertical",
@@ -3676,9 +3676,9 @@ function ChecklistGMUDTab({
                             textAlign: "center",
                             color: "#bbb",
                             fontSize: 13,
-                            border: "1px dashed #eee",
+                            border: "1px dashed var(--ui-line, #eee)",
                             borderRadius: 12,
-                            background: "#fff",
+                            background: "var(--ui-surface, #fff)",
                           }}
                         >
                           Nenhum comentário para exibir.
@@ -3688,8 +3688,8 @@ function ChecklistGMUDTab({
                           <div
                             key={c.id}
                             style={{
-                              background: "#fff",
-                              border: "1px solid #eee",
+                              background: "var(--ui-surface, #fff)",
+                              border: "1px solid var(--ui-line, #eee)",
                               borderRadius: 12,
                               padding: 12,
                             }}
@@ -3726,7 +3726,7 @@ function ChecklistGMUDTab({
                               style={{
                                 marginTop: 10,
                                 fontSize: 13,
-                                color: "#333",
+                                color: "var(--ui-text, #333)",
                                 whiteSpace: "pre-wrap",
                                 lineHeight: "1.5",
                               }}

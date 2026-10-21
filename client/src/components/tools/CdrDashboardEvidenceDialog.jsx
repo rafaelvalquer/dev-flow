@@ -26,7 +26,7 @@ function FieldLabel({ children }) {
 }
 
 function jiraConnectionMessage() {
-  return "Sem conexao com o Jira. Desconecte da VPN ou verifique sua conexao com a internet.";
+  return "Sem conexão com o Jira. Desconecte da VPN ou verifique sua conexão com a internet.";
 }
 
 export default function CdrDashboardEvidenceDialog({

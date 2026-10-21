@@ -318,7 +318,7 @@ function useDebouncedValue(value, delayMs = 250) {
   return debounced;
 }
 
-function UserPickerField({ value, onChange, disabled, placeholder = "Buscar usuario..." }) {
+function UserPickerField({ value, onChange, disabled, placeholder = "Buscar usuário..." }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState([]);
@@ -358,7 +358,7 @@ function UserPickerField({ value, onChange, disabled, placeholder = "Buscar usua
     if (!value) setSelected(null);
   }, [value]);
 
-  const label = selected?.displayName || (value ? "Usuario selecionado" : "Selecionar");
+  const label = selected?.displayName || (value ? "Usuário selecionado" : "Selecionar");
   const avatar = selected?.avatarUrls?.["48x48"] || selected?.avatarUrls?.["32x32"] || "";
 
   return (
@@ -398,7 +398,7 @@ function UserPickerField({ value, onChange, disabled, placeholder = "Buscar usua
                 ? "Buscando..."
                 : String(query || "").trim().length < 2
                   ? "Digite 2 ou mais caracteres."
-                  : "Nenhum usuario encontrado."}
+                  : "Nenhum usuário encontrado."}
             </CommandEmpty>
             <CommandGroup>
               <CommandItem
@@ -410,7 +410,7 @@ function UserPickerField({ value, onChange, disabled, placeholder = "Buscar usua
                 }}
                 className="rounded-xl"
               >
-                Sem usuario
+                Sem usuário
               </CommandItem>
               {options.map((user) => {
                 const avatarUrl =
@@ -1014,13 +1014,13 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
     const errors = {};
     if (!selectedProject) errors.project = "Selecione um espaco.";
     if (!selectedIssueType) errors.issuetype = "Selecione o tipo do ticket.";
-    if (!String(summary || "").trim()) errors.summary = "Resumo e obrigatorio.";
+    if (!String(summary || "").trim()) errors.summary = "Resumo é obrigatório.";
 
     fields.forEach((field) => {
       const id = getFieldId(field);
       if (!id || RESERVED_FIELD_IDS.has(id) || !isFieldRequired(field)) return;
       if (isEmptyValue(fieldValues[id]) && isEmptyValue(defaultValueForField(field))) {
-        errors[id] = `${getFieldName(field)} e obrigatorio.`;
+        errors[id] = `${getFieldName(field)} é obrigatório.`;
       }
     });
 
@@ -1051,7 +1051,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
 
       const created = await jiraCreateIssue(payload);
       const issueKey = created?.key || created?.id || "";
-      if (!issueKey) throw new Error("Jira criou o ticket, mas nao retornou a key.");
+      if (!issueKey) throw new Error("Jira criou o ticket, mas não retornou a key.");
 
       const warnings = [];
 
@@ -1072,7 +1072,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
             inwardIssue: { key: String(link.key).trim().toUpperCase() },
           });
         } catch (error) {
-          warnings.push(`Vinculo ${link.key}: ${error?.message || "falha"}`);
+          warnings.push(`Vínculo ${link.key}: ${error?.message || "falha"}`);
         }
       }
 
@@ -1084,7 +1084,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
           await jiraTransitionToStatus(issueKey, desiredStatus);
         } catch (error) {
           warnings.push(
-            `Status: nao foi possivel mover para ${desiredStatus} (${error?.message || "sem transicao"})`,
+            `Status: não foi possível mover para ${desiredStatus} (${error?.message || "sem transição"})`,
           );
         }
       }
@@ -1138,7 +1138,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
             ) : null}
           </DialogTitle>
           <DialogDescription>
-            Fluxo do PO para criar uma demanda no Jira com campos e opcoes carregados do projeto selecionado.
+            Fluxo do PO para criar uma demanda no Jira com campos e opções carregados do projeto selecionado.
           </DialogDescription>
         </DialogHeader>
 
@@ -1154,9 +1154,9 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
         <div className="grid gap-4">
           <section className="rounded-2xl border border-zinc-200 bg-white p-4">
             <div className="mb-3 flex flex-col gap-1">
-              <h3 className="text-sm font-semibold text-zinc-900">Basico</h3>
+              <h3 className="text-sm font-semibold text-zinc-900">Básico</h3>
               <p className="text-xs text-zinc-500">
-                Campos minimos para o Jira aceitar a criacao do ticket.
+                Campos mínimos para o Jira aceitar a criação do ticket.
               </p>
             </div>
 
@@ -1230,7 +1230,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
                   }}
                   disabled={saving}
                   className="rounded-xl border-zinc-200 bg-white"
-                  placeholder="Resumo da historia, tarefa ou demanda"
+                  placeholder="Resumo da história, tarefa ou demanda"
                 />
                 {fieldErrors.summary ? (
                   <span className="text-xs font-medium text-red-700">
@@ -1253,7 +1253,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
 
               <label className="grid gap-1.5">
                 <span className="text-xs font-semibold text-zinc-700">
-                  Status desejado apos criar
+                  Status desejado após criar
                 </span>
                 <select
                   value={desiredStatus || EMPTY}
@@ -1274,7 +1274,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
 
               <label className="grid gap-1.5 md:col-span-2">
                 <span className="text-xs font-semibold text-zinc-700">
-                  Descricao
+                  Descrição
                 </span>
                 <Textarea
                   value={description}
@@ -1394,12 +1394,12 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
                     disabled={saving}
                   >
                     <Plus className="mr-2 h-4 w-4" />
-                    Adicionar vinculo
+                    Adicionar vínculo
                   </Button>
                 </div>
                 {!links.length ? (
                   <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-3 py-4 text-center text-xs text-zinc-500">
-                    Nenhum vinculo informado.
+                    Nenhum vínculo informado.
                   </div>
                 ) : (
                   <div className="grid gap-2">
@@ -1418,7 +1418,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
                           disabled={saving}
                           className="h-10 rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-red-500"
                         >
-                          <option value={EMPTY}>Tipo de vinculo</option>
+                          <option value={EMPTY}>Tipo de vínculo</option>
                           {issueLinkTypes.map((type) => (
                             <option key={type.id} value={String(type.id)}>
                               {type.name}
@@ -1438,7 +1438,7 @@ export default function CreateJiraIssueDialog({ open, onOpenChange, onCreated })
                           className="rounded-xl border-zinc-200 bg-white text-red-700 hover:bg-red-50"
                           onClick={() => removeLinkRow(link.id)}
                           disabled={saving}
-                          title="Remover vinculo"
+                          title="Remover vínculo"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

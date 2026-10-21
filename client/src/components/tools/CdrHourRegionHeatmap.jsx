@@ -119,7 +119,7 @@ export default function CdrHourRegionHeatmap({ data }) {
             Heatmap hora x DDD/UF
           </h3>
           <p className="mt-1 text-xs text-zinc-500">
-            Volume regional por horario de inicio da ligacao.
+            Volume regional por horário de início da ligação.
           </p>
         </div>
         <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-1">
