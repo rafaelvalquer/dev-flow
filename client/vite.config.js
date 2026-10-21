@@ -56,10 +56,7 @@ function manualChunks(id) {
     return "chunk-vis";
   }
 
-  if (
-    normalizedId.includes("/@xyflow/") ||
-    normalizedId.includes("/reactflow/")
-  ) {
+  if (normalizedId.includes("/@xyflow/")) {
     return "chunk-flow";
   }
 
@@ -95,7 +92,16 @@ function manualChunks(id) {
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    include: ["@rsagiev/gantt-task-react-19"],
+    include: [
+      "@fullcalendar/react",
+      "@rsagiev/gantt-task-react-19",
+      "@xyflow/react",
+      "date-fns",
+      "echarts",
+      "echarts-for-react",
+      "framer-motion",
+      "recharts",
+    ],
   },
   server: {
     proxy: {
