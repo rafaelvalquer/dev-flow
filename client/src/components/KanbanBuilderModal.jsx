@@ -222,7 +222,7 @@ export default function KanbanBuilderModal({
             {/* ORDEM DO STEP (COM SUBTAREFAS) */}
             <section
               className="kb-column"
-              style={{ backgroundColor: "#fafafa" }}
+              style={{ backgroundColor: "var(--ui-surface-2, #fafafa)" }}
             >
               <div className="kb-column-header">
                 <h4 className="kb-title" style={{ fontSize: "12px" }}>

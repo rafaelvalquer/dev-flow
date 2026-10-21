@@ -847,8 +847,8 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <div
             style={{
               marginTop: 12,
-              background: "#fafafa",
-              border: "1px solid #eee",
+              background: "var(--ui-surface-2, #fafafa)",
+              border: "1px solid var(--ui-line, #eee)",
               borderRadius: 8,
               padding: 8,
             }}
@@ -1018,7 +1018,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
           <div
             style={{
               width: "min(720px, 100%)",
-              background: "#fff",
+              background: "var(--ui-surface, #fff)",
               borderRadius: 12,
               padding: 16,
               boxShadow: "0 12px 40px rgba(0,0,0,0.2)",
@@ -1043,7 +1043,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
               </Button>
             </div>
 
-            <p style={{ marginTop: 8, color: "#555", fontSize: 13 }}>
+            <p style={{ marginTop: 8, color: "var(--ui-text-2, #555)", fontSize: 13 }}>
               Anexe arquivos (PDF, imagens, textos) com contexto técnico. O
               Co-pilot retornará um JSON e preencherá: Objetivo, O que, Por
               quê, Para que, Benefício.
@@ -1079,7 +1079,7 @@ export default function RDMTab({ initialTitle = "", initialDueDate = "" }) {
             </div>
 
             {!!copilotFiles.length && (
-              <div style={{ marginTop: 10, fontSize: 13, color: "#333" }}>
+              <div style={{ marginTop: 10, fontSize: 13, color: "var(--ui-text, #333)" }}>
                 <b>Arquivos:</b>
                 <ul style={{ margin: "6px 0 0 18px" }}>
                   {copilotFiles.map((f) => (

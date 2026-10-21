@@ -51,7 +51,7 @@ export function NotesWidget({
         <Input
           value={draftTitle}
           onChange={(event) => setDraftTitle(event.target.value)}
-          placeholder="Titulo da nota livre"
+          placeholder="Título da nota livre"
         />
       ) : null}
       <Textarea

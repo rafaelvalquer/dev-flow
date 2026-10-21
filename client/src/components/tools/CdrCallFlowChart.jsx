@@ -57,7 +57,7 @@ export default function CdrCallFlowChart({ data = [] }) {
             tooltipLine("Finalizadas", numberBr(payload.finished)),
             tooltipLine("Transferidas", numberBr(payload.transferred)),
             tooltipLine("Abandonadas", numberBr(payload.abandoned)),
-            tooltipLine("Duracao media", payload.averageDurationFormatted || "0:00"),
+            tooltipLine("Duração média", payload.averageDurationFormatted || "0:00"),
           ].join("");
         },
       },

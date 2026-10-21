@@ -34,18 +34,18 @@ const RESULT_COLUMNS = [
   { key: "tarefa", label: "Tarefa" },
   { key: "status", label: "Status", compact: true },
   { key: "screator", label: "SCreator" },
-  { key: "ultimaExecucao", label: "Ultima Execucao" },
-  { key: "proximaExecucao", label: "Proxima Execucao" },
-  { key: "descricao", label: "Descricao" },
+  { key: "ultimaExecucao", label: "Última Execução" },
+  { key: "proximaExecucao", label: "Próxima Execução" },
+  { key: "descricao", label: "Descrição" },
   { key: "servidor", label: "Servidor" },
-  { key: "usuario", label: "Usuario", compact: true },
+  { key: "usuario", label: "Usuário", compact: true },
   { key: "arquivo", label: "Arquivo" },
   { key: "local", label: "Local" },
   { key: "remoto", label: "Remoto" },
-  { key: "acao", label: "Acao" },
-  { key: "descricaoEtapa", label: "Descricao da etapa" },
+  { key: "acao", label: "Ação" },
+  { key: "descricaoEtapa", label: "Descrição da etapa" },
   { key: "ordemExecucao", label: "Ordem", compact: true },
-  { key: "ultimaAtualizacao", label: "Ultima Atualizacao" },
+  { key: "ultimaAtualizacao", label: "Última Atualização" },
   { key: "atualizadoPor", label: "Atualizado Por" },
 ];
 
@@ -90,12 +90,12 @@ function PortalLoginPanel({
                     : "border-zinc-200 bg-white text-zinc-600",
                 )}
               >
-                {authenticated ? "Sessao ativa" : "Login necessario"}
+                {authenticated ? "Sessão ativa" : "Login necessário"}
               </Badge>
             </div>
             <p className="truncate text-xs text-zinc-500">
               {authenticated
-                ? `${session?.username || "Usuario"} - busca de tarefas habilitada`
+                ? `${session?.username || "Usuário"} - busca de tarefas habilitada`
                 : "Autentique no Portal ICC para pesquisar Arquivo, Local e Remoto."}
             </p>
           </div>
@@ -122,7 +122,7 @@ function PortalLoginPanel({
       {!authenticated ? (
         <form onSubmit={onLogin} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
           <label className="grid gap-1">
-            <FieldLabel>Usuario</FieldLabel>
+            <FieldLabel>Usuário</FieldLabel>
             <Input
               value={loginForm.username}
               onChange={(event) =>
@@ -294,7 +294,7 @@ export default function TaskFileSearchTool() {
       setSession(null);
       setRows([]);
       setSummary(EMPTY_SUMMARY);
-      toast.success("Sessao Portal ICC encerrada.");
+      toast.success("Sessão Portal ICC encerrada.");
     } catch (err) {
       setError(err?.message || "Nao foi possivel encerrar a sessao Portal ICC.");
     } finally {
@@ -318,7 +318,7 @@ export default function TaskFileSearchTool() {
       setError(err?.message || "Nao foi possivel pesquisar as tarefas.");
       if (err?.code === "PORTAL_SESSION_EXPIRED" || err?.status === 401) {
         setSession(null);
-        toast.warning("Sessao Portal ICC expirada. Faca login novamente.");
+        toast.warning("Sessão Portal ICC expirada. Faça login novamente.");
       }
     } finally {
       setSearching(false);
@@ -329,7 +329,7 @@ export default function TaskFileSearchTool() {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
         <Loader2 className="h-4 w-4 animate-spin text-red-600" />
-        Verificando sessao Portal ICC...
+        Verificando sessão Portal ICC...
       </div>
     );
   }

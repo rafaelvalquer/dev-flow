@@ -8,7 +8,7 @@ const DEFAULT_PREFERENCES = {
   sidebarCollapsed: false,
 };
 
-const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde"]);
+const VALID_THEMES = new Set(["claro", "grafite", "oceano", "verde", "escuro"]);
 const VALID_DENSITIES = new Set(["comfortable", "compact"]);
 const HEX_COLOR_RE = /^#[0-9a-f]{6}$/i;
 

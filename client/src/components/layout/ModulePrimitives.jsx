@@ -19,16 +19,18 @@ export function ModuleHeader({
       <div className="module-header__main">
         {eyebrow ? <span className="module-header__eyebrow">{eyebrow}</span> : null}
 
-        <div className="module-header__title-row">
-          <div>
-            <h2 className="module-header__title">{title}</h2>
-            {description ? (
-              <p className="module-header__description">{description}</p>
-            ) : null}
-          </div>
+        {title ? (
+          <div className="module-header__title-row">
+            <div>
+              <h2 className="module-header__title">{title}</h2>
+              {description ? (
+                <p className="module-header__description">{description}</p>
+              ) : null}
+            </div>
 
-          {badge ? <span className="module-header__badge">{badge}</span> : null}
-        </div>
+            {badge ? <span className="module-header__badge">{badge}</span> : null}
+          </div>
+        ) : null}
 
         {nextStep ? (
           <div className="module-header__next-step">

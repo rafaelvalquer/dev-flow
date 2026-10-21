@@ -55,12 +55,12 @@ const EVIDENCE_MODULES = [
   {
     id: "flow",
     label: "Fluxo de chamadas por hora",
-    description: "Grafico de pico por inicio e fim de ligacao.",
+    description: "Grafico de pico por início e fim de ligação.",
   },
   {
     id: "hour-region",
     label: "Heatmap hora x DDD/UF",
-    description: "Matriz regional por horario de inicio.",
+    description: "Matriz regional por horário de início.",
   },
   {
     id: "map",
@@ -95,12 +95,12 @@ const EVIDENCE_MODULES = [
   {
     id: "dna",
     label: "Maiores trilhas navegadas (DNA)",
-    description: "Top trilhas com descricao dominante.",
+    description: "Top trilhas com descrição dominante.",
   },
   {
     id: "skills",
     label: "Top skills",
-    description: "Skills mais acionadas no periodo.",
+    description: "Skills mais acionadas no período.",
   },
   {
     id: "segments",
@@ -165,7 +165,7 @@ function numberBr(value) {
 }
 
 function jiraConnectionMessage() {
-  return "Sem conexao com o Jira. Desconecte da VPN ou verifique sua conexao com a internet.";
+  return "Sem conexão com o Jira. Desconecte da VPN ou verifique sua conexão com a internet.";
 }
 
 function KpiCard({ title, value, detail, icon: Icon }) {
@@ -286,7 +286,7 @@ function PortalLoginPanel({
             </div>
             <p className="truncate text-xs text-zinc-500">
               {authenticated
-                ? `${session?.username || "Usuario"} - CSV export habilitado`
+                ? `${session?.username || "Usuário"} - CSV export habilitado`
                 : "Autentique no Portal ICC para baixar e analisar o CSV."}
             </p>
           </div>
@@ -313,7 +313,7 @@ function PortalLoginPanel({
       {!authenticated ? (
         <form onSubmit={onLogin} className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
           <label className="grid gap-1">
-            <FieldLabel>Usuario</FieldLabel>
+            <FieldLabel>Usuário</FieldLabel>
             <Input
               value={loginForm.username}
               onChange={(event) =>
@@ -367,11 +367,11 @@ export default function CdrAnalyticsTool() {
   const [filters, setFilters] = useState(() => defaultDashboardFilters());
   const [compareForm, setCompareForm] = useState(() => ({
     left: {
-      label: "Periodo A",
+      label: "Período A",
       filters: defaultDashboardFilters({ campo1: "0", valor1: "" }),
     },
     right: {
-      label: "Periodo B",
+      label: "Período B",
       filters: defaultDashboardFilters({ campo1: "0", valor1: "" }),
     },
   }));
@@ -441,7 +441,7 @@ export default function CdrAnalyticsTool() {
       ? [
           {
             id: "comparison",
-            label: "Comparativo por periodo",
+            label: "Comparativo por período",
             description: "Resumo lado a lado dos periodos analisados.",
           },
         ]
@@ -468,7 +468,7 @@ export default function CdrAnalyticsTool() {
       },
       {
         key: "scriptPointDesc",
-        label: "Descricao dominante",
+        label: "Descrição dominante",
         render: (row) => row.scriptPointDesc || "-",
       },
       { key: "count", label: "Chamadas", render: (row) => numberBr(row.count) },
@@ -604,7 +604,7 @@ export default function CdrAnalyticsTool() {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 text-sm text-zinc-600">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Verificando sessao Portal ICC...
+        Verificando sessão Portal ICC...
       </div>
     );
   }
@@ -629,7 +629,7 @@ export default function CdrAnalyticsTool() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-zinc-900">
-                Filtros da analise
+                Filtros da análise
               </h3>
               <p className="text-xs text-zinc-500">
                 Baixa o CSV exportado do Portal ICC e calcula os indicadores.
@@ -665,10 +665,10 @@ export default function CdrAnalyticsTool() {
           <Tabs value={analysisMode} onValueChange={setAnalysisMode}>
             <TabsList className="flex h-auto flex-wrap gap-2 rounded-xl bg-zinc-100 p-1">
               <TabsTrigger value="single" className="rounded-lg">
-                Analise unica
+                Análise única
               </TabsTrigger>
               <TabsTrigger value="compare" className="rounded-lg">
-                Comparativo por periodo
+                Comparativo por período
               </TabsTrigger>
             </TabsList>
 
@@ -804,7 +804,7 @@ export default function CdrAnalyticsTool() {
       {!analytics && !comparison ? (
         <div className="rounded-xl border border-dashed border-zinc-300 bg-white px-4 py-8 text-center text-sm text-zinc-600">
           <BarChart3 className="mx-auto mb-2 h-6 w-6 text-zinc-400" />
-          Informe o periodo e os filtros para carregar o dashboard.
+          Informe o período e os filtros para carregar o dashboard.
         </div>
       ) : comparison ? (
         <div ref={setModuleRef("comparison")} data-module-id="comparison">
@@ -820,13 +820,13 @@ export default function CdrAnalyticsTool() {
               icon={PhoneCall}
             />
             <KpiCard
-              title="Tempo medio total"
+              title="Tempo médio total"
               value={summary.averageTotalFormatted || "0:00"}
               detail="DURACAO_TOTAL_CHAMADA"
               icon={Clock3}
             />
             <KpiCard
-              title="Tempo medio URA"
+              title="Tempo médio URA"
               value={summary.averageUraFormatted || "0:00"}
               detail="DURACAO_CHAMADA_URA"
               icon={Route}
@@ -950,7 +950,7 @@ export default function CdrAnalyticsTool() {
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-zinc-900">
-                  Analise de jornada DNA
+                  Análise de jornada DNA
                 </h3>
                 <p className="mt-1 text-xs text-zinc-500">
                   Escolha entre o fluxo navegavel da jornada e o ranking das trilhas mais usadas.

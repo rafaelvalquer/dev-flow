@@ -17,7 +17,6 @@ import {
   RefreshCw,
   Save,
   Server,
-  Settings2,
   ShieldCheck,
   Trash2,
   User,
@@ -126,7 +125,7 @@ const TAB_OPTIONS = [
   { value: "my", label: "Minha Carteira" },
   { value: "versioning", label: "Versionamentos" },
   { value: "tools", label: "Ferramentas" },
-  { value: "settings", label: "Configuracoes" },
+  { value: "settings", label: "Configurações" },
 ];
 
 const DEFAULT_PREFERENCES = {
@@ -146,13 +145,18 @@ const THEME_OPTIONS = [
   {
     value: "grafite",
     label: "Grafite",
-    helper: "Cinza elegante com acoes em vermelho",
+    helper: "Cinza elegante com ações em vermelho",
   },
   { value: "oceano", label: "Oceano", helper: "Azuis suaves com acentos teal" },
   {
     value: "verde",
     label: "Verde",
     helper: "Verdes claros com contraste azul",
+  },
+  {
+    value: "escuro",
+    label: "Escuro",
+    helper: "Superfícies escuras com ações em destaque",
   },
 ];
 
@@ -220,7 +224,7 @@ function formatDuration(seconds) {
 
 function formatLatency(value) {
   const latency = Number(value);
-  if (!Number.isFinite(latency)) return "Sem latencia";
+  if (!Number.isFinite(latency)) return "Sem latência";
   return `${Math.round(latency)} ms`;
 }
 
@@ -289,7 +293,7 @@ function diagnosticMessage(service, type) {
   if (type === "openai") {
     return service.configured
       ? `Modelo: ${service.model || "configurado"}.`
-      : "Chave OpenAI nao configurada.";
+      : "Chave OpenAI não configurada.";
   }
   return "Diagnóstico coletado.";
 }
@@ -356,7 +360,7 @@ function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
             className: "border-red-200 bg-red-50 text-red-700",
           }
         : {
-            label: "Sistema instavel",
+            label: "Sistema instável",
             className: "border-amber-200 bg-amber-50 text-amber-800",
           };
 
@@ -370,7 +374,7 @@ function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
               Saúde do Sistema
             </CardTitle>
             <CardDescription>
-              Visao consolidada dos servicos usados pelo Dev Flow.
+              Visão consolidada dos serviços usados pelo Dev Flow.
             </CardDescription>
           </div>
 
@@ -444,7 +448,7 @@ function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
         <div className="grid gap-4 xl:grid-cols-2">
           <DiagnosticCard
             title="API Dev Flow"
-            description="Servidor local e uptime da aplicacao."
+            description="Servidor local e uptime da aplicação."
             icon={Server}
             service={services.api}
             type="api"
@@ -465,7 +469,7 @@ function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
           />
           <DiagnosticCard
             title="STT"
-            description="Servico Python de transcricao."
+            description="Serviço Python de transcrição."
             icon={Gauge}
             service={services.stt}
             type="stt"
@@ -479,7 +483,7 @@ function SystemHealthView({ diagnostics, loading, error, onRefresh }) {
           />
           <DiagnosticCard
             title="Automação"
-            description="Job interno de sincronizacao operacional."
+            description="Job interno de sincronização operacional."
             icon={RefreshCw}
             service={services.automation}
             type="automation"
@@ -887,7 +891,7 @@ export default function SystemSettingsTab({
       );
       setDraft(normalizeCalendarSettings(saved || draft));
       setDirty(false);
-      toast.success("Calendario global salvo.");
+      toast.success("Calendário global salvo.");
     } catch (err) {
       toast.error(err?.message || "Não foi possível salvar o calendário.");
     } finally {
@@ -904,7 +908,7 @@ export default function SystemSettingsTab({
     }
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      toast.error("A confirmacao da senha nao confere.");
+      toast.error("A confirmação da senha não confere.");
       return;
     }
 
@@ -985,7 +989,7 @@ export default function SystemSettingsTab({
     }
   }
 
-  async function saveJiraUser(user, successMessage = "Usuario Jira salvo.") {
+  async function saveJiraUser(user, successMessage = "Usuário Jira salvo.") {
     setJiraUserSaving(true);
     try {
       const saved = await updateJiraUser(user || {});
@@ -1006,10 +1010,10 @@ export default function SystemSettingsTab({
       setJiraStatus(status);
       const tokenUser = mapJiraUser(status?.jiraUser);
       if (!tokenUser?.accountId) {
-        toast.error("O token foi validado, mas nao retornou accountId.");
+        toast.error("O token foi validado, mas não retornou accountId.");
         return;
       }
-      await saveJiraUser(tokenUser, "Usuario Jira do token salvo.");
+      await saveJiraUser(tokenUser, "Usuário Jira do token salvo.");
     } catch (err) {
       setJiraStatus({
         ok: false,
@@ -1062,21 +1066,16 @@ export default function SystemSettingsTab({
   return (
     <section className="grid gap-5">
       <ModuleHeader
-        eyebrow="Administracao"
-        title="Configuracoes"
-        description="Ajustes do sistema e da sua conta para manter a operacao conectada."
-        badge="Sistema"
-        icon={Settings2}
         stats={[
           {
-            label: "Semana util",
+            label: "Semana útil",
             value: preview.week,
-            helper: "Usada em duracao e encadeamento do Gantt.",
+            helper: "Usada em duração e encadeamento do Gantt.",
           },
           {
             label: "Feriados ativos",
             value: String(preview.holidays),
-            helper: "Dias nao trabalhados cadastrados manualmente.",
+            helper: "Dias não trabalhados cadastrados manualmente.",
           },
         ]}
       />
@@ -1096,9 +1095,9 @@ export default function SystemSettingsTab({
             >
               <CalendarDays className="h-4 w-4" />
               <span className="grid">
-                <span className="text-sm font-semibold">Calendario</span>
+                <span className="text-sm font-semibold">Calendário</span>
                 <span className="text-xs text-zinc-500">
-                  Dias uteis e feriados
+                  Dias úteis e feriados
                 </span>
               </span>
             </button>
@@ -1134,7 +1133,7 @@ export default function SystemSettingsTab({
             >
               <User className="h-4 w-4" />
               <span className="grid">
-                <span className="text-sm font-semibold">Usuario</span>
+                <span className="text-sm font-semibold">Usuário</span>
                 <span className="text-xs text-zinc-500">
                   Senha e token Jira
                 </span>
@@ -1183,10 +1182,10 @@ export default function SystemSettingsTab({
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base">
                     <CalendarDays className="h-4 w-4 text-red-600" />
-                    Calendario global de dias uteis
+                    Calendário global de dias úteis
                   </CardTitle>
                   <CardDescription>
-                    Esta configuracao e global e afeta todos os usuarios do
+                    Esta configuração é global e afeta todos os usuários do
                     sistema.
                   </CardDescription>
                 </div>
@@ -1195,7 +1194,7 @@ export default function SystemSettingsTab({
                   <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
                     {calendarSettingsLoading
                       ? "Carregando"
-                      : `Semana: ${preview.week}`}
+                      : `Semana útil: ${preview.week}`}
                   </Badge>
                   <Badge className="rounded-full border border-zinc-200 bg-white text-zinc-700">
                     {preview.holidays} feriados ativos
@@ -1209,9 +1208,9 @@ export default function SystemSettingsTab({
                 <div className="flex gap-2">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <p>
-                    A regra passa a valer quando uma duracao, encadeamento,
-                    reordenacao ou recalculo de datas for executado. Cronogramas
-                    antigos nao serao reprocessados automaticamente.
+                    A regra passa a valer quando uma duração, encadeamento,
+                    reordenação ou recálculo de datas for executado. Cronogramas
+                    antigos não serão reprocessados automaticamente.
                   </p>
                 </div>
               </div>
@@ -1219,10 +1218,10 @@ export default function SystemSettingsTab({
               <section className="grid gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-zinc-900">
-                    Dias uteis da semana
+                    Dias úteis da semana
                   </h3>
                   <p className="text-xs text-zinc-500">
-                    Selecione os dias que entram na contagem de duracao.
+                    Selecione os dias que entram na contagem de duração.
                   </p>
                 </div>
 
@@ -1255,10 +1254,10 @@ export default function SystemSettingsTab({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-zinc-900">
-                      Feriados e dias nao trabalhados
+                      Feriados e dias não trabalhados
                     </h3>
                     <p className="text-xs text-zinc-500">
-                      Cadastre excecoes que devem ser ignoradas na contagem
+                      Cadastre exceções que devem ser ignoradas na contagem
                       util.
                     </p>
                   </div>
@@ -1362,7 +1361,7 @@ export default function SystemSettingsTab({
                   ) : (
                     <Save className="mr-2 h-4 w-4" />
                   )}
-                  Salvar calendario
+                  Salvar calendário
                 </Button>
               </div>
             </CardContent>
@@ -1393,7 +1392,7 @@ export default function SystemSettingsTab({
                     Configuração do usuário
                   </CardTitle>
                   <CardDescription>
-                    Atualize sua senha e o token usado nas requisicoes com o
+                    Atualize sua senha e o token usado nas requisições com o
                     Jira.
                   </CardDescription>
                 </div>
@@ -1429,7 +1428,7 @@ export default function SystemSettingsTab({
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase text-zinc-500">
-                    Ultimo login
+                    Último login
                   </p>
                   <p className="mt-1 text-sm font-semibold text-zinc-900">
                     {lastLoginLabel}
@@ -1443,10 +1442,10 @@ export default function SystemSettingsTab({
                     <div>
                       <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
                         <User className="h-4 w-4 text-red-600" />
-                        Usuario Jira pessoal
+                        Usuário Jira pessoal
                       </h3>
                       <p className="text-xs text-zinc-500">
-                        Este usuario alimenta Minha Carteira e o filtro Meus
+                        Este usuário alimenta Minha Carteira e o filtro Meus
                         projetos por accountId.
                       </p>
                     </div>
@@ -1464,7 +1463,7 @@ export default function SystemSettingsTab({
                         ) : (
                           <RefreshCw className="mr-2 h-4 w-4" />
                         )}
-                        Usar usuario do token atual
+                        Usar usuário do token atual
                       </Button>
 
                       <Button
@@ -1472,12 +1471,12 @@ export default function SystemSettingsTab({
                         variant="outline"
                         className="rounded-xl border-zinc-200 bg-white text-red-700"
                         onClick={() =>
-                          saveJiraUser({}, "Vinculo Jira removido.")
+                          saveJiraUser({}, "Vínculo Jira removido.")
                         }
                         disabled={jiraUserSaving || !currentUser?.jiraAccountId}
                       >
                         <UserX className="mr-2 h-4 w-4" />
-                        Limpar vinculo
+                        Limpar vínculo
                       </Button>
                     </div>
                   </div>
@@ -1505,11 +1504,11 @@ export default function SystemSettingsTab({
                             <div className="truncate text-sm font-semibold text-zinc-900">
                               {currentUser?.jiraDisplayName ||
                                 currentUser?.name ||
-                                "Usuario Jira"}
+                                "Usuário Jira"}
                             </div>
                             <div className="truncate text-xs text-zinc-500">
                               {currentUser?.jiraEmailAddress ||
-                                "E-mail Jira nao informado"}
+                                "E-mail Jira não informado"}
                             </div>
                             <div className="mt-1 break-all text-[11px] text-zinc-500">
                               accountId: {currentUser.jiraAccountId}
@@ -1521,7 +1520,7 @@ export default function SystemSettingsTab({
                         </div>
                       ) : (
                         <div className="rounded-xl border border-dashed border-zinc-200 bg-white px-3 py-4 text-sm text-zinc-500">
-                          Nenhum usuario Jira pessoal selecionado.
+                          Nenhum usuário Jira pessoal selecionado.
                         </div>
                       )}
                     </div>
@@ -1537,7 +1536,7 @@ export default function SystemSettingsTab({
                           disabled={jiraUserSaving}
                         >
                           <span className="truncate">
-                            Buscar e selecionar usuario Jira
+                            Buscar e selecionar usuário Jira
                           </span>
                           {jiraUserLoading ? (
                             <Loader2 className="ml-2 h-4 w-4 animate-spin text-zinc-500" />
@@ -1555,7 +1554,7 @@ export default function SystemSettingsTab({
                           <CommandInput
                             value={jiraUserQuery}
                             onValueChange={setJiraUserQuery}
-                            placeholder="Buscar usuario no Jira... (min. 2 letras)"
+                            placeholder="Buscar usuário no Jira... (min. 2 letras)"
                           />
                           <CommandList className="max-h-[280px]">
                             <CommandEmpty>
@@ -1563,9 +1562,9 @@ export default function SystemSettingsTab({
                                 ? "Buscando..."
                                 : String(jiraUserQuery || "").trim().length < 2
                                   ? "Digite 2 ou mais caracteres para buscar."
-                                  : "Nenhum usuario encontrado."}
+                                  : "Nenhum usuário encontrado."}
                             </CommandEmpty>
-                            <CommandGroup heading="Usuarios Jira">
+                            <CommandGroup heading="Usuários Jira">
                               {jiraUserOptions.map((user) => {
                                 const selected =
                                   currentUser?.jiraAccountId === user.accountId;
@@ -1630,17 +1629,17 @@ export default function SystemSettingsTab({
                   <div>
                     <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
                       <User className="h-4 w-4 text-red-600" />
-                      Perfil basico
+                      Perfil básico
                     </h3>
                     <p className="text-xs text-zinc-500">
-                      Edite somente o nome de exibicao. O e-mail permanece fixo.
+                      Edite somente o nome de exibição. O e-mail permanece fixo.
                     </p>
                   </div>
 
                   <Input
                     value={profileName}
                     onChange={(event) => setProfileName(event.target.value)}
-                    placeholder="Nome de exibicao"
+                    placeholder="Nome de exibição"
                     className="h-10 rounded-xl border-zinc-200 bg-white"
                     maxLength={120}
                   />
@@ -1690,7 +1689,7 @@ export default function SystemSettingsTab({
                         <div className="grid gap-1">
                           <strong>Conexão Jira validada.</strong>
                           <span>
-                            {jiraStatus.jiraUser?.displayName || "Usuario Jira"}{" "}
+                            {jiraStatus.jiraUser?.displayName || "Usuário Jira"}{" "}
                             {jiraStatus.jiraUser?.emailAddress
                               ? `- ${jiraStatus.jiraUser.emailAddress}`
                               : ""}
@@ -1710,7 +1709,7 @@ export default function SystemSettingsTab({
                     </div>
                   ) : (
                     <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-sm text-zinc-600">
-                      Nenhum teste executado nesta sessao.
+                      Nenhum teste executado nesta sessão.
                     </div>
                   )}
 
@@ -1726,7 +1725,7 @@ export default function SystemSettingsTab({
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    Testar conexao Jira
+                    Testar conexão Jira
                   </Button>
                 </section>
               </div>
@@ -1742,7 +1741,7 @@ export default function SystemSettingsTab({
                       Alterar senha
                     </h3>
                     <p className="text-xs text-zinc-500">
-                      Use sua senha atual para confirmar a alteracao.
+                      Use sua senha atual para confirmar a alteração.
                     </p>
                   </div>
 

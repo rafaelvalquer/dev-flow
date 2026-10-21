@@ -127,7 +127,7 @@ export default function JiraTicketPicker({ value, onChange, disabled }) {
                       Usar "{String(query || "").trim().toUpperCase()}"
                     </div>
                     <div className="truncate text-xs text-zinc-500">
-                      Para quando voce ja sabe a chave do ticket.
+                      Para quando você ja sabe a chave do ticket.
                     </div>
                   </div>
                 </CommandItem>

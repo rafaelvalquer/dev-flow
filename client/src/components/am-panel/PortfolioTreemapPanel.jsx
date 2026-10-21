@@ -25,7 +25,7 @@ const DEADLINE_OPTIONS = [
   { label: "Sem prazo", value: "missing" },
 ];
 
-function clean(value, fallback = "Nao informado") {
+function clean(value, fallback = "Não informado") {
   const text = String(value || "").trim();
   return text || fallback;
 }
@@ -135,7 +135,7 @@ function buildTreemapData(rows, statusColorMap) {
 
   rows.forEach((ticket) => {
     const status = clean(ticket?.status, "Sem status");
-    const owner = clean(ticket?.owner, "Sem responsavel");
+    const owner = clean(ticket?.owner, "Sem responsável");
 
     if (!statusMap.has(status)) {
       statusMap.set(status, {
@@ -318,7 +318,7 @@ export default function PortfolioTreemapPanel({
   const filteredRows = useMemo(
     () =>
       openRows.filter((ticket) => {
-        if (filters.owner !== ALL && clean(ticket?.owner, "Sem responsavel") !== filters.owner) {
+        if (filters.owner !== ALL && clean(ticket?.owner, "Sem responsável") !== filters.owner) {
           return false;
         }
         if (filters.status !== ALL && clean(ticket?.status, "Sem status") !== filters.status) {
@@ -541,7 +541,7 @@ export default function PortfolioTreemapPanel({
                 Mapa da carteira
               </h3>
               <p className="text-xs text-zinc-500">
-                Tickets abertos por status e responsavel.
+                Tickets abertos por status e responsável.
               </p>
               <p className="mt-1 text-[11px] font-medium text-zinc-400">
                 Cor = status | Bloco interno = responsavel | Tamanho = quantidade
@@ -630,7 +630,7 @@ export default function PortfolioTreemapPanel({
                   Sem tickets para este recorte
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  Ajuste os filtros ou limpe a selecao para ver a carteira aberta.
+                  Ajuste os filtros ou limpe a seleção para ver a carteira aberta.
                 </div>
               </div>
             </div>
@@ -644,7 +644,7 @@ export default function PortfolioTreemapPanel({
               value={filters.query}
               onChange={(event) => setFilter("query", event.target.value)}
               className="h-9 rounded-lg border-zinc-200 pl-8 text-sm"
-              placeholder="Buscar key ou titulo"
+              placeholder="Buscar key ou título"
             />
           </div>
 
@@ -655,7 +655,7 @@ export default function PortfolioTreemapPanel({
             onChange={(value) => setFilter("status", value)}
           />
           <FilterSelect
-            label="Responsavel"
+            label="Responsável"
             value={filters.owner}
             options={filterOptions.owners}
             onChange={(value) => setFilter("owner", value)}

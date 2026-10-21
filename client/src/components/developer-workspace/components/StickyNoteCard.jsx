@@ -141,7 +141,7 @@ export const StickyNoteCard = forwardRef(function StickyNoteCard(
           <Input
             value={draft.title}
             onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
-            placeholder="Titulo"
+            placeholder="Título"
           />
           <Textarea
             value={draft.text}

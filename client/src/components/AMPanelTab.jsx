@@ -1338,7 +1338,7 @@ function PersonalPortfolioView({
                 Minha Carteira
               </CardTitle>
               <CardDescription>
-                Recorte pessoal de {jiraUserName || "usuario Jira"} com tickets
+                Recorte pessoal de {jiraUserName || "usuário Jira"} com tickets
                 atribuídos no Jira.
               </CardDescription>
             </div>
@@ -1703,7 +1703,7 @@ export default function AMPanelTab({
 
       const comment = String(resolutionComment || "").trim();
       const fallbackComment = `[RESOLUCAO] ${resolutionProblem.label || "Alerta"} - ${
-        resolutionProblem.recommendedAction || "Acao registrada."
+        resolutionProblem.recommendedAction || "Ação registrada."
       }`;
       await createComment(key, adfFromPlainText(comment || fallbackComment));
 
@@ -2410,7 +2410,7 @@ export default function AMPanelTab({
                   {personalMode ? (
                     <p className="text-xs text-zinc-500">
                       {currentUser?.jiraDisplayName ||
-                        "Tickets filtrados pelo seu usuario Jira"}
+                        "Tickets filtrados pelo seu usuário Jira"}
                     </p>
                   ) : null}
                 </div>
@@ -2545,7 +2545,7 @@ export default function AMPanelTab({
               <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
                 <div>
                   <CardTitle className="text-base text-amber-950">
-                    Configure seu usuario Jira
+                    Configure seu usuário Jira
                   </CardTitle>
                   <CardDescription className="mt-1 text-amber-900">
                     Minha Carteira usa o accountId do Jira para encontrar seus
@@ -2557,7 +2557,7 @@ export default function AMPanelTab({
                   className="rounded-xl bg-red-600 text-white hover:bg-red-700"
                   onClick={onConfigureUser}
                 >
-                  Abrir Configuracoes
+                  Abrir Configurações
                 </Button>
               </CardContent>
             </Card>
@@ -2903,7 +2903,7 @@ function ResolutionActionDialog({
         : problem?.type === "dueSoon"
           ? "Acompanhamento do vencimento: "
           : problem?.type === "overdue"
-            ? "Plano de recuperacao: "
+            ? "Plano de recuperação: "
             : "";
 
   useEffect(() => {
@@ -2944,11 +2944,11 @@ function ResolutionActionDialog({
               {problem?.reason || "Alerta operacional mapeado."}
             </div>
             <div className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Acao recomendada
+              Ação recomendada
             </div>
             <div className="mt-1 text-sm font-medium text-zinc-900">
               {problem?.recommendedAction ||
-                "Registrar acao e acompanhar o ticket."}
+                "Registrar ação e acompanhar o ticket."}
             </div>
           </div>
 
@@ -2975,14 +2975,14 @@ function ResolutionActionDialog({
           ) : (
             <div className="grid gap-2">
               <label className="text-xs font-semibold text-zinc-700">
-                Comentario / plano de acao
+                Comentário / plano de ação
               </label>
               <Textarea
                 value={comment}
                 onChange={(event) => setComment?.(event.target.value)}
                 rows={5}
                 className="rounded-xl border-zinc-200 bg-white"
-                placeholder="Descreva a acao tomada, impedimento ou plano de recuperacao."
+                placeholder="Descreva a ação tomada, impedimento ou plano de recuperação."
               />
             </div>
           )}
@@ -6791,7 +6791,7 @@ function TicketDetailsDialog({
                             <div className="text-xs text-zinc-500">
                               {sizeKb
                                 ? `${sizeKb.toFixed(1)} KB`
-                                : "Tamanho nao informado"}
+                                : "Tamanho não informado"}
                             </div>
                           </div>
 
@@ -7272,27 +7272,27 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
       isFieldRequired(summaryField) &&
       !String(summary || "").trim()
     ) {
-      errors.summary = "Resumo e obrigatorio.";
+      errors.summary = "Resumo é obrigatório.";
     }
     if (
       descriptionField &&
       isFieldRequired(descriptionField) &&
       !String(description || "").trim()
     ) {
-      errors.description = "Descricao e obrigatoria.";
+      errors.description = "Descrição é obrigatória.";
     }
     if (
       parentField &&
       isFieldRequired(parentField) &&
       !String(parentKey || "").trim()
     ) {
-      errors.parent = "Ticket pai e obrigatorio.";
+      errors.parent = "Ticket pai é obrigatório.";
     }
     editableExtraFields.forEach((field) => {
       const id = getFieldId(field);
       if (!id || !isFieldRequired(field)) return;
       if (isEmptyValue(fieldValues[id])) {
-        errors[id] = `${getFieldName(field)} e obrigatorio.`;
+        errors[id] = `${getFieldName(field)} é obrigatório.`;
       }
     });
     return errors;
@@ -7784,7 +7784,7 @@ function EditJiraIssueDialog({ open, onOpenChange, issueKey, onSaved }) {
             }
           >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {saving ? "Salvando..." : "Salvar alteracoes"}
+            {saving ? "Salvando..." : "Salvar alterações"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -7919,11 +7919,11 @@ function AttachmentPreviewModal({ attachment, onClose }) {
               <div className="max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm">
                 <FileText className="mx-auto h-8 w-8 text-zinc-500" />
                 <div className="mt-3 text-sm font-semibold text-zinc-900">
-                  Preview local ainda nao disponivel para este formato.
+                  Preview local ainda não disponível para este formato.
                 </div>
                 <div className="mt-2 text-sm text-zinc-600">
                   Arquivos PPT, PPTX e DOC antigo exigem conversao antes da
-                  visualizacao local. Use o botao Baixar se precisar abrir no
+                  visualização local. Use o botao Baixar se precisar abrir no
                   aplicativo nativo.
                 </div>
               </div>

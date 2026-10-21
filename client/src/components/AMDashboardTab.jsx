@@ -2462,28 +2462,28 @@ function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) 
           icon={Gauge}
           label="Score operacional"
           value={`${cards.healthPct ?? 0}%`}
-          helper="Prazo, cronograma, responsavel e movimento recente."
+          helper="Prazo, cronograma, responsável e movimento recente."
           tone={(cards.healthPct ?? 0) >= 80 ? "emerald" : (cards.healthPct ?? 0) >= 60 ? "amber" : "red"}
         />
         <BenchmarkMetricCard
           icon={CheckCircle2}
           label={`Concluidos em ${periodDays}d`}
           value={cards.doneInPeriod ?? 0}
-          helper="Comparativo de entrega no periodo selecionado."
+          helper="Comparativo de entrega no período selecionado."
           tone="emerald"
         />
         <BenchmarkMetricCard
           icon={TrendingUp}
           label="Movimentados"
           value={cards.updatedInPeriod ?? 0}
-          helper="Tickets com updated dentro do periodo."
+          helper="Tickets com updated dentro do período."
           tone="sky"
         />
         <BenchmarkMetricCard
           icon={AlertTriangle}
           label="Riscos ativos"
           value={(cards.overdueCount || 0) + (cards.stalledCount || 0)}
-          helper={`${cards.overdueCount || 0} atrasados, ${cards.stalledCount || 0} sem avanco 7d+.`}
+          helper={`${cards.overdueCount || 0} atrasados, ${cards.stalledCount || 0} sem avanço 7d+.`}
           tone={(cards.overdueCount || 0) ? "red" : "amber"}
         />
       </div>
@@ -2493,7 +2493,7 @@ function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) 
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Gargalos por status</CardTitle>
             <div className="text-sm text-zinc-500">
-              Aging medio e volume de tickets abertos por status.
+              Aging médio e volume de tickets abertos por status.
             </div>
           </CardHeader>
           <CardContent className="h-[320px]">
@@ -2507,7 +2507,7 @@ function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) 
                   <RTooltip />
                   <Legend />
                   <Bar yAxisId="left" dataKey="tickets" name="Tickets" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-                  <Line yAxisId="right" type="monotone" dataKey="aging" name="Aging medio" stroke="#ef4444" strokeWidth={3} dot={{ r: 3 }} />
+                  <Line yAxisId="right" type="monotone" dataKey="aging" name="Aging médio" stroke="#ef4444" strokeWidth={3} dot={{ r: 3 }} />
                 </ComposedChart>
               </ResponsiveContainer>
             ) : (
@@ -2520,7 +2520,7 @@ function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) 
 
         <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Benchmark por responsavel</CardTitle>
+            <CardTitle className="text-base">Benchmark por responsável</CardTitle>
             <div className="text-sm text-zinc-500">
               Carga, atrasos e saude operacional por carteira.
             </div>
@@ -2558,7 +2558,7 @@ function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) 
               ))
             ) : (
               <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-8 text-center text-sm text-zinc-500">
-                Nenhum responsavel com dados no recorte.
+                Nenhum responsável com dados no recorte.
               </div>
             )}
           </CardContent>
@@ -2569,7 +2569,7 @@ function OperationalBenchmarkView({ data, loading, periodDays, onOpenDetails }) 
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Top tickets que puxam risco</CardTitle>
           <div className="text-sm text-zinc-500">
-            Priorizacao por atraso, idade, falta de cronograma, responsavel e tempo sem avanco.
+            Priorização por atraso, idade, falta de cronograma, responsável e tempo sem avanço.
           </div>
         </CardHeader>
         <CardContent className="grid gap-2">
@@ -2622,7 +2622,7 @@ function OperationalTrendsView({ data, loading, periodDays }) {
     <div className="grid gap-4">
       <Card className="rounded-2xl border-zinc-200 bg-white shadow-sm">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Periodo atual vs anterior</CardTitle>
+          <CardTitle className="text-base">Período atual vs anterior</CardTitle>
           <div className="text-sm text-zinc-500">
             Compara os ultimos {periodDays} dias com os {periodDays} dias anteriores.
           </div>
@@ -2670,10 +2670,10 @@ function OperationalTrendsView({ data, loading, periodDays }) {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <UsersRound className="h-4 w-4 text-sky-700" />
-              Operacao por carteira
+              Operação por carteira
             </CardTitle>
             <div className="text-sm text-zinc-500">
-              Leitura comparativa por responsavel para apoiar balanceamento.
+              Leitura comparativa por responsável para apoiar balanceamento.
             </div>
           </CardHeader>
           <CardContent className="h-[300px]">
@@ -2691,7 +2691,7 @@ function OperationalTrendsView({ data, loading, periodDays }) {
               </ResponsiveContainer>
             ) : (
               <div className="grid h-full place-items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-sm text-zinc-500">
-                Sem dados por responsavel.
+                Sem dados por responsável.
               </div>
             )}
           </CardContent>
@@ -2708,8 +2708,8 @@ function OperationalTrendsView({ data, loading, periodDays }) {
             {[
               { label: "SLA atual", value: `${data?.cards?.slaPct ?? 0}%` },
               { label: "Sem cronograma", value: data?.cards?.noScheduleCount ?? 0 },
-              { label: "Sem responsavel", value: data?.cards?.noOwnerCount ?? 0 },
-              { label: "Sem avanco 7d+", value: data?.cards?.stalledCount ?? 0 },
+              { label: "Sem responsável", value: data?.cards?.noOwnerCount ?? 0 },
+              { label: "Sem avanço 7d+", value: data?.cards?.stalledCount ?? 0 },
             ].map((item) => (
               <div
                 key={item.label}

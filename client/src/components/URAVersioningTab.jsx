@@ -539,7 +539,7 @@ export default function URAVersioningTab() {
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-zinc-600">
               Consulte o histórico de versões das URAs, visualize alterações
-              implantadas, responsaveis pelo desenvolvimento e tickets relacionados.
+              implantadas, responsáveis pelo desenvolvimento e tickets relacionados.
             </p>
           </div>
 
@@ -797,7 +797,7 @@ export default function URAVersioningTab() {
                 <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-10 text-center">
                   <CheckCircle2 className="mx-auto h-9 w-9 text-zinc-300" />
                   <div className="mt-3 text-sm font-semibold text-zinc-900">
-                    Esta URA ainda nao possui versionamentos.
+                    Esta URA ainda não possui versionamentos.
                   </div>
                   <p className="mt-1 text-sm text-zinc-500">
                     Registre a primeira versão implantada para iniciar a timeline.
@@ -951,7 +951,7 @@ function VersionDetailsSheet({
                         ) : null}
                       </div>
                       <p className="line-clamp-2 font-medium text-zinc-900">
-                        {jira.summary || "Resumo ainda nao sincronizado."}
+                        {jira.summary || "Resumo ainda não sincronizado."}
                       </p>
                       <div className="grid gap-1 text-xs text-zinc-500">
                         <span>Responsável: {jira.assignee || "Não informado"}</span>
@@ -961,7 +961,7 @@ function VersionDetailsSheet({
                     </div>
                   ) : (
                     <p className="mt-2 text-sm text-zinc-500">
-                      Nenhum ticket Jira vinculado a esta versao.
+                      Nenhum ticket Jira vinculado a esta versão.
                     </p>
                   )}
                 </div>
@@ -1071,7 +1071,7 @@ function VersionDetailsSheet({
               </section>
             ) : null}
 
-            <DetailList title="Mudancas realizadas" items={version.changes} />
+            <DetailList title="Mudanças realizadas" items={version.changes} />
             <DetailList title="Scripts alterados" items={version.scripts} icon={Code2} />
 
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -1160,7 +1160,7 @@ function UraDialog({ open, onOpenChange, form, setForm, editing, saving, onSubmi
               <Input
                 value={form.owner}
                 onChange={(event) => setForm((current) => ({ ...current, owner: event.target.value }))}
-                placeholder="Responsavel"
+                placeholder="Responsável"
                 className="h-11 rounded-xl"
               />
             </div>
@@ -1333,7 +1333,7 @@ function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, savin
                   ) : null}
                 </div>
                 <p className="mt-2 line-clamp-2 font-medium text-zinc-900">
-                  {form.jiraSnapshot?.summary || "Resumo Jira ainda nao carregado."}
+                  {form.jiraSnapshot?.summary || "Resumo Jira ainda não carregado."}
                 </p>
                 <p className="mt-1 text-xs text-zinc-500">
                   Responsável: {form.jiraSnapshot?.assignee || "Não informado"}
@@ -1350,7 +1350,7 @@ function VersionDialog({ open, onOpenChange, form, setForm, uras, editing, savin
             <Textarea
               value={form.changesText}
               onChange={(event) => setForm((current) => ({ ...current, changesText: event.target.value }))}
-              placeholder={"Mudancas realizadas (uma por linha)\n- Adicionada validacao de CPF\n- Corrigido fallback do menu"}
+              placeholder={"Mudanças realizadas (uma por linha)\n- Adicionada validação de CPF\n- Corrigido fallback do menu"}
               className="min-h-32 rounded-xl"
             />
             <Textarea

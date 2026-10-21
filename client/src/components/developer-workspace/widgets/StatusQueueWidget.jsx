@@ -141,10 +141,10 @@ export function StatusQueueWidget({ rows }) {
           formatter={(value) => [value, "Tickets"]}
           labelFormatter={(_, payload) => payload?.[0]?.payload?.label || ""}
           contentStyle={{
-            border: "1px solid #e5e7eb",
+            border: "1px solid var(--ui-line, #e5e7eb)",
             borderRadius: 8,
             boxShadow: "0 12px 24px rgba(15, 23, 42, 0.12)",
-            color: "#111827",
+            color: "var(--ui-text, #111827)",
             fontSize: 12,
           }}
         />
