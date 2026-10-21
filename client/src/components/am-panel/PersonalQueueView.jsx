@@ -94,7 +94,7 @@ function IssueTypeIcon({ ticket, className = "" }) {
     </span>
   );
 }
-function getQueueStatus(issue) {
+export function getQueueStatus(issue) {
   const raw = getTicketStatusName(issue) || PERSONAL_QUEUE_OTHER_STATUS;
   const match = STATUS_OPTIONS.find(
     (status) => normalizePlain(status) === normalizePlain(raw),

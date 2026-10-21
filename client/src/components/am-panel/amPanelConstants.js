@@ -12,6 +12,7 @@ export const STATUS_OPTIONS = [
   "EM PLANEJAMENTO",
   "Para Dev",
   "Desenvolvimento",
+  "Em Desenvolvimento",
   "Para Homolog.",
   "Homolog. Negócio",
   "Para Deploy",

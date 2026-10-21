@@ -31,6 +31,7 @@ const PO_OPEN_STATUSES = [
   "EM PLANEJAMENTO",
   "Para Dev",
   "Desenvolvimento",
+  "Em Desenvolvimento",
   "Para Homolog.",
   "Homolog. Neg\u00f3cio",
   "Para Deploy",
