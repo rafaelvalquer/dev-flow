@@ -15,9 +15,9 @@ import { History, Loader2, Search } from "lucide-react";
 
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
-import FullCalendar from "@fullcalendar/react";
 import ptBrLocale from "@fullcalendar/core/locales/pt-br";
 import allLocales from "@fullcalendar/core/locales-all";
+import CalendarView from "@/features/visualization/calendar/CalendarView";
 
 import AMCalendarDashboard from "./AMCalendarDashboard";
 import {
@@ -453,7 +453,7 @@ export default memo(function AMCalendarTab({
 
           <div className="overflow-x-auto">
             <div className="relative">
-              <FullCalendar
+              <CalendarView
                 plugins={[dayGridPlugin, interactionPlugin]}
                 initialView="dayGridMonth"
                 height="auto"

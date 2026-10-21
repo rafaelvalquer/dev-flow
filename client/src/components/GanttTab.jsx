@@ -1,7 +1,6 @@
 // src/components/GanttTab.jsx
 import { useEffect, useMemo, useRef, useState, useCallback, memo } from "react";
-import { Gantt, ViewMode } from "@rsagiev/gantt-task-react-19";
-import "@rsagiev/gantt-task-react-19/dist/index.css";
+import GanttView, { ViewMode } from "@/features/visualization/gantt/GanttView";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -4377,7 +4376,7 @@ export function GanttTab({
                         "--gantt-leading-offset": `${ganttLeadingOffset}px`,
                       }}
                     >
-                      <Gantt
+                      <GanttView
                         tasks={ganttRenderTasks}
                         viewMode={viewMode}
                         viewDate={ganttWindow.start}

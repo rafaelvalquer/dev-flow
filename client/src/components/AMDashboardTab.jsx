@@ -83,7 +83,7 @@ import {
 
 import { Cell } from "recharts";
 
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
 import PortfolioTreemapPanel from "@/components/am-panel/PortfolioTreemapPanel";
@@ -3283,7 +3283,7 @@ function WidgetBody({
 
     return (
       <div className="h-full min-h-[180px] rounded-2xl border border-zinc-100 bg-zinc-50/40 p-2">
-        <ReactECharts
+        <ChartView
           option={option}
           style={{ height: "100%", minHeight: 180, width: "100%" }}
           opts={{ renderer: "canvas" }}

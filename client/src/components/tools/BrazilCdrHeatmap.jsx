@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import * as echarts from "echarts";
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 import { MapPin } from "lucide-react";
 
 import brasilUfGeoJson from "@/data/brasil-uf.geo.json";
@@ -236,7 +236,7 @@ export default function BrazilCdrHeatmap({ states = [] }) {
               Sem chamadas com DDD identificado para colorir o mapa.
             </div>
           ) : null}
-          <ReactECharts
+          <ChartView
             className="h-[420px] w-full"
             option={option}
             notMerge
@@ -277,11 +277,11 @@ export default function BrazilCdrHeatmap({ states = [] }) {
                   value={selectedState.peakHour || "-"}
                 />
                 <StateMetric
-                  label="Tempo medio total"
+                  label="Tempo médio total"
                   value={selectedState.averageTotalFormatted || "0:00"}
                 />
                 <StateMetric
-                  label="Tempo medio URA"
+                  label="Tempo médio URA"
                   value={selectedState.averageUraFormatted || "0:00"}
                 />
               </div>

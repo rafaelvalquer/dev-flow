@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 import { Grid3X3 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -150,7 +150,7 @@ export default function CdrHourRegionHeatmap({ data }) {
             Sem ANI/data validos para montar o heatmap regional.
           </div>
         ) : null}
-        <ReactECharts
+        <ChartView
           className="h-[380px] w-full"
           option={option}
           notMerge

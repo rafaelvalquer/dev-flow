@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 import { FilterX, LayoutDashboard, Search, UsersRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -613,7 +613,7 @@ export default function PortfolioTreemapPanel({
               Carregando carteira...
             </div>
           ) : filteredRows.length ? (
-            <ReactECharts
+            <ChartView
               option={option}
               onEvents={events}
               notMerge

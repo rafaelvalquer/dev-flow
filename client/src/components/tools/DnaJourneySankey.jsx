@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 import { GitBranch } from "lucide-react";
 
 function numberBr(value) {
@@ -121,7 +121,7 @@ export default function DnaJourneySankey({ data, embedded = false }) {
               Sem DNA suficiente para montar o funil de jornada.
             </div>
           ) : null}
-          <ReactECharts
+          <ChartView
             className="h-[460px] w-full"
             option={option}
             notMerge

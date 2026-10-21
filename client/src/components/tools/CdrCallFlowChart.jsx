@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 import { Activity } from "lucide-react";
 
 function numberBr(value) {
@@ -145,7 +145,7 @@ export default function CdrCallFlowChart({ data = [] }) {
             Sem datas validas para montar o fluxo de chamadas.
           </div>
         ) : null}
-        <ReactECharts
+        <ChartView
           className="h-[340px] w-full"
           option={option}
           notMerge

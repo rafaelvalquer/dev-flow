@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import ReactECharts from "echarts-for-react";
+import ChartView from "@/features/visualization/charts/ChartView";
 
 import { EmptyWidgetText } from "../components/EmptyWidgetText";
 import {
@@ -275,7 +275,7 @@ export function PortfolioTreemapWidget({
           Limpar filtro
         </button>
       </div>
-      <ReactECharts
+      <ChartView
         className="developer-portfolio-map__chart"
         option={option}
         onEvents={events}
